@@ -3,7 +3,7 @@
 Here we illustrate a minimal example to get a Legate library up and running.
 The example here shows how to get started with the minimum amount of boilerplate.
 For advanced use cases, the boilerplate generated can be customized as needed.
-In general, a Legate application will need to implement 3 small pieces.
+In general, a Legate application will need to implement three pieces.
 
 1. Build system
 1. C++ tasks
@@ -97,8 +97,8 @@ To support this workflow, legate provides a helper function:
 legate_add_cpp_subdirectory(src hello EXPORT hello-export)
 ```
 This encapsulates the build target `hello` so that the C++ library can
-be first build with CMake and then pip-installed in a separate step.
-This is optional, though, and the entire build can always be exected by 
+be first built with CMake and then pip-installed in a separate step.
+This is optional, though, and the entire build can always be executed by
 doing a regular pip install:
 
 ```
