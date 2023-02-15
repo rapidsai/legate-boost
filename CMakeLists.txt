@@ -11,7 +11,10 @@ endif()
 set(BUILD_SHARED_LIBS ON)
 
 find_package(legate_core REQUIRED)
+
 legate_add_cpp_subdirectory(src hello EXPORT hello-export)
-legate_add_cffi(${CMAKE_SOURCE_DIR}/src/hello_world.h)
+
+legate_add_cffi(${CMAKE_SOURCE_DIR}/src/hello_world.h hello)
+legate_python_library_template(hello)
 legate_default_python_install(hello EXPORT hello-export)
 

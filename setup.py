@@ -14,17 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-import legate.install_info as lg_install_info
-from pathlib import Path
 import os
-legate_dir = Path(lg_install_info.libpath).parent.as_posix()
-os.environ["SKBUILD_CONFIGURE_OPTIONS"] = f"-Dlegate_core_ROOT:STRING={legate_dir}"
+from pathlib import Path
 
 from setuptools import find_packages
 from skbuild import setup
 
+import legate.install_info as lg_install_info
+
+legate_dir = Path(lg_install_info.libpath).parent.as_posix()
+os.environ[
+    "SKBUILD_CONFIGURE_OPTIONS"
+] = f"-Dlegate_core_ROOT:STRING={legate_dir}"  # noqa: E501
+
+
 setup(
-    name="legate_hello_world",
+    name="Legate Hello",
     version="0.1",
     description="A Hello World for Legate",
     author="NVIDIA Corporation",

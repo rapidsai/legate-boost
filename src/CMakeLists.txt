@@ -1,7 +1,12 @@
 
-add_library(hello
+legate_cpp_library_template(hello TEMPLATE_SOURCES)
+
+add_library(
+  hello
   hello_world.cc
-  hello_world.h)
+  hello_world.h
+  ${TEMPLATE_SOURCES}
+)
 
 target_include_directories(hello
   PRIVATE
