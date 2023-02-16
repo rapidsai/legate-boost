@@ -5,6 +5,9 @@ add_library(
   hello
   hello_world.cc
   hello_world.h
+  iota.cc
+  sum.cc
+  square.cc
   ${TEMPLATE_SOURCES}
 )
 

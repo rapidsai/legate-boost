@@ -3,7 +3,7 @@
 
 namespace hello {
 
-class HelloWorldTask : public Task<HelloWorldTask, HELLO_WORLD_TASK> {
+class HelloWorldTask : public Task<HelloWorldTask, HELLO_WORLD> {
  public:
   static void cpu_variant(legate::TaskContext& context)
   {

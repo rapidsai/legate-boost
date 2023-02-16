@@ -9,7 +9,7 @@ In general, a Legate application will need to implement three pieces.
 1. C++ tasks
 1. Python library
 
-Please refer to the README in the [Legate repo](https://github.com/nv-legate/legate.core/blob/branch-23.03/README.md) 
+Please refer to the README in the [Legate repo](https://github.com/nv-legate/legate.core/blob/branch-23.03/README.md)
 for first installing `legate.core`.  We strongly recommend creating a Conda environment for development and testing.
 
 # Build System
@@ -27,7 +27,7 @@ $ python -m pip install -e .
 This performs an editable install of the project, which we recommend for development
 
 ## CMake
-CMake is the officially supported mechanism for building Legate libraries. 
+CMake is the officially supported mechanism for building Legate libraries.
 Legate exports a CMake target and helper functions for building libraries and provides by-far the easiest onboarding.
 There are only a few main steps in setting up a build system.
 First, the user should initialize a CMake project.
@@ -87,7 +87,7 @@ legate_default_python_install(hello EXPORT hello-export)
 
 ## Editable Builds
 
-Although the final user Python library will likely be installed with `pip`, 
+Although the final user Python library will likely be installed with `pip`,
 the user will usually need to iterate on the C++ implementation of tasks
 for debugging and optmization.  The user will therefore want to be able
 to first build the C++ pieces of the project and then install the Python.
@@ -194,6 +194,14 @@ from hello import print_hello
 print_hello("Hello, world")
 ```
 
+
+# Examples
+
+The tutorial contains a few examples that illustate key Legate concepts:
+
+1. [Hello World](examples/hello.md): Shows the basics of creating tasks and adding task arguments.
+1. [Variance](examples/variance.md): Shows how to create input arrays and tasks operating on partitioned data.
+Also shows how to perform reduction tasks like summation.
 
 
 
