@@ -1,6 +1,6 @@
 # Basic Hello, World Application
 
-The code for this example can be found in the [library file](hello/hello.py) and [example](examples/hello.py).
+The code for this example can be found in the [library file](../hello/hello.py) and [example](hello.py).
 
 ## Single, auto task
 

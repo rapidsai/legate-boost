@@ -1,6 +1,6 @@
 # Variance Example
 
-The code for this example can be found in the [library file](hello/hello.py) and [example](examples/variance.py).
+The code for this example can be found in the [library file](../hello/hello.py) and [example](variance.py).
 
 ## Creating an input store
 
