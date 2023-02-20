@@ -1,10 +1,13 @@
-from .library import user_context, user_lib
-from enum import IntEnum
-from legate.core import Rect, Store, get_legate_runtime
-import legate.core.types as types
-from typing import Any
-import numpy as np
 import struct
+from enum import IntEnum
+from typing import Any
+
+import numpy as np
+
+import legate.core.types as types
+from legate.core import Rect, Store, get_legate_runtime
+
+from .library import user_context, user_lib
 
 
 class HelloOpCode(IntEnum):

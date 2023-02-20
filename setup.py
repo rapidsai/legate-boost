@@ -23,9 +23,12 @@ from skbuild import setup
 import legate.install_info as lg_install_info
 
 legate_dir = Path(lg_install_info.libpath).parent.as_posix()
-os.environ[
-    "SKBUILD_CONFIGURE_OPTIONS"
-] = f"-Dlegate_core_ROOT:STRING={legate_dir}"  # noqa: E501
+
+cmake_flags = [
+    f"-Dlegate_core_ROOT:STRING={legate_dir}",
+]
+
+os.environ["SKBUILD_CONFIGURE_OPTIONS"] = " ".join(cmake_flags)
 
 
 setup(

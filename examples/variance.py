@@ -1,7 +1,9 @@
-from hello import iota, square, sum, to_scalar
-import cunumeric
-import numpy as np
 from typing import Any
+
+import numpy as np
+
+import cunumeric
+from hello import iota, square, sum, to_scalar
 from legate.core import Store
 
 

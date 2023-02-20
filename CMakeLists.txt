@@ -8,8 +8,15 @@ if (NOT hello_ROOT)
   set(hello_ROOT ${CMAKE_SOURCE_DIR}/build)
 endif()
 
+if (NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+endif()
+
 set(BUILD_SHARED_LIBS ON)
 
+# Look for an existing C++ editable build
+# Not required. We will build it if not found.
+find_package(hello QUIET)
 find_package(legate_core REQUIRED)
 
 legate_add_cpp_subdirectory(src hello EXPORT hello-export)
