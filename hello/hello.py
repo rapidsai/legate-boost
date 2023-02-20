@@ -70,7 +70,7 @@ def to_scalar(input: Store) -> float:
     Returns:
         float: A Python scalar
     """
-    buf = input.storage.get_buffer(np.float32.size)
+    buf = input.storage.get_buffer(np.float32().itemsize)
     result = np.frombuffer(buf, dtype=np.float32, count=1)
     return float(result[0])
 
