@@ -59,7 +59,7 @@ add_library(
 target_link_libraries(hello PRIVATE legate::core)
 ```
 
-First, a helper function is invoked to generated the Legate C++ boilerplate files.
+First, a helper function is invoked to generate the Legate C++ boilerplate files.
 The list of generated files is returned in the `TEMPLATE_SOURCES` variable.
 Second, the CMake library is linked against the imported `legate::core` target.
 
