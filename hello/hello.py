@@ -2,12 +2,34 @@ import struct
 from enum import IntEnum
 from typing import Any
 
-import numpy as np
+import cunumeric as np
 
 import legate.core.types as types
-from legate.core import Rect, Store, get_legate_runtime
+from legate.core import Rect, Store, get_legate_runtime, Array
+import pyarrow as pa
 
 from .library import user_context, user_lib
+
+class _Wrapper:
+    def __init__(self, store: Store) -> None:
+        self._store = store
+
+    @property
+    def __legate_data_interface__(self) -> dict[str, Any]:
+        """
+        Constructs a Legate data interface object from a store wrapped in this
+        object
+        """
+        dtype = self._store.type.type
+        array = Array(dtype, [None, self._store])
+
+        # Create a field metadata to populate the data field
+        field = pa.field("Array", dtype, nullable=False)
+
+        return {
+            "version": 1,
+            "data": {field: array},
+        }
 
 
 class HelloOpCode(IntEnum):
@@ -15,6 +37,10 @@ class HelloOpCode(IntEnum):
     SUM = user_lib.cffi.SUM
     SQUARE = user_lib.cffi.SQUARE
     IOTA = user_lib.cffi.IOTA
+    QUANTILE = user_lib.cffi.QUANTILE
+    QUANTILE_REDUCE = user_lib.cffi.QUANTILE_REDUCE
+    QUANTILE_OUTPUT= user_lib.cffi.QUANTILE_OUTPUT
+    QUANTISE_DATA = user_lib.cffi.QUANTISE_DATA
 
 
 def print_hello(message: str) -> None:
@@ -77,6 +103,10 @@ def to_scalar(input: Store) -> float:
     result = np.frombuffer(buf, dtype=np.float32, count=1)
     return float(result[0])
 
+def to_array(input: Store) -> float:
+    buf = input.storage.get_buffer(np.float32().itemsize)
+    result = np.frombuffer(buf, dtype=np.float32, count=input.size)
+    return result
 
 def zero() -> Store:
     """Create a Legates store representing a single zero scalar
@@ -165,3 +195,39 @@ def square(input: Any) -> Store:
     task.execute()
 
     return output
+
+def quantise(input, n : int) -> np.ndarray:
+    temp = user_context.create_store(
+        types.float32, ndim=1)
+    task = user_context.create_auto_task(
+        HelloOpCode.QUANTILE,
+    )
+    task.add_input(_get_legate_store(input))
+    task.add_output(temp)
+    task.execute()
+
+    temp = user_context.tree_reduce(
+                 HelloOpCode.QUANTILE_REDUCE, temp
+            )
+    quantile_output = user_context.create_store(
+        types.float32, ndim=1)
+    task = user_context.create_auto_task(
+        HelloOpCode.QUANTILE_OUTPUT,
+    )
+    task.add_scalar_arg(n, types.int64)
+    task.add_input(temp)
+    task.add_output(quantile_output)
+    task.execute()
+    quantised_output = user_context.create_store(
+        types.uint16,
+        shape=input.shape, optimize_scalar=True
+    )
+    task = user_context.create_auto_task(
+        HelloOpCode.QUANTISE_DATA,
+    )
+    task.add_input(quantile_output)
+    task.add_input(_get_legate_store(input))
+    task.add_output(quantised_output)
+    task.execute()
+
+    return np.array(_Wrapper(quantile_output), copy=False), np.array(_Wrapper(quantised_output), copy=False)

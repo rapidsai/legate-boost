@@ -10,7 +10,6 @@ class SumTask : public Task<SumTask, SUM> {
     auto& input      = context.inputs()[0];
     auto input_shape = input.shape<1>();  // should be a 1-Dim array
     auto in          = input.read_accessor<float, 1>();
-
     auto n      = input_shape.volume();
     float total = 0;
     for (size_t i = 0; i < n; ++i) { total += in[i]; }
