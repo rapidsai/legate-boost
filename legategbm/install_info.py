@@ -15,7 +15,7 @@ def get_libpath():
     }[platform.system()]
 
     def find_lib(libdir):
-        target = f"libhello{so_ext}*"
+        target = f"liblegategbm{so_ext}*"
         search_path = Path(libdir)
         matches = [m for m in search_path.rglob(target)]
         if matches:
@@ -23,7 +23,7 @@ def get_libpath():
         return None
 
     return (
-        find_lib("/home/nfs/rorym/legate-hello-world/build/legate_hello") or
+        find_lib("/home/nfs/rorym/LegateGBM/build/legate_legategbm") or
         find_lib(join(dirname(dirname(dirname(cn_path))), "lib")) or
         find_lib(join(dirname(dirname(sys.executable)), "lib")) or
         ""
@@ -32,7 +32,7 @@ def get_libpath():
 libpath: str = get_libpath()
 
 header: str = """
-  enum HelloOpCode { _OP_CODE_BASE = 0, HELLO_WORLD = 1, SUM = 2, SQUARE = 3, IOTA = 4, QUANTILE = 5, QUANTILE_REDUCE = 6, QUANTILE_OUTPUT = 7, QUANTISE_DATA = 8 };
+  enum HelloOpCode { _OP_CODE_BASE = 0, QUANTILE = 1, QUANTILE_REDUCE = 2, QUANTILE_OUTPUT = 3, QUANTISE_DATA = 4 };
 
-  void hello_perform_registration();
+  void legategbm_perform_registration();
 """

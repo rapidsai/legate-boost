@@ -17,7 +17,7 @@
 #include "legate_library.h"
 #include "core/mapping/mapping.h"
 
-namespace hello {
+namespace legategbm {
 
 class Mapper : public legate::mapping::LegateMapper {
  public:
@@ -65,9 +65,9 @@ class Mapper : public legate::mapping::LegateMapper {
   const legate::mapping::MachineQueryInterface* machine_;
 };
 
-static const char* const library_name = "hello";
+static const char* const library_name = "legategbm";
 
-Legion::Logger log_hello(library_name);
+Legion::Logger log_legategbm(library_name);
 
 /*static*/ legate::TaskRegistrar& Registry::get_registrar()
 {
@@ -89,16 +89,16 @@ void registration_callback()
   context->register_mapper(std::make_unique<Mapper>(), 0);
 }
 
-}  // namespace hello
+}  // namespace legategbm
 
 extern "C" {
 
-void hello_perform_registration(void)
+void legategbm_perform_registration(void)
 {
   // Tell the runtime about our registration callback so we hook it
   // in before the runtime starts and make it global so that we know
   // that this call back is invoked everywhere across all nodes
-  legate::Core::perform_registration<hello::registration_callback>();
+  legate::Core::perform_registration<legategbm::registration_callback>();
 }
 
 }

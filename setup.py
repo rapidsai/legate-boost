@@ -32,9 +32,9 @@ os.environ["SKBUILD_CONFIGURE_OPTIONS"] = " ".join(cmake_flags)
 
 
 setup(
-    name="Legate Hello",
+    name="legategbm",
     version="0.1",
-    description="A Hello World for Legate",
+    description="GBM libary on Legate",
     author="NVIDIA Corporation",
     license="Apache 2.0",
     classifiers=[
@@ -49,7 +49,7 @@ setup(
     ],
     packages=find_packages(
         where=".",
-        include=["hello", "hello.*"],
+        include=["legategbm", "legategbm.*"],
     ),
     include_package_data=True,
     zip_safe=False,

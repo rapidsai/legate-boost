@@ -1,23 +1,23 @@
 import cunumeric as np
 import numpy as old_np
-import hello
+import legategbm.legategbm as legategbm
 
 
 def test_quantile():
     x = np.array([1.0,2.0,3.0],dtype=np.float32)
-    quantiles, quantised = hello.quantise(x, 4)
+    quantiles, quantised = legategbm.quantise(x, 4)
     assert quantised.dtype == np.uint16
     assert np.array_equal(quantised,np.array([0,1,2])), quantiles
     assert quantiles.size == 5
 
-    quantiles, quantised = hello.quantise(x, 10)
+    quantiles, quantised = legategbm.quantise(x, 10)
     assert np.array_equal(quantised,np.array([0,1,2]))
     assert quantiles.size == 5
 
     np.random.seed(10)
     n_bins = 10
     x = np.random.normal(size=10000).astype(np.float32)
-    quantiles, quantised = hello.quantise(x, n_bins)
+    quantiles, quantised = legategbm.quantise(x, n_bins)
     unique, counts = old_np.unique(quantised,return_counts=True)
 
     acceptable_bin_error = 0.05
