@@ -1,18 +1,18 @@
 import cunumeric as cun
 import numpy as np
-import legategbm.legategbm as legategbm
+import legateboost as lbst
 import pytest
 
 
 def test_quantile_basic():
     x = cun.array([[1.0],[2.0],[3.0]],dtype=cun.float32)
-    quantiles, ptr, quantised = legategbm.quantise(x, 4)
+    quantiles, ptr, quantised = lbst.quantise(x, 4)
     assert quantised.dtype == cun.uint16
     assert cun.array_equal(ptr, cun.array([0,4])), ptr
     assert cun.array_equal(quantised,cun.array([[0],[1],[2]])), quantiles
     assert quantiles.size == 4
 
-    quantiles, ptr, quantised = legategbm.quantise(x, 10)
+    quantiles, ptr, quantised = lbst.quantise(x, 10)
     assert cun.array_equal(quantised,cun.array([[0],[1],[2]]))
     assert quantiles.size == 4
 
@@ -25,7 +25,7 @@ def test_quantile(n_bins, n):
     X[:,0] = cun.random.normal(size=n, scale=100)
     X[:, 1] = cun.random.randint(0, int(cun.ceil(n_bins/2)),size=n)
 
-    quantiles, ptr, quantised = legategbm.quantise(X, n_bins)
+    quantiles, ptr, quantised = lbst.quantise(X, n_bins)
     for col in range(X.shape[1]):
         unique, counts = np.unique(quantised[:,col],return_counts=True)
         acceptable_bin_error = 0.3

@@ -32,7 +32,7 @@ os.environ["SKBUILD_CONFIGURE_OPTIONS"] = " ".join(cmake_flags)
 
 
 setup(
-    name="legategbm",
+    name="legateboost",
     version="0.1",
     description="GBM libary on Legate",
     author="NVIDIA Corporation",
@@ -49,7 +49,7 @@ setup(
     ],
     packages=find_packages(
         where=".",
-        include=["legategbm", "legategbm.*"],
+        include=["legateboost", "legateboost.*"],
     ),
     include_package_data=True,
     zip_safe=False,

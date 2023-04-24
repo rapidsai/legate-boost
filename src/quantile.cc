@@ -1,9 +1,9 @@
 #include <limits>
 #include "legate_library.h"
-#include "legategbm.h"
+#include "legateboost.h"
 #include <kll_sketch.hpp>
 
-namespace legategbm {
+namespace legateboost {
 
 const int kSketchK = 1000;
 
@@ -179,9 +179,9 @@ namespace  // unnamed
 {
 static void __attribute__((constructor)) register_tasks(void)
 {
-  legategbm::QuantileTask::register_variants();
-  legategbm::QuantileReduceTask::register_variants();
-  legategbm::QuantileOutputTask::register_variants();
-  legategbm::QuantiseDataTask::register_variants();
+  legateboost::QuantileTask::register_variants();
+  legateboost::QuantileReduceTask::register_variants();
+  legateboost::QuantileOutputTask::register_variants();
+  legateboost::QuantiseDataTask::register_variants();
 }
 }  // namespace

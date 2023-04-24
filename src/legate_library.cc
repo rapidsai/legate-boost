@@ -16,11 +16,11 @@
 
 #include "legate_library.h"
 
-namespace legategbm {
+namespace legateboost {
 
-static const char* const library_name = "legategbm";
+static const char* const library_name = "legateboost";
 
-Legion::Logger log_legategbm(library_name);
+Legion::Logger log_legateboost(library_name);
 
 /*static*/ legate::TaskRegistrar& Registry::get_registrar()
 {
@@ -35,16 +35,16 @@ void registration_callback()
   Registry::get_registrar().register_all_tasks(context);
 }
 
-}  // namespace legategbm
+}  // namespace legateboost
 
 extern "C" {
 
-void legategbm_perform_registration(void)
+void legateboost_perform_registration(void)
 {
   // Tell the runtime about our registration callback so we hook it
   // in before the runtime starts and make it global so that we know
   // that this call back is invoked everywhere across all nodes
-  legate::Core::perform_registration<legategbm::registration_callback>();
+  legate::Core::perform_registration<legateboost::registration_callback>();
 }
 
 }

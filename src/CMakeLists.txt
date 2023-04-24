@@ -1,23 +1,23 @@
 
-legate_cpp_library_template(legategbm TEMPLATE_SOURCES)
+legate_cpp_library_template(legateboost TEMPLATE_SOURCES)
 
 add_library(
-  legategbm
-  legategbm.h
+  legateboost
+  legateboost.h
   quantile.cc
   ${TEMPLATE_SOURCES}
 )
 
-set_property(TARGET PROPERTY legategbm COMPILE_WARNING_AS_ERROR ON)
+set_property(TARGET PROPERTY legateboost COMPILE_WARNING_AS_ERROR ON)
 
-target_include_directories(legategbm
+target_include_directories(legateboost
   PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>
   INTERFACE
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(legategbm PRIVATE legate::core)
+target_link_libraries(legateboost PRIVATE legate::core)
 
 include(ExternalProject)
 ExternalProject_Add(datasketches
@@ -38,6 +38,6 @@ ExternalProject_Add(datasketches
 )
 ExternalProject_Get_property(datasketches INSTALL_DIR)
 set(datasketches_INSTALL_DIR ${INSTALL_DIR})
-target_include_directories(legategbm 
+target_include_directories(legateboost 
                           PRIVATE ${datasketches_INSTALL_DIR}/include/DataSketches)
-add_dependencies(legategbm datasketches)
+add_dependencies(legateboost datasketches)

@@ -1,4 +1,4 @@
-import hello 
+import legateboost 
 import cunumeric as np
 import numpy as old_np
 
@@ -6,8 +6,10 @@ import numpy as old_np
 
 n_bins = 10
 np.random.seed(1)
-x = np.random.normal(size=10000).astype(np.float32)
-quantiles, quantised = hello.quantise(x, n_bins)
+x = np.random.normal(size=(1000,2)).astype(np.float32)
+quantiles, ptr, quantised = legateboost.quantise(x, n_bins)
+
+
 unique, counts = old_np.unique(quantised,return_counts=True)
 
 acceptable_bin_error = 0.05

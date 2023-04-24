@@ -32,7 +32,7 @@ class _Wrapper:
         }
 
 
-class LegateGBMOpCode(IntEnum):
+class LegateBoostOpCode(IntEnum):
     QUANTILE = user_lib.cffi.QUANTILE
     QUANTILE_REDUCE = user_lib.cffi.QUANTILE_REDUCE
     QUANTILE_OUTPUT= user_lib.cffi.QUANTILE_OUTPUT
@@ -65,7 +65,7 @@ def quantise(input: cn.ndarray, n : int) -> cn.ndarray:
     temp = user_context.create_store(
         types.float32, ndim=1)
     task = user_context.create_auto_task(
-        LegateGBMOpCode.QUANTILE,
+        LegateBoostOpCode.QUANTILE,
     )
     task.add_input(_get_legate_store(input))
     task.add_scalar_arg(input.shape[1], types.int64)
@@ -73,14 +73,14 @@ def quantise(input: cn.ndarray, n : int) -> cn.ndarray:
     task.execute()
 
     temp = user_context.tree_reduce(
-                 LegateGBMOpCode.QUANTILE_REDUCE, temp
+                 LegateBoostOpCode.QUANTILE_REDUCE, temp
             )
     quantile_output = user_context.create_store(
         types.float32, ndim=1)
     ptr_output = user_context.create_store(
         types.uint64, shape=input.shape[1] + 1)
     task = user_context.create_auto_task(
-        LegateGBMOpCode.QUANTILE_OUTPUT,
+        LegateBoostOpCode.QUANTILE_OUTPUT,
     )
     task.add_scalar_arg(n, types.int64)
     task.add_input(temp)
@@ -97,7 +97,7 @@ def quantise(input: cn.ndarray, n : int) -> cn.ndarray:
         shape=input.shape, optimize_scalar=True
     )
     task = user_context.create_auto_task(
-        LegateGBMOpCode.QUANTISE_DATA,
+        LegateBoostOpCode.QUANTISE_DATA,
     )
     task.add_input(quantile_output)
     task.add_input(ptr_output)

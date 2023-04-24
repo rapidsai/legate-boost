@@ -18,7 +18,7 @@
 
 #include "legate.h"
 
-namespace legategbm {
+namespace legateboost {
 
 struct Registry {
   static legate::TaskRegistrar& get_registrar();
