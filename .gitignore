@@ -2,4 +2,5 @@ build
 _skbuild
 *.pyc
 *.egg-info
-hello/library.py
+legategbm/library.py
+legategbm/install_info.py

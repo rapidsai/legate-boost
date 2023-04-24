@@ -1,32 +1,41 @@
-import cunumeric as np
-import numpy as old_np
+import cunumeric as cun
+import numpy as np
 import legategbm.legategbm as legategbm
+import pytest
 
 
-def test_quantile():
-    x = np.array([1.0,2.0,3.0],dtype=np.float32)
-    quantiles, quantised = legategbm.quantise(x, 4)
-    assert quantised.dtype == np.uint16
-    assert np.array_equal(quantised,np.array([0,1,2])), quantiles
-    assert quantiles.size == 5
+def test_quantile_basic():
+    x = cun.array([[1.0],[2.0],[3.0]],dtype=cun.float32)
+    quantiles, ptr, quantised = legategbm.quantise(x, 4)
+    assert quantised.dtype == cun.uint16
+    assert cun.array_equal(ptr, cun.array([0,4])), ptr
+    assert cun.array_equal(quantised,cun.array([[0],[1],[2]])), quantiles
+    assert quantiles.size == 4
 
-    quantiles, quantised = legategbm.quantise(x, 10)
-    assert np.array_equal(quantised,np.array([0,1,2]))
-    assert quantiles.size == 5
+    quantiles, ptr, quantised = legategbm.quantise(x, 10)
+    assert cun.array_equal(quantised,cun.array([[0],[1],[2]]))
+    assert quantiles.size == 4
 
-    np.random.seed(10)
-    n_bins = 10
-    x = np.random.normal(size=10000).astype(np.float32)
-    quantiles, quantised = legategbm.quantise(x, n_bins)
-    unique, counts = old_np.unique(quantised,return_counts=True)
+@pytest.mark.parametrize("n_bins", [32, 128, 256])
+@pytest.mark.parametrize("n", [10000])
+def test_quantile(n_bins, n):
+    dtype = cun.float32
+    cun.random.seed(10)
+    X = cun.zeros((n, 2),dtype=dtype)
+    X[:,0] = cun.random.normal(size=n, scale=100)
+    X[:, 1] = cun.random.randint(0, int(cun.ceil(n_bins/2)),size=n)
 
-    acceptable_bin_error = 0.05
-    assert np.array_equal(unique, np.arange(10))
-    expected_bin_size = x.size//n_bins
-    assert np.all(np.abs(counts - expected_bin_size) < expected_bin_size * acceptable_bin_error)
-    print(quantiles)
-    print(unique)
-    print(counts)
+    quantiles, ptr, quantised = legategbm.quantise(X, n_bins)
+    for col in range(X.shape[1]):
+        unique, counts = np.unique(quantised[:,col],return_counts=True)
+        acceptable_bin_error = 0.3
+        expected_bins =  ptr[col + 1] - ptr[col] - 1 
+        is_sorted = lambda a: np.all(a[:-1] <= a[1:])
+        assert is_sorted(quantiles[ptr[col]:ptr[col+1]])
+        assert cun.array_equal(unique, cun.arange(expected_bins))
+        assert unique.size <= n_bins
+        expected_bin_count = n//expected_bins
+        assert cun.all(cun.abs(counts - expected_bin_count) < expected_bin_count * acceptable_bin_error)
 
 
 
