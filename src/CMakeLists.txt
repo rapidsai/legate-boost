@@ -38,6 +38,6 @@ ExternalProject_Add(datasketches
 )
 ExternalProject_Get_property(datasketches INSTALL_DIR)
 set(datasketches_INSTALL_DIR ${INSTALL_DIR})
-target_include_directories(legateboost 
+target_include_directories(legateboost
                           PRIVATE ${datasketches_INSTALL_DIR}/include/DataSketches)
 add_dependencies(legateboost datasketches)

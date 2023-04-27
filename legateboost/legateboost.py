@@ -1,109 +1,133 @@
-import struct
 from enum import IntEnum
-from typing import Any
+from typing import Union
+
+import numpy as np
 
 import cunumeric as cn
 
-import legate.core.types as types
-from legate.core import Rect, Store, get_legate_runtime, Array
-import pyarrow as pa
-
-from .library import user_context, user_lib
-
-class _Wrapper:
-    def __init__(self, store: Store) -> None:
-        self._store = store
-
-    @property
-    def __legate_data_interface__(self) -> dict[str, Any]:
-        """
-        Constructs a Legate data interface object from a store wrapped in this
-        object
-        """
-        dtype = self._store.type.type
-        array = Array(dtype, [None, self._store])
-
-        # Create a field metadata to populate the data field
-        field = pa.field("Array", dtype, nullable=False)
-
-        return {
-            "version": 1,
-            "data": {field: array},
-        }
+from .library import user_lib
 
 
 class LegateBoostOpCode(IntEnum):
     QUANTILE = user_lib.cffi.QUANTILE
     QUANTILE_REDUCE = user_lib.cffi.QUANTILE_REDUCE
-    QUANTILE_OUTPUT= user_lib.cffi.QUANTILE_OUTPUT
+    QUANTILE_OUTPUT = user_lib.cffi.QUANTILE_OUTPUT
     QUANTISE_DATA = user_lib.cffi.QUANTISE_DATA
 
 
+class SquaredErrorObjective:
+    def gradient(self, y: cn.array, pred: cn.array, w: cn.array) -> cn.array:
+        return pred - y, w
 
 
-def _get_legate_store(input: Any) -> Store:
-    """Extracts a Legate store from any object
-       implementing the legete data interface
+class MSEMetric:
+    def metric(self, y: cn.array, pred: cn.array, w: cn.array) -> float:
+        return float(((y - pred) ** 2 * w).sum() / w.sum())
 
-    Args:
-        input (Any): The input object
-
-    Returns:
-        Store: The extracted Legate store
-    """
-    if isinstance(input, Store):
-        return input
-    data = input.__legate_data_interface__["data"]
-    field = next(iter(data))
-    array = data[field]
-    _, store = array.stores()
-    return store
+    def name(self) -> str:
+        return "MSE"
 
 
-def quantise(input: cn.ndarray, n : int) -> cn.ndarray:
-    assert input.ndim == 2
-    temp = user_context.create_store(
-        types.float32, ndim=1)
-    task = user_context.create_auto_task(
-        LegateBoostOpCode.QUANTILE,
-    )
-    task.add_input(_get_legate_store(input))
-    task.add_scalar_arg(input.shape[1], types.int64)
-    task.add_output(temp)
-    task.execute()
+class Tree:
+    def __init__(
+        self,
+        X: cn.array,
+        g: cn.array,
+        h: cn.array,
+        learning_rate: float,
+        max_depth: int,
+        random_state: np.random.RandomState,
+    ) -> None:
+        self.base = -g.sum() / h.sum() * learning_rate
+        # choose random split
+        self.split_feature = 0
+        best_gain = -np.inf
+        self.best_split = 0.0
+        self.left_leaf = 0.0
+        self.right_leaf = 0.0
+        for j in range(X.shape[1]):
+            i = random_state.randint(0, X.shape[0])
+            split = X[i, j]
+            left_mask = X[:, j] <= split
 
-    temp = user_context.tree_reduce(
-                 LegateBoostOpCode.QUANTILE_REDUCE, temp
+            right_mask = ~left_mask
+            G_l = g[left_mask].sum()
+            H_l = h[left_mask].sum()
+            G_r = g[right_mask].sum()
+            H_r = h[right_mask].sum()
+            # Not enough data
+            if H_l == 0.0 or H_r == 0.0:
+                continue
+
+            gain = 1 / 2 * (G_l**2 / H_l + G_r**2 / H_r)
+            if gain > best_gain:
+                self.split_feature = j
+                best_gain = gain
+                self.best_split = split
+                self.left_leaf = -G_l / H_l
+                self.right_leaf = -G_r / H_r
+
+    def predict(self, X: cn.array) -> cn.array:
+        pred = cn.zeros(X.shape[0])
+        left = X[:, self.split_feature] <= self.best_split
+        pred[left] = self.left_leaf
+        pred[~left] = self.right_leaf
+        return pred
+
+
+class LBBase:
+    pass
+
+
+class LBRegressor:
+    def __init__(
+        self,
+        n_estimators: int = 100,
+        objective: str = "squared_error",
+        learning_rate: float = 0.1,
+        init: Union[str, None] = "average",
+        verbose: int = 0,
+        random_state: np.random.RandomState = None,
+        max_depth: int = 3,
+    ) -> None:
+        self.n_estimators = n_estimators
+        self.objective = objective
+        self.learning_rate = learning_rate
+        self.init = init
+        self.verbose = verbose
+        if random_state is not None:
+            self.random_state = random_state
+        else:
+            self.random_state = np.random.RandomState()
+        self.max_depth = max_depth
+
+    def fit(
+        self, X: cn.array, y: cn.array, w: Union[float, cn.array] = 1.0
+    ) -> "LBRegressor":
+        self.model = []
+        if self.init is None:
+            self.init_model = 0.0
+        else:
+            self.init_model = cn.mean(y)
+
+        if cn.isscalar(w):
+            w = cn.full(X.shape[0], w)
+        pred = cn.full(y.shape, self.init_model)
+        objective = SquaredErrorObjective()
+        metric = MSEMetric()
+        for i in range(self.n_estimators):
+            g, h = objective.gradient(y, pred, w)
+            self.model.append(
+                Tree(X, g, h, self.learning_rate, self.max_depth, self.random_state)
             )
-    quantile_output = user_context.create_store(
-        types.float32, ndim=1)
-    ptr_output = user_context.create_store(
-        types.uint64, shape=input.shape[1] + 1)
-    task = user_context.create_auto_task(
-        LegateBoostOpCode.QUANTILE_OUTPUT,
-    )
-    task.add_scalar_arg(n, types.int64)
-    task.add_input(temp)
-    task.add_broadcast(temp)
-    task.add_output(quantile_output)
-    task.add_broadcast(quantile_output)
-    task.add_output(ptr_output)
-    task.add_broadcast(ptr_output)
-    task.execute()
+            pred += self.model[-1].predict(X)
+            loss = metric.metric(y, pred, w)
+            if self.verbose:
+                print("i: {} {}: {}".format(i, metric.name(), loss))
+        return self
 
-    
-    quantised_output = user_context.create_store(
-        types.uint16,
-        shape=input.shape, optimize_scalar=True
-    )
-    task = user_context.create_auto_task(
-        LegateBoostOpCode.QUANTISE_DATA,
-    )
-    task.add_input(quantile_output)
-    task.add_input(ptr_output)
-    #task.add_broadcast(ptr_output)
-    task.add_input(_get_legate_store(input))
-    task.add_output(quantised_output)
-    task.execute()
-
-    return cn.array(_Wrapper(quantile_output), copy=False),cn.array(_Wrapper(ptr_output), copy=False),  cn.array(_Wrapper(quantised_output), copy=False)
+    def predict(self, X: cn.array) -> cn.array:
+        pred = cn.full(X.shape[0], self.init_model)
+        for m in self.model:
+            pred += m.predict(X)
+        return pred

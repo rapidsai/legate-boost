@@ -46,5 +46,4 @@ void legateboost_perform_registration(void)
   // that this call back is invoked everywhere across all nodes
   legate::Core::perform_registration<legateboost::registration_callback>();
 }
-
 }
