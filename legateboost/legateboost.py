@@ -41,22 +41,58 @@ class TreeSplit:
     feature: int = -1
     gain: float = -np.inf
     split_value: float = 0.0
-    left_leaf: float = -1
-    right_leaf: float = -1
+    G_l: float = 0.0
+    H_l: float = 0.0
+    G_r: float = 0.0
+    H_r: float = 0.0
     row_set_left: cn.ndarray = None
     row_set_right: cn.ndarray = None
 
 
-@dataclass
-class TreeNode:
-    left_child: int = -1
-    right_child: int = -1
-    leaf_value: float = 0.0
-    feature: int = -1
-    split_value: float = 0.0
+class TreeStructure:
+    left_child: cn.ndarray
+    right_child: cn.ndarray
+    leaf_value: cn.ndarray
+    feature: cn.ndarray
+    split_value: cn.ndarray
 
-    def is_leaf(self) -> bool:
-        return self.left_child == -1
+    # expand by n elements
+    def expand(self, n: int) -> None:
+        self.left_child = cn.concatenate(
+            (self.left_child, cn.full(n, -1, dtype=cn.int32))
+        )
+        self.right_child = cn.concatenate(
+            (self.right_child, cn.full(n, -1, dtype=cn.int32))
+        )
+        self.leaf_value = cn.concatenate((self.leaf_value, cn.full(n, 0.0)))
+        self.feature = cn.concatenate((self.feature, cn.full(n, -1, dtype=cn.int32)))
+        self.split_value = cn.concatenate((self.split_value, cn.full(n, 0.0)))
+
+    def __init__(self, base_score: float, reserve: int) -> None:
+        assert reserve > 0
+        self.left_child = cn.full(reserve, -1, dtype=cn.int32)
+        self.right_child = cn.full(reserve, -1, dtype=cn.int32)
+        self.leaf_value = cn.full(reserve, 0.0)
+        self.feature = cn.full(reserve, -1, dtype=cn.int32)
+        self.split_value = cn.full(reserve, 0.0)
+        self.leaf_value[0] = base_score
+
+    def add_split(self, id: int, split: TreeSplit, learning_rate: float) -> None:
+        assert split.H_l > 0.0 and split.H_r > 0.0
+        if self.left_child.size <= id * 2 + 2:
+            self.expand(max(self.left_child.size * 4, id * 4))
+        self.left_child[id] = id * 2 + 1
+        self.right_child[id] = id * 2 + 2
+        self.leaf_value[id] = 0.0
+        self.feature[id] = split.feature
+        self.split_value[id] = split.split_value
+
+        # set leaves
+        self.leaf_value[id * 2 + 1] = -split.G_l / split.H_l * learning_rate
+        self.leaf_value[id * 2 + 2] = -split.G_r / split.H_r * learning_rate
+
+    def is_leaf(self, id: int) -> Any:
+        return self.left_child[id] == -1
 
 
 class Tree:
@@ -69,105 +105,100 @@ class Tree:
         max_depth: int,
         random_state: np.random.RandomState,
     ) -> None:
-        self.base = -g.sum() / h.sum() * learning_rate
+        assert g.size == h.size == X.shape[0]
         row_sets = {0: cn.arange(g.shape[0])}
-        candidates = [0]
-        self.tree = {0: TreeNode(-1, -1, self.base)}
+        candidates = [(0, g.sum(), h.sum())]
+        base_score = -candidates[0][1] / candidates[0][2] * learning_rate
+        self.tree = TreeStructure(base_score, 256)
         while candidates:
-            id = candidates.pop()
+            id, G, H = candidates.pop()
 
             # depth_check
             depth = cn.log2(id + 1)
             if depth >= max_depth:
                 continue
 
-            best_split = self.get_split(X, g, h, random_state, row_sets[id])
+            best_split = self.get_split(X, g, h, G, H, random_state, row_sets[id])
             if best_split:
-                self.tree[id] = TreeNode(
-                    id * 2 + 1,
-                    id * 2 + 2,
-                    0.0,
-                    best_split.feature,
-                    best_split.split_value,
-                )
-                self.tree[id * 2 + 1] = TreeNode(
-                    -1, -1, best_split.left_leaf * learning_rate
-                )
-                self.tree[id * 2 + 2] = TreeNode(
-                    -1, -1, best_split.right_leaf * learning_rate
-                )
-
+                self.tree.add_split(id, best_split, learning_rate)
                 row_sets[id * 2 + 1] = best_split.row_set_left
                 row_sets[id * 2 + 2] = best_split.row_set_right
-                candidates.append(id * 2 + 1)
-                candidates.append(id * 2 + 2)
+                candidates.append((id * 2 + 1, best_split.G_l, best_split.H_l))
+                candidates.append((id * 2 + 2, best_split.G_r, best_split.H_r))
 
     def get_split(
         self,
         X: cn.ndarray,
         g: cn.ndarray,
         h: cn.ndarray,
+        G: float,
+        H: float,
         random_state: np.random.RandomState,
         row_set: cn.ndarray,
     ) -> Union[TreeSplit, None]:
-        best = TreeSplit()
-        for j in range(X.shape[1]):
-            i = random_state.randint(0, row_set.shape[0])
-            split = X[row_set[i], j]
-            left_mask = X[row_set, j] <= split
-            left_indices = row_set[left_mask]
-            right_indices = row_set[~left_mask]
-
-            G_l = g[left_indices].sum()
-            H_l = h[left_indices].sum()
-            G_r = g[right_indices].sum()
-            H_r = h[right_indices].sum()
-
-            if H_l <= 0.0 or H_r <= 0.0:
-                continue
-
-            gain = 1 / 2 * (G_l**2 / H_l + G_r**2 / H_r)
-            if gain > best.gain:
-                best = TreeSplit(
-                    j, gain, split, -G_l / H_l, -G_r / H_r, left_indices, right_indices
-                )
-
+        i = random_state.randint(0, row_set.shape[0])
+        splits = X[row_set[i]]
+        g_set = g[row_set]
+        h_set = h[row_set]
+        left_mask = X[row_set] <= splits
+        G_l = cn.where(left_mask, g_set[:, None], 0.0).sum(axis=0)
+        H_l = cn.where(left_mask, h_set[:, None], 0.0).sum(axis=0)
+        G_r = G - G_l
+        H_r = H - H_l
+        gain = 1 / 2 * (G_l**2 / H_l + G_r**2 / H_r - G**2 / H)
+        gain[~cn.isfinite(gain)] = 0.0
+        best_idx = cn.argmax(gain)
+        left_set = row_set[left_mask[:, best_idx]]
+        right_set = row_set[~left_mask[:, best_idx]]
+        best = TreeSplit(
+            best_idx,
+            gain[best_idx],
+            splits[best_idx],
+            G_l[best_idx],
+            H_l[best_idx],
+            G_r[best_idx],
+            H_r[best_idx],
+            left_set,
+            right_set,
+        )
         if best.gain <= 0.0:
             return None
         else:
+            assert left_set.size > 0 and right_set.size > 0
             return best
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
-        pred = cn.zeros(X.shape[0])
-        for i in range(X.shape[0]):
-            node = self.tree[0]
-            while True:
-                if node.is_leaf():
-                    pred[i] = node.leaf_value
-                    break
-                else:
-                    if X[i, node.feature] <= node.split_value:
-                        node = self.tree[node.left_child]
-                    else:
-                        node = self.tree[node.right_child]
-
-        return pred
+        id = cn.zeros(X.shape[0], dtype=cn.int32)
+        while True:
+            at_leaf = self.tree.is_leaf(id)
+            if cn.all(at_leaf):
+                break
+            else:
+                id_subset = id[~at_leaf]
+                id[~at_leaf] = cn.where(
+                    X[~at_leaf, self.tree.feature[id_subset]]
+                    <= self.tree.split_value[id_subset],
+                    self.tree.left_child[id_subset],
+                    self.tree.right_child[id_subset],
+                )
+        return self.tree.leaf_value[id]
 
     def __str__(self) -> str:
         def recurse_print(id: int, depth: int) -> str:
-            node = self.tree[id]
-            if node.is_leaf():
-                text = "\t" * depth + "{}:leaf={}\n".format(id, node.leaf_value)
+            if self.tree.is_leaf(id):
+                text = "\t" * depth + "{}:leaf={}\n".format(
+                    id, self.tree.leaf_value[id]
+                )
             else:
                 text = "\t" * depth + "{}:[f{}<={}] yes={} no={}\n".format(
                     id,
-                    node.feature,
-                    node.split_value,
-                    node.left_child,
-                    node.right_child,
+                    self.tree.feature[id],
+                    self.tree.split_value[id],
+                    self.tree.left_child[id],
+                    self.tree.right_child[id],
                 )
-                text += recurse_print(node.left_child, depth + 1)
-                text += recurse_print(node.right_child, depth + 1)
+                text += recurse_print(self.tree.left_child[id], depth + 1)
+                text += recurse_print(self.tree.right_child[id], depth + 1)
             return text
 
         return recurse_print(0, 0)

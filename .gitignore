@@ -4,3 +4,4 @@ _skbuild
 *.egg-info
 legateboost/library.py
 legateboost/install_info.py
+legate_prof*
