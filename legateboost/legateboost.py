@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from enum import IntEnum
 from typing import Any, Union
 
 import numpy as np
@@ -12,15 +11,6 @@ from sklearn.utils.validation import (
 )
 
 import cunumeric as cn
-
-from .library import user_lib
-
-
-class LegateBoostOpCode(IntEnum):
-    QUANTILE = user_lib.cffi.QUANTILE
-    QUANTILE_REDUCE = user_lib.cffi.QUANTILE_REDUCE
-    QUANTILE_OUTPUT = user_lib.cffi.QUANTILE_OUTPUT
-    QUANTISE_DATA = user_lib.cffi.QUANTISE_DATA
 
 
 class SquaredErrorObjective:

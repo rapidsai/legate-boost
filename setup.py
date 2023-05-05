@@ -14,22 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-import os
-from pathlib import Path
+
+from distutils.core import setup
 
 from setuptools import find_packages
-from skbuild import setup
-
-import legate.install_info as lg_install_info
-
-legate_dir = Path(lg_install_info.libpath).parent.as_posix()
-
-cmake_flags = [
-    f"-Dlegate_core_ROOT:STRING={legate_dir}",
-]
-
-os.environ["SKBUILD_CONFIGURE_OPTIONS"] = " ".join(cmake_flags)
-
 
 setup(
     name="legateboost",
