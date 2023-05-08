@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Union
 
 import numpy as np
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.utils.validation import (
     check_array,
     check_is_fitted,
@@ -12,18 +12,7 @@ from sklearn.utils.validation import (
 
 import cunumeric as cn
 
-
-class SquaredErrorObjective:
-    def gradient(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
-        return pred - y, w
-
-
-class MSEMetric:
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        return float(((y - pred) ** 2 * w).sum() / w.sum())
-
-    def name(self) -> str:
-        return "MSE"
+from .objectives import objectives
 
 
 @dataclass
@@ -212,7 +201,7 @@ def _check_sample_weight(sample_weight: Any, n: int) -> cn.ndarray:
     return sample_weight
 
 
-class LBRegressor(BaseEstimator, RegressorMixin):
+class LBBase(BaseEstimator):
     def __init__(
         self,
         n_estimators: int = 100,
@@ -248,7 +237,7 @@ class LBRegressor(BaseEstimator, RegressorMixin):
         self.n_features_in_ = X.shape[1]
         self.models_ = []
 
-        objective = SquaredErrorObjective()
+        objective = objectives[self.objective]()
         if self.init is None:
             self.model_init_ = 0.0
         else:
@@ -259,10 +248,10 @@ class LBRegressor(BaseEstimator, RegressorMixin):
                 self.model_init_ = -g.sum() / H
 
         pred = cn.full(y.shape, self.model_init_)
-        self._metric = MSEMetric()
+        self._metric = objective.metric()
         self.train_score_ = []
         for i in range(self.n_estimators):
-            g, h = objective.gradient(y, pred, sample_weight)
+            g, h = objective.gradient(y, objective.transform(pred), sample_weight)
             self.models_.append(
                 Tree(
                     X,
@@ -274,7 +263,9 @@ class LBRegressor(BaseEstimator, RegressorMixin):
                 )
             )
             pred += self.models_[-1].predict(X)
-            self.train_score_.append(self._metric.metric(y, pred, sample_weight))
+            self.train_score_.append(
+                self._metric.metric(y, objective.transform(pred), sample_weight)
+            )
             if self.verbose:
                 print(
                     "i: {} {}: {}".format(i, self._metric.name(), self.train_score_[-1])
@@ -296,3 +287,54 @@ class LBRegressor(BaseEstimator, RegressorMixin):
         for m in self.models_:
             text += str(m)
         return text
+
+
+class LBRegressor(LBBase, RegressorMixin):
+    def __init__(
+        self,
+        n_estimators: int = 100,
+        objective: str = "squared_error",
+        learning_rate: float = 0.1,
+        init: Union[str, None] = "average",
+        verbose: int = 0,
+        random_state: np.random.RandomState = None,
+        max_depth: int = 3,
+    ) -> None:
+        super().__init__(
+            n_estimators=n_estimators,
+            objective=objective,
+            learning_rate=learning_rate,
+            init=init,
+            verbose=verbose,
+            random_state=random_state,
+            max_depth=max_depth,
+        )
+
+
+class LBClassifier(LBBase, ClassifierMixin):
+    def __init__(
+        self,
+        n_estimators: int = 100,
+        objective: str = "log_loss",
+        learning_rate: float = 0.1,
+        init: Union[str, None] = "average",
+        verbose: int = 0,
+        random_state: np.random.RandomState = None,
+        max_depth: int = 3,
+    ) -> None:
+        super().__init__(
+            n_estimators=n_estimators,
+            objective=objective,
+            learning_rate=learning_rate,
+            init=init,
+            verbose=verbose,
+            random_state=random_state,
+            max_depth=max_depth,
+        )
+
+    def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
+        objective = objectives[self.objective]()
+        return objective.transform(self.super().predict(X))
+
+    def predict(self, X: cn.ndarray) -> cn.ndarray:
+        return self.predict_proba(X) >= 0.5

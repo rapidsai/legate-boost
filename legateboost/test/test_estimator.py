@@ -1,3 +1,4 @@
+import numpy as np
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cunumeric as cn
@@ -79,3 +80,11 @@ def test_regressor_vs_sklearn():
 @parametrize_with_checks([lbst.LBRegressor()])
 def test_sklearn_compatible_estimator(estimator, check):
     check(estimator)
+
+
+def test_classifier():
+    np.random.seed(3)
+    X = cn.random.random((100, 10))
+    y = cn.random.randint(0, 2, X.shape[0])
+    model = lbst.LBClassifier(n_estimators=5).fit(X, y)
+    assert non_increasing(model.train_score_)
