@@ -32,7 +32,7 @@ pip install .
 
 For editable installation
 ```
-pip install . -e
+pip install -e .
 ```
 
 ## Running tests

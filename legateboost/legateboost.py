@@ -17,6 +17,13 @@ from .objectives import objectives
 
 @dataclass
 class TreeSplit:
+    """A proposal to add a new split to the tree.
+
+    Contains split information, gradient statistics the left and right
+    branches and the indices of rows following the left and right
+    branches.
+    """
+
     feature: int = -1
     gain: float = -np.inf
     split_value: float = 0.0
@@ -29,14 +36,19 @@ class TreeSplit:
 
 
 class TreeStructure:
+    """A structure of arrays representing a decision tree.
+
+    A leaf node has value -1 at left_child[node_idx]
+    """
+
     left_child: cn.ndarray
     right_child: cn.ndarray
     leaf_value: cn.ndarray
     feature: cn.ndarray
     split_value: cn.ndarray
 
-    # expand by n elements
     def expand(self, n: int) -> None:
+        """Add n extra storage."""
         self.left_child = cn.concatenate(
             (self.left_child, cn.full(n, -1, dtype=cn.int32))
         )
@@ -48,6 +60,11 @@ class TreeStructure:
         self.split_value = cn.concatenate((self.split_value, cn.full(n, 0.0)))
 
     def __init__(self, base_score: float, reserve: int) -> None:
+        """Tree is initialised with a single leaf set to base_score no splits.
+
+        Reserve is the amount of storage first initialised. Set to a
+        larger number to prevent resizing repeatedly during expansion.
+        """
         assert reserve > 0
         self.left_child = cn.full(reserve, -1, dtype=cn.int32)
         self.right_child = cn.full(reserve, -1, dtype=cn.int32)
@@ -57,6 +74,10 @@ class TreeStructure:
         self.leaf_value[0] = base_score
 
     def add_split(self, id: int, split: TreeSplit, learning_rate: float) -> None:
+        """Expand node with two new children.
+
+        Storage is expanded if necessary.
+        """
         assert split.H_l > 0.0 and split.H_r > 0.0
         if self.left_child.size <= id * 2 + 2:
             self.expand(max(self.left_child.size * 4, id * 4))
@@ -75,6 +96,12 @@ class TreeStructure:
 
 
 class Tree:
+    """A single decision tree in a GBDT ensemble.
+
+    Accepts gradients and a dataset, trains a tree model, and can then
+    make predictions.
+    """
+
     def __init__(
         self,
         X: cn.ndarray,
@@ -85,8 +112,11 @@ class Tree:
         random_state: np.random.RandomState,
     ) -> None:
         assert g.size == h.size == X.shape[0]
+        # store indices of training rows in each node
         row_sets = {0: cn.arange(g.shape[0])}
+        # queue of nodes to be opened, including their sum gradient statistics
         candidates = [(0, g.sum(), h.sum())]
+        # base_score is the default prediction if we dont expand the tree at all
         base_score = -candidates[0][1] / candidates[0][2] * learning_rate
         self.tree = TreeStructure(base_score, 256)
         while candidates:
@@ -115,17 +145,47 @@ class Tree:
         random_state: np.random.RandomState,
         row_set: cn.ndarray,
     ) -> Union[TreeSplit, None]:
-        i = random_state.randint(0, row_set.shape[0])
-        splits = X[row_set[i]]
+        """Given a subset of rows, randomly choose an instance, then attempt to
+        split on each of its features.
+
+        Take whichever feature value improves the objective function the
+        most as the split.
+        """
+
+        # take the subsets of gradient statistics for this row set
         g_set = g[row_set]
         h_set = h[row_set]
+
+        # select a random row
+        # each element of this row vector is a potential split
+        # we will choose 1 by checking the change in objective function for each
+        i = random_state.randint(0, row_set.shape[0])
+        splits = X[row_set[i]]
+
+        # test split condition for each training instance and each proposed split
+        # result is a boolean matrix
         left_mask = X[row_set] <= splits
+
+        # sum up the gradient statistics in the left partition for each proposed split
+        # G_l/H_l is a vector
         G_l = cn.where(left_mask, g_set[:, None], 0.0).sum(axis=0)
         H_l = cn.where(left_mask, h_set[:, None], 0.0).sum(axis=0)
+
+        # find the sum in the right partition by subtracting the from the parent sum
         G_r = G - G_l
         H_r = H - H_l
+
+        # calculate improvement in objective function
+        # see below for explanation of gain formula
+        # https://xgboost.readthedocs.io/en/stable/tutorials/model.html
+
         gain = 1 / 2 * (G_l**2 / H_l + G_r**2 / H_r - G**2 / H)
+
+        # it is possible to have a partition with no instances in it
+        # guard against divide by 0
         gain[~cn.isfinite(gain)] = 0.0
+
+        # select the best from the proposed split and return
         best_idx = cn.argmax(gain)
         left_set = row_set[left_mask[:, best_idx]]
         right_set = row_set[~left_mask[:, best_idx]]
@@ -143,10 +203,12 @@ class Tree:
         if best.gain <= 0.0:
             return None
         else:
+            # we should not have empty partitions at this point
             assert left_set.size > 0 and right_set.size > 0
             return best
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
+        """Vectorised decision tree prediction."""
         id = cn.zeros(X.shape[0], dtype=cn.int32)
         while True:
             at_leaf = self.tree.is_leaf(id)
@@ -241,17 +303,23 @@ class LBBase(BaseEstimator):
         if self.init is None:
             self.model_init_ = 0.0
         else:
+            # initialise the model to some good average value
+            # this is equivalent to a tree with a single leaf and learning rate 1.0
             g, h = objective.gradient(y, cn.zeros_like(y), sample_weight)
             H = h.sum()
             self.model_init_ = 0.0
             if H > 0.0:
                 self.model_init_ = -g.sum() / H
 
+        # current model prediction
         pred = cn.full(y.shape, self.model_init_)
         self._metric = objective.metric()
         self.train_score_ = []
         for i in range(self.n_estimators):
+            # obtain gradients
             g, h = objective.gradient(y, objective.transform(pred), sample_weight)
+
+            # build new tree
             self.models_.append(
                 Tree(
                     X,
@@ -262,7 +330,11 @@ class LBBase(BaseEstimator):
                     check_random_state(self.random_state),
                 )
             )
+
+            # update current predictions
             pred += self.models_[-1].predict(X)
+
+            # evaluate our progress
             self.train_score_.append(
                 self._metric.metric(y, objective.transform(pred), sample_weight)
             )

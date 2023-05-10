@@ -23,5 +23,9 @@ repos:
       hooks:
         - id: mypy
           files: legateboost\.py$
+    - repo: https://github.com/PyCQA/docformatter
+      rev: 'v1.6.5'
+      hooks:
+            - id: docformatter
 default_language_version:
     python: python3
