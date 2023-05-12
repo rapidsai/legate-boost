@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Any, Union
 
 import numpy as np
@@ -12,7 +13,12 @@ from sklearn.utils.validation import (
 
 import cunumeric as cn
 
+from .library import user_lib
 from .objectives import objectives
+
+
+class LegateBoostOpCode(IntEnum):
+    BUILD_TREE = user_lib.cffi.BUILD_TREE
 
 
 @dataclass
