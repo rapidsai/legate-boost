@@ -16,10 +16,10 @@ class SquaredErrorObjective:
 
 class LogLossObjective:
     def gradient(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
-        return pred - y, pred * (1.0 - pred) * w
+        return pred - y, cn.maximum(pred * (1.0 - pred) * w, 1e-5)
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
-        return 1 / (1 + cn.exp(-pred))
+        return 1.0 / (1.0 + cn.exp(-pred))
 
     def metric(self) -> LogLossMetric:
         return LogLossMetric()

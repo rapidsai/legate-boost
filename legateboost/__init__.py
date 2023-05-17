@@ -1,1 +1,1 @@
-from .legateboost import LBRegressor, LBClassifier
+from .legateboost import LBRegressor, LBClassifier, TreeStructure
