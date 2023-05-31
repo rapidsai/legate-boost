@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Union
 
 import numpy as np
+import scipy.sparse as sp
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.utils.validation import check_array, check_is_fitted, check_random_state
+from sklearn.utils.validation import check_is_fitted, check_random_state
 
 import cunumeric as cn
 from legate.core import Store, types
@@ -53,14 +55,10 @@ class TreeStructure:
 
     def expand(self, n: int) -> None:
         """Add n extra storage."""
-        self.left_child = cn.concatenate(
-            (self.left_child, cn.full(n, -1, dtype=cn.int32))
-        )
-        self.right_child = cn.concatenate(
-            (self.right_child, cn.full(n, -1, dtype=cn.int32))
-        )
+        self.left_child = cn.concatenate((self.left_child, cn.full(n, -1, dtype=int)))
+        self.right_child = cn.concatenate((self.right_child, cn.full(n, -1, dtype=int)))
         self.leaf_value = cn.concatenate((self.leaf_value, cn.full(n, 0.0)))
-        self.feature = cn.concatenate((self.feature, cn.full(n, -1, dtype=cn.int32)))
+        self.feature = cn.concatenate((self.feature, cn.full(n, -1, dtype=int)))
         self.split_value = cn.concatenate((self.split_value, cn.full(n, 0.0)))
 
     def __init__(self, base_score: float, reserve: int) -> None:  # noqa: no-redef
@@ -70,30 +68,12 @@ class TreeStructure:
         larger number to prevent resizing repeatedly during expansion.
         """
         assert reserve > 0
-        self.left_child = cn.full(reserve, -1, dtype=cn.int32)
-        self.right_child = cn.full(reserve, -1, dtype=cn.int32)
+        self.left_child = cn.full(reserve, -1, dtype=int)
+        self.right_child = cn.full(reserve, -1, dtype=int)
         self.leaf_value = cn.full(reserve, 0.0)
-        self.feature = cn.full(reserve, -1, dtype=cn.int32)
+        self.feature = cn.full(reserve, -1, dtype=int)
         self.split_value = cn.full(reserve, 0.0)
         self.leaf_value[0] = base_score
-
-    @classmethod
-    def from_arrays(
-        clf,
-        left_child: cn.ndarray,
-        right_child: cn.ndarray,
-        leaf_value: cn.ndarray,
-        feature: cn.ndarray,
-        split_value: cn.ndarray,
-    ) -> TreeStructure:
-        """Initialise from existing storage."""
-        tree = clf(0.0, 1)
-        tree.left_child = left_child
-        tree.right_child = right_child
-        tree.leaf_value = leaf_value
-        tree.feature = feature
-        tree.split_value = split_value
-        return tree
 
     def add_split(self, id: int, split: TreeSplit, learning_rate: float) -> None:
         """Expand node with two new children.
@@ -116,20 +96,44 @@ class TreeStructure:
     def is_leaf(self, id: int) -> Any:
         return self.left_child[id] == -1
 
+    @classmethod
+    def from_arrays(
+        clf,
+        left_child: cn.ndarray,
+        right_child: cn.ndarray,
+        leaf_value: cn.ndarray,
+        feature: cn.ndarray,
+        split_value: cn.ndarray,
+    ) -> TreeStructure:
+        """Initialise from existing storage."""
+        tree = clf(0.0, 1)
+        tree.left_child = left_child
+        assert np.issubdtype(left_child.dtype, np.integer)
+        tree.right_child = right_child
+        assert np.issubdtype(right_child.dtype, np.integer)
+        tree.leaf_value = leaf_value
+        assert np.issubdtype(leaf_value.dtype, np.floating)
+        tree.feature = feature
+        assert np.issubdtype(feature.dtype, np.integer)
+        tree.split_value = split_value
+        assert np.issubdtype(split_value.dtype, np.floating)
+        return tree
+
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         """Vectorised decision tree prediction."""
-        id = cn.zeros(X.shape[0], dtype=cn.int32)
-        while True:
+        id = cn.zeros(X.shape[0], dtype=int)
+        for depth in range(100):
             at_leaf = self.is_leaf(id)
             if cn.all(at_leaf):
                 break
             else:
-                id_subset = id[~at_leaf]
-                id[~at_leaf] = cn.where(
-                    X[~at_leaf, self.feature[id_subset]] <= self.split_value[id_subset],
-                    self.left_child[id_subset],
-                    self.right_child[id_subset],
+                go_left = (
+                    X[cn.arange(id.size), self.feature[id]] <= self.split_value[id]
                 )
+                id = cn.where(~at_leaf & go_left, self.left_child[id], id)
+                id = cn.where(~at_leaf & ~go_left, self.right_child[id], id)
+        assert cn.all((id >= 0) & (id < self.leaf_value.size)), (str(self), X)
+        assert depth < 99
         return self.leaf_value[id]
 
     def __str__(self) -> str:
@@ -147,6 +151,8 @@ class TreeStructure:
                 text += recurse_print(self.left_child[id], depth + 1)
                 text += recurse_print(self.right_child[id], depth + 1)
             return text
+
+        return recurse_print(0, 0)
 
         return recurse_print(0, 0)
 
@@ -281,6 +287,42 @@ def _get_legate_store(input: Any) -> Store:
     return store
 
 
+def get_gradient_statistics() -> None:
+    pass
+
+
+def get_best_split() -> None:
+    pass
+
+
+def update_tree() -> None:
+    pass
+
+
+def update_positions() -> None:
+    pass
+
+
+def build_tree_hybrid(
+    X: cn.ndarray,
+    g: cn.ndarray,
+    h: cn.ndarray,
+    learning_rate: float,
+    max_depth: int,
+    random_state: np.random.RandomState,
+) -> TreeStructure:
+    base_score = -g.sum() / h.sum() * learning_rate
+    tree = TreeStructure(base_score, 2 ** (max_depth + 1))
+    for d in range(max_depth):
+        if d > 0:
+            update_positions()
+        get_gradient_statistics()
+        get_best_split()
+        update_tree()
+
+    return tree
+
+
 def build_tree_native(
     X: cn.ndarray,
     g: cn.ndarray,
@@ -340,6 +382,52 @@ def _check_sample_weight(sample_weight: Any, n: int) -> cn.ndarray:
     return sample_weight
 
 
+def check_array(x: Any) -> cn.ndarray:
+    if not hasattr(x, "__legate_data_interface__"):
+        warnings.warn(
+            "Input of type {} does not implement ".format(type(x))
+            + "__legate_data_interface__. Performance may be affected."
+        )
+    if hasattr(x, "__array_interface__"):
+        shape = x.__array_interface__["shape"]
+        if shape[0] <= 0:
+            raise ValueError(
+                "Found array with %d sample(s) (shape=%s) while a"
+                " minimum of %d is required." % (shape[0], shape, 1)
+            )
+        if len(shape) >= 2 and 0 in shape:
+            raise ValueError(
+                "Found array with %d feature(s) (shape=%s) while"
+                " a minimum of %d is required." % (shape[1], shape, 1)
+            )
+
+    if sp.issparse(x):
+        raise ValueError("Sparse matrix not allowed.")
+
+    if not cn.isfinite(x).all():
+        raise ValueError("Input contains NaN or inf")
+
+    x = cn.array(x, copy=False)
+    return x
+
+
+def check_X_y(X: Any, y: Any) -> tuple[cn.array, cn.array]:
+    X = check_array(X)
+    y = check_array(y)
+
+    # TODO(Rory): categorical support
+    y = y.squeeze()
+
+    # allow conversion of y but not X for memory reasons
+    assert X.dtype.kind == "f"
+    if y.dtype.kind != "f":
+        y = y.astype(cn.float64)
+
+    assert len(X.shape) == 2
+    assert y.shape[0] == X.shape[0]
+    return X, y
+
+
 class LBBase(BaseEstimator):
     def __init__(
         self,
@@ -367,32 +455,40 @@ class LBBase(BaseEstimator):
                 "check_sample_weights_invariance": (
                     "zero sample_weight is not equivalent to removing samples"
                 ),
+                "check_sample_weights_not_an_array": (
+                    "LegateBoost does not convert inputs."
+                ),
+                "check_complex_data": (
+                    "LegateBoost does not currently support complex data."
+                ),
+                "check_dtype_object": ("object type data not supported."),
             }
         }
 
     def fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
     ) -> "LBRegressor":
-        sample_weight = _check_sample_weight(sample_weight, X.shape[0])
+        X, y = check_X_y(X, y)
+        sample_weight = _check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
         self.models_ = []
 
         objective = objectives[self.objective]()
-        if self.init is None:
-            self.model_init_ = 0.0
-        else:
+        self.model_init_ = 0.0
+        if self.init == "average":
             # initialise the model to some good average value
             # this is equivalent to a tree with a single leaf and learning rate 1.0
-            g, h = objective.gradient(y, cn.zeros_like(y), sample_weight)
+            g, h = objective.gradient(
+                y, cn.full_like(y, objective.transform(self.model_init_)), sample_weight
+            )
             H = h.sum()
-            self.model_init_ = 0.0
             if H > 0.0:
                 self.model_init_ = -g.sum() / H
 
         # current model prediction
         pred = cn.full(y.shape, self.model_init_)
         self._metric = objective.metric()
-        self.train_score_ = []
+        self.train_metric_ = []
         for i in range(self.n_estimators):
             # obtain gradients
             g, h = objective.gradient(y, objective.transform(pred), sample_weight)
@@ -422,12 +518,14 @@ class LBBase(BaseEstimator):
             pred += self.models_[-1].predict(X)
 
             # evaluate our progress
-            self.train_score_.append(
+            self.train_metric_.append(
                 self._metric.metric(y, objective.transform(pred), sample_weight)
             )
             if self.verbose:
                 print(
-                    "i: {} {}: {}".format(i, self._metric.name(), self.train_score_[-1])
+                    "i: {} {}: {}".format(
+                        i, self._metric.name(), self.train_metric_[-1]
+                    )
                 )
         self.is_fitted_ = True
         return self
@@ -497,7 +595,7 @@ class LBClassifier(LBBase, ClassifierMixin):
 
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
         objective = objectives[self.objective]()
-        return objective.transform(self.super().predict(X))
+        return objective.transform(super().predict(X))
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         return self.predict_proba(X) >= 0.5
