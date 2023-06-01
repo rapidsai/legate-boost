@@ -19,6 +19,7 @@ from .objectives import objectives
 
 class LegateBoostOpCode(IntEnum):
     BUILD_TREE = user_lib.cffi.BUILD_TREE
+    PREDICT = user_lib.cffi.PREDICT
 
 
 @dataclass
@@ -136,6 +137,27 @@ class TreeStructure:
         assert depth < 99
         return self.leaf_value[id]
 
+    def predict_native(self, X: cn.ndarray) -> cn.ndarray:
+        task = user_context.create_auto_task(
+            LegateBoostOpCode.PREDICT,
+        )
+        task.add_input(_get_legate_store(X))
+        task.add_input(_get_legate_store(self.left_child))
+        task.add_broadcast(_get_legate_store(self.left_child))
+        task.add_input(_get_legate_store(self.right_child))
+        task.add_broadcast(_get_legate_store(self.right_child))
+        task.add_input(_get_legate_store(self.leaf_value))
+        task.add_broadcast(_get_legate_store(self.leaf_value))
+        task.add_input(_get_legate_store(self.feature))
+        task.add_broadcast(_get_legate_store(self.feature))
+        task.add_input(_get_legate_store(self.split_value))
+        task.add_broadcast(_get_legate_store(self.split_value))
+
+        pred = user_context.create_store(types.float64, X.shape[0])
+        task.add_output(pred)
+        task.execute()
+        return cn.array(pred, copy=False)
+
     def __str__(self) -> str:
         def recurse_print(id: int, depth: int) -> str:
             if self.is_leaf(id):
@@ -151,8 +173,6 @@ class TreeStructure:
                 text += recurse_print(self.left_child[id], depth + 1)
                 text += recurse_print(self.right_child[id], depth + 1)
             return text
-
-        return recurse_print(0, 0)
 
         return recurse_print(0, 0)
 
@@ -331,6 +351,10 @@ def build_tree_native(
     max_depth: int,
     random_state: np.random.RandomState,
 ) -> TreeStructure:
+
+    # choose possible splits
+    split_proposals = X[random_state.randint(0, X.shape[0], max_depth)]
+
     task = user_context.create_auto_task(
         LegateBoostOpCode.BUILD_TREE,
     )
@@ -338,21 +362,26 @@ def build_tree_native(
     task.add_broadcast(_get_legate_store(X), axes=0)
     task.add_input(_get_legate_store(g))
     task.add_input(_get_legate_store(h))
+    task.add_input(_get_legate_store(split_proposals))
+    task.add_broadcast(_get_legate_store(split_proposals))
+    task.add_alignment(_get_legate_store(g), _get_legate_store(h))
     task.add_scalar_arg(learning_rate, types.float64)
     task.add_scalar_arg(max_depth, types.int32)
     task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
 
-    left_child = user_context.create_store(types.int32, ndim=1)
-    right_child = user_context.create_store(types.int32, ndim=1)
-    leaf_value = user_context.create_store(types.float64, ndim=1)
-    feature = user_context.create_store(types.int32, ndim=1)
-    split_value = user_context.create_store(types.float32, ndim=1)
+    max_nodes = 2 ** (max_depth + 1)
+    left_child = user_context.create_store(types.int32, max_nodes)
+    right_child = user_context.create_store(types.int32, max_nodes)
+    leaf_value = user_context.create_store(types.float64, max_nodes)
+    feature = user_context.create_store(types.int32, max_nodes)
+    split_value = user_context.create_store(types.float64, max_nodes)
 
     task.add_output(left_child)
     task.add_output(right_child)
     task.add_output(leaf_value)
     task.add_output(feature)
     task.add_output(split_value)
+    task.add_cpu_communicator()
     task.execute()
 
     return TreeStructure.from_arrays(
@@ -515,7 +544,10 @@ class LBBase(BaseEstimator):
             self.models_.append(tree)
 
             # update current predictions
-            pred += self.models_[-1].predict(X)
+            if self.version == "native":
+                pred += self.models_[-1].predict_native(X)
+            else:
+                pred += self.models_[-1].predict(X)
 
             # evaluate our progress
             self.train_metric_.append(
