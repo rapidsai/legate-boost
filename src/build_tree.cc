@@ -62,21 +62,9 @@ struct Tree {
 };
 
 template <typename T>
-constexpr legate::Type::Code TypeToLegateType()
-{
-  if (std::is_same<T, double>::value) { return legate::Type::Code::FLOAT64; }
-  if (std::is_same<T, float>::value) { return legate::Type::Code::FLOAT32; }
-  if (std::is_same<T, int32_t>::value) { return legate::Type::Code::INT32; }
-  if (std::is_same<T, int64_t>::value) { return legate::Type::Code::INT64; }
-  throw std::runtime_error("Unsupported type.");
-  return legate::Type::Code::INT32;
-}
-
-template <typename T>
 void WriteOutput(legate::Store& out, const std::vector<T>& x)
 {
   EXPECT(out.shape<1>().volume() >= x.size(), "Output not large enough.");
-  EXPECT(out.code() == TypeToLegateType<T>(), "Output type mismatch.");
   std::copy(x.begin(), x.end(), out.write_accessor<T, 1>().ptr(0));
 }
 
@@ -173,7 +161,8 @@ class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
           auto [G_R, H_R] = histogram.Get(feature, node_id, false);
           auto G          = G_L + G_R;
           auto H          = H_L + H_R;
-          auto gain = (G_L * G_L) / (H_L + eps) + (G_R * G_R) / (H_R + eps) - (G * G) / (H + eps);
+          auto gain =
+            0.5 * ((G_L * G_L) / (H_L + eps) + (G_R * G_R) / (H_R + eps) - (G * G) / (H + eps));
           if (gain > best_gain) {
             best_gain    = gain;
             best_feature = feature;

@@ -16,9 +16,14 @@ def non_decreasing(x):
 
 
 def test_regressor():
+    np.random.seed(2)
     X = cn.random.random((100, 10))
     y = cn.random.random(X.shape[0])
-    model = lb.LBRegressor().fit(X, y)
+    model = lb.LBRegressor(
+        n_estimators=20, max_depth=3, random_state=2, learning_rate=0.5
+    ).fit(X, y)
+    mse = lb.MSEMetric().metric(y, model.predict(X), cn.ones_like(y))
+    assert np.isclose(model.train_metric_[-1], mse)
     assert non_increasing(model.train_metric_)
 
     # test print
