@@ -32,8 +32,6 @@ struct Tree {
   Tree(int max_depth)
   {
     int max_nodes = 1 << (max_depth + 1);
-    left_child.resize(max_nodes, -1);
-    right_child.resize(max_nodes, -1);
     leaf_value.resize(max_nodes);
     feature.resize(max_nodes, -1);
     split_value.resize(max_nodes);
@@ -44,18 +42,16 @@ struct Tree {
                 double left_leaf_value,
                 double right_leaf_value)
   {
-    left_child[node_id]               = node_id * 2 + 1;
-    right_child[node_id]              = node_id * 2 + 2;
-    feature[node_id]                  = feature_id;
-    this->split_value[node_id]        = split_value;
-    this->leaf_value[node_id * 2 + 1] = left_leaf_value;
-    this->leaf_value[node_id * 2 + 2] = right_leaf_value;
+    feature[node_id]                      = feature_id;
+    this->split_value[node_id]            = split_value;
+    this->leaf_value[LeftChild(node_id)]  = left_leaf_value;
+    this->leaf_value[RightChild(node_id)] = right_leaf_value;
   }
+  static int LeftChild(int id) { return id * 2 + 1; }
+  static int RightChild(int id) { return id * 2 + 2; }
 
-  bool IsLeaf(int node_id) const { return left_child[node_id] == -1; }
+  bool IsLeaf(int node_id) const { return feature[node_id] == -1; }
 
-  std::vector<int32_t> left_child;
-  std::vector<int32_t> right_child;
   std::vector<double> leaf_value;
   std::vector<int32_t> feature;
   std::vector<double> split_value;
@@ -70,11 +66,9 @@ void WriteOutput(legate::Store& out, const std::vector<T>& x)
 
 void WriteTreeOutput(legate::TaskContext& context, const Tree& tree)
 {
-  WriteOutput(context.outputs().at(0), tree.left_child);
-  WriteOutput(context.outputs().at(1), tree.right_child);
-  WriteOutput(context.outputs().at(2), tree.leaf_value);
-  WriteOutput(context.outputs().at(3), tree.feature);
-  WriteOutput(context.outputs().at(4), tree.split_value);
+  WriteOutput(context.outputs().at(0), tree.leaf_value);
+  WriteOutput(context.outputs().at(1), tree.feature);
+  WriteOutput(context.outputs().at(2), tree.split_value);
 }
 
 struct GradientHistogram {
@@ -191,38 +185,12 @@ class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
         }
         auto x    = X_accessor[{i, tree.feature[pos]}];
         bool left = x <= tree.split_value[pos];
-        pos       = left ? tree.left_child[pos] : tree.right_child[pos];
+        pos       = left ? Tree::LeftChild(pos) : Tree::RightChild(pos);
       }
     }
 
     if (context.get_task_index()[0] == 0) { WriteTreeOutput(context, tree); }
   };
-};
-
-class PredictTask : public Task<PredictTask, PREDICT> {
- public:
-  static void cpu_variant(legate::TaskContext& context)
-  {
-    auto X_shape     = context.inputs().at(0).shape<2>();
-    auto X_accessor  = context.inputs().at(0).read_accessor<double, 2>();
-    auto left_child  = context.inputs().at(1).read_accessor<int32_t, 1>();
-    auto right_child = context.inputs().at(2).read_accessor<int32_t, 1>();
-    auto leaf_value  = context.inputs().at(3).read_accessor<double, 1>();
-    auto feature     = context.inputs().at(4).read_accessor<int32_t, 1>();
-    auto split_value = context.inputs().at(5).read_accessor<double, 1>();
-
-    auto pred = context.outputs().at(0).write_accessor<double, 1>();
-
-    for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
-      int pos = 0;
-      while (left_child[pos] != -1) {
-        auto x = X_accessor[{i, feature[pos]}];
-        pos    = x <= split_value[pos] ? left_child[pos] : right_child[pos];
-      }
-      auto leaf = leaf_value[pos];
-      pred[i]   = leaf;
-    }
-  }
 };
 }  // namespace legateboost
 
@@ -231,6 +199,5 @@ namespace  // unnamed
 static void __attribute__((constructor)) register_tasks(void)
 {
   legateboost::BuildTreeTask::register_variants();
-  legateboost::PredictTask::register_variants();
 }
 }  // namespace
