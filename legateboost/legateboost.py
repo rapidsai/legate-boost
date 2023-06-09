@@ -21,7 +21,26 @@ class LegateBoostOpCode(IntEnum):
     PREDICT = user_lib.cffi.PREDICT
 
 
-class TreeStructure:
+class _PickleCunumericMixin:
+    """When reading back from pickle, convert numpy arrays to cunumeric
+    arrays."""
+
+    def __getstate__(self) -> dict[str, Any]:
+        return self.__dict__.copy()
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        def replace(data: Any) -> None:
+            if isinstance(data, (dict, list)):
+                for k, v in data.items() if isinstance(data, dict) else enumerate(data):
+                    if isinstance(v, np.ndarray):
+                        data[k] = cn.asarray(v)
+                    replace(v)
+
+        replace(state)
+        self.__dict__.update(state)
+
+
+class TreeStructure(_PickleCunumericMixin):
     """A structure of arrays representing a decision tree.
 
     A leaf node has value -1 at feature[node_idx]
@@ -30,6 +49,8 @@ class TreeStructure:
     leaf_value: cn.ndarray
     feature: cn.ndarray
     split_value: cn.ndarray
+    gain: cn.ndarray
+    hessian: cn.ndarray
 
     def is_leaf(self, id: int) -> Any:
         return self.feature[id] == -1
@@ -45,6 +66,8 @@ class TreeStructure:
         leaf_value: cn.ndarray,
         feature: cn.ndarray,
         split_value: cn.ndarray,
+        gain: cn.ndarray,
+        hessian: cn.ndarray,
     ) -> None:
         """Initialise from existing storage."""
         self.leaf_value = leaf_value
@@ -53,6 +76,10 @@ class TreeStructure:
         assert np.issubdtype(feature.dtype, np.integer)
         self.split_value = split_value
         assert np.issubdtype(split_value.dtype, np.floating)
+        self.hessian = hessian
+        assert np.issubdtype(hessian.dtype, np.floating)
+        self.gain = gain
+        assert np.issubdtype(gain.dtype, np.floating)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         task = user_context.create_auto_task(
@@ -74,14 +101,21 @@ class TreeStructure:
     def __str__(self) -> str:
         def recurse_print(id: int, depth: int) -> str:
             if self.is_leaf(id):
-                text = "\t" * depth + "{}:leaf={}\n".format(id, self.leaf_value[id])
+                text = "\t" * depth + "{}:leaf={:0.4f},hess={:0.4f}\n".format(
+                    id, self.leaf_value[id], self.hessian[id]
+                )
             else:
-                text = "\t" * depth + "{}:[f{}<={}] yes={} no={}\n".format(
-                    id,
-                    self.feature[id],
-                    self.split_value[id],
-                    self.left_child(id),
-                    self.right_child(id),
+                text = (
+                    "\t" * depth
+                    + "{}:[f{}<={:0.4f}] yes={},no={},gain={:0.4f},hess={}\n".format(
+                        id,
+                        self.feature[id],
+                        self.split_value[id],
+                        self.left_child(id),
+                        self.right_child(id),
+                        self.gain[id],
+                        self.hessian[id],
+                    )
                 )
                 text += recurse_print(self.left_child(id), depth + 1)
                 text += recurse_print(self.right_child(id), depth + 1)
@@ -139,10 +173,14 @@ def build_tree_native(
     leaf_value = user_context.create_store(types.float64, max_nodes)
     feature = user_context.create_store(types.int32, max_nodes)
     split_value = user_context.create_store(types.float64, max_nodes)
+    gain = user_context.create_store(types.float64, max_nodes)
+    hessian = user_context.create_store(types.float64, max_nodes)
 
     task.add_output(leaf_value)
     task.add_output(feature)
     task.add_output(split_value)
+    task.add_output(gain)
+    task.add_output(hessian)
     task.add_cpu_communicator()
     task.execute()
 
@@ -150,6 +188,8 @@ def build_tree_native(
         cn.array(leaf_value, copy=False),
         cn.array(feature, copy=False),
         cn.array(split_value, copy=False),
+        cn.array(gain, copy=False),
+        cn.array(hessian, copy=False),
     )
 
 
@@ -168,7 +208,7 @@ def _check_sample_weight(sample_weight: Any, n: int) -> cn.ndarray:
             + str(n)
             + ",)"
         )
-    return sample_weight
+    return sample_weight.astype(cn.float64)
 
 
 def check_array(x: Any) -> cn.ndarray:
@@ -200,24 +240,26 @@ def check_array(x: Any) -> cn.ndarray:
     return x
 
 
-def check_X_y(X: Any, y: Any) -> tuple[cn.array, cn.array]:
+def check_X_y(X: Any, y: Any = None) -> Any:
     X = check_array(X)
-    y = check_array(y)
 
-    # TODO(Rory): multi-class support
-    y = y.squeeze()
-
-    # allow conversion of y but not X for memory reasons
-    assert X.dtype.kind == "f"
-    if y.dtype.kind != "f":
+    if y is not None:
+        y = check_array(y)
+        # TODO(Rory): multi-class support
+        y = y.squeeze()
         y = y.astype(cn.float64)
+        assert y.shape[0] == X.shape[0]
 
+    if np.issubdtype(X.dtype, np.integer):
+        X = X.astype(cn.float32)
     assert len(X.shape) == 2
-    assert y.shape[0] == X.shape[0]
-    return X, y
+
+    if y is not None:
+        return X, y
+    return X
 
 
-class LBBase(BaseEstimator):
+class LBBase(BaseEstimator, _PickleCunumericMixin):
     def __init__(
         self,
         n_estimators: int = 100,
@@ -281,6 +323,9 @@ class LBBase(BaseEstimator):
         for i in range(self.n_estimators):
             # obtain gradients
             g, h = objective.gradient(y, objective.transform(pred), sample_weight)
+            assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
+                g.dtype, h.dtype
+            )
 
             # build new tree
             tree = build_tree_native(
@@ -310,8 +355,9 @@ class LBBase(BaseEstimator):
         return self
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
-        X = check_array(X)
+        X = check_X_y(X)
         check_is_fitted(self, "is_fitted_")
+        assert X.shape[1] == self.n_features_in_
         pred = cn.full(X.shape[0], self.model_init_)
         for m in self.models_:
             pred += m.predict(X)

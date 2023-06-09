@@ -1,14 +1,24 @@
+/* Copyright 2023 NVIDIA Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
 #include "legate_library.h"
 #include "legateboost.h"
+#include "utils.h"
 #include "core/comm/coll.h"
 
 namespace legateboost {
-
-void expect(bool condition, std::string message, std::string file, int line)
-{
-  if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }
-}
-#define EXPECT(condition, message) (expect(condition, message, __FILE__, __LINE__))
 
 void SumAllReduce(legate::TaskContext& context, double* x, int count)
 {
@@ -35,15 +45,23 @@ struct Tree {
     leaf_value.resize(max_nodes);
     feature.resize(max_nodes, -1);
     split_value.resize(max_nodes);
+    gain.resize(max_nodes);
+    hessian.resize(max_nodes);
   }
   void AddSplit(int node_id,
                 int feature_id,
                 double split_value,
                 double left_leaf_value,
-                double right_leaf_value)
+                double right_leaf_value,
+                double gain,
+                double hessian_left,
+                double hessian_right)
   {
     feature[node_id]                      = feature_id;
     this->split_value[node_id]            = split_value;
+    this->gain[node_id]                   = gain;
+    this->hessian[LeftChild(node_id)]     = hessian_left;
+    this->hessian[RightChild(node_id)]    = hessian_right;
     this->leaf_value[LeftChild(node_id)]  = left_leaf_value;
     this->leaf_value[RightChild(node_id)] = right_leaf_value;
   }
@@ -55,6 +73,8 @@ struct Tree {
   std::vector<double> leaf_value;
   std::vector<int32_t> feature;
   std::vector<double> split_value;
+  std::vector<double> gain;
+  std::vector<double> hessian;
 };
 
 template <typename T>
@@ -69,6 +89,8 @@ void WriteTreeOutput(legate::TaskContext& context, const Tree& tree)
   WriteOutput(context.outputs().at(0), tree.leaf_value);
   WriteOutput(context.outputs().at(1), tree.feature);
   WriteOutput(context.outputs().at(2), tree.split_value);
+  WriteOutput(context.outputs().at(3), tree.gain);
+  WriteOutput(context.outputs().at(4), tree.hessian);
 }
 
 struct GradientHistogram {
@@ -82,6 +104,8 @@ struct GradientHistogram {
       size((1 << depth) * num_features * 2 * 2),
       gradient_sums(legate::create_buffer<double, 4>({1 << depth, num_features, 2, 2}))
   {
+    auto ptr = gradient_sums.ptr({0, 0, 0, 0});
+    std::fill(ptr, ptr + size, 0.0);
   }
   void Add(int feature, int position, double g, double h, bool left)
   {
@@ -99,18 +123,22 @@ struct GradientHistogram {
   }
 };
 
-class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
- public:
-  static void cpu_variant(legate::TaskContext& context)
+struct build_tree_fn {
+  template <legate::Type::Code CODE>
+  void operator()(legate::TaskContext& context)
   {
-    auto X_shape                 = context.inputs().at(0).shape<2>();
-    auto X_accessor              = context.inputs().at(0).read_accessor<double, 2>();
+    using T                      = legate::legate_type_of<CODE>;
+    const auto& X                = context.inputs().at(0);
+    auto X_shape                 = X.shape<2>();
+    auto X_accessor              = X.read_accessor<T, 2>();
     auto num_features            = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows                = X_shape.hi[0] - X_shape.lo[0] + 1;
     auto g_ptr                   = context.inputs().at(1).read_accessor<double, 1>().ptr(0);
     auto h_ptr                   = context.inputs().at(2).read_accessor<double, 1>().ptr(0);
-    auto split_proposals_shape   = context.inputs().at(3).shape<2>();
-    auto split_proposal_accessor = context.inputs().at(3).read_accessor<double, 2>();
+    const auto& split_proposals  = context.inputs().at(3);
+    auto split_proposals_shape   = split_proposals.shape<2>();
+    auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
+    EXPECT(X.code() == split_proposals.code(), "Expected same type for X and split proposals.");
 
     // Scalars
     auto learning_rate = context.scalars().at(0).value<double>();
@@ -131,6 +159,7 @@ class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
     }
     SumAllReduce(context, G, 2);
     tree.leaf_value[0] = -(G[0] / G[1]) * learning_rate;
+    tree.hessian[0]    = G[1];
 
     // Begin building the tree
     std::vector<int32_t> positions(num_rows);
@@ -172,7 +201,10 @@ class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
                         best_feature,
                         split_proposal_accessor[{depth, best_feature}],
                         left_leaf,
-                        right_leaf);
+                        right_leaf,
+                        best_gain,
+                        H_L,
+                        H_R);
         }
       }
 
@@ -190,6 +222,15 @@ class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
     }
 
     if (context.get_task_index()[0] == 0) { WriteTreeOutput(context, tree); }
+  }
+};
+
+class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
+ public:
+  static void cpu_variant(legate::TaskContext& context)
+  {
+    const auto& X = context.inputs().at(0);
+    type_dispatch_float(X.code(), build_tree_fn{}, context);
   };
 };
 }  // namespace legateboost
