@@ -1,5 +1,3 @@
-import warnings
-
 import numpy as np
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
@@ -113,14 +111,14 @@ def test_classifier_improving_with_depth():
 
 
 def test_prediction():
-    tree = lb.TreeStructure.from_arrays(
-        cn.array([1, 3, -1, -1, -1, -1, -1, -1, -1, -1]),
-        cn.array([2, 4, -1, -1, -1, -1, -1, -1, -1, -1]),
+    tree = lb.TreeStructure(
         cn.array(
             [0.0, 0.0, -0.04619769, 0.01845179, -0.01151532, 0.0, 0.0, 0.0, 0.0, 0.0]
         ),
-        cn.array([0, 1, -1, -1, -1, -1, -1, -1, -1, -1]),
+        cn.array([0, 1, -1, -1, -1, -1, -1, -1, -1, -1]).astype(cn.int32),
         cn.array([0.79172504, 0.71518937, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     )
     """0:[f0<=0.79172504] yes=1 no=2 1:[f1<=0.71518937] yes=3 no=4
     3:leaf=0.01845179 4:leaf=-0.01151532 2:leaf=-0.04619769."""
@@ -129,17 +127,3 @@ def test_prediction():
     assert pred[1] == 0.01845179
     assert tree.predict(cn.array([[0.5, 1.0]])) == -0.01151532
     assert tree.predict(cn.array([[0.79172504, 0.71518937]])) == 0.01845179
-
-
-def test_np_input_warning():
-    with warnings.catch_warnings(record=True) as w:
-        np.random.seed(3)
-        X = np.random.random((100, 10))
-        y = np.random.randint(0, 2, X.shape[0])
-        lb.LBClassifier(n_estimators=1).fit(X, y)
-        assert (
-            "Input of type <class 'numpy.ndarray'>"
-            + " does not implement __legate_data_interface__."
-            + " Performance may be affected."
-            in str(w[0].message)
-        )

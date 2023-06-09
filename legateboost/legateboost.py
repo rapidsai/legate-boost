@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import warnings
 from enum import IntEnum
 from typing import Any, Union
 
 import numpy as np
-import scipy.sparse as sp
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.utils.validation import check_is_fitted, check_random_state
 
 import cunumeric as cn
 from legate.core import Store, types
 
+from .input_validation import check_sample_weight, check_X_y
 from .library import user_context, user_lib
 from .objectives import objectives
 
@@ -71,15 +70,15 @@ class TreeStructure(_PickleCunumericMixin):
     ) -> None:
         """Initialise from existing storage."""
         self.leaf_value = leaf_value
-        assert np.issubdtype(leaf_value.dtype, np.floating)
+        assert leaf_value.dtype == cn.float64
         self.feature = feature
-        assert np.issubdtype(feature.dtype, np.integer)
+        assert feature.dtype == cn.int32
         self.split_value = split_value
-        assert np.issubdtype(split_value.dtype, np.floating)
+        assert split_value.dtype == cn.float64
         self.hessian = hessian
-        assert np.issubdtype(hessian.dtype, np.floating)
+        assert hessian.dtype == cn.float64
         self.gain = gain
-        assert np.issubdtype(gain.dtype, np.floating)
+        assert gain.dtype == cn.float64
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         task = user_context.create_auto_task(
@@ -193,72 +192,6 @@ def build_tree_native(
     )
 
 
-def _check_sample_weight(sample_weight: Any, n: int) -> cn.ndarray:
-    if sample_weight is None:
-        sample_weight = cn.ones(n)
-    elif cn.isscalar(sample_weight):
-        sample_weight = cn.full(n, sample_weight)
-    elif not isinstance(sample_weight, cn.ndarray):
-        sample_weight = cn.array(sample_weight)
-    if sample_weight.shape != (n,):
-        raise ValueError(
-            "Incorrect sample weight shape: "
-            + str(sample_weight.shape)
-            + ", expected: ("
-            + str(n)
-            + ",)"
-        )
-    return sample_weight.astype(cn.float64)
-
-
-def check_array(x: Any) -> cn.ndarray:
-    if not hasattr(x, "__legate_data_interface__"):
-        warnings.warn(
-            "Input of type {} does not implement ".format(type(x))
-            + "__legate_data_interface__. Performance may be affected."
-        )
-    if hasattr(x, "__array_interface__"):
-        shape = x.__array_interface__["shape"]
-        if shape[0] <= 0:
-            raise ValueError(
-                "Found array with %d sample(s) (shape=%s) while a"
-                " minimum of %d is required." % (shape[0], shape, 1)
-            )
-        if len(shape) >= 2 and 0 in shape:
-            raise ValueError(
-                "Found array with %d feature(s) (shape=%s) while"
-                " a minimum of %d is required." % (shape[1], shape, 1)
-            )
-
-    if sp.issparse(x):
-        raise ValueError("Sparse matrix not allowed.")
-
-    if not cn.isfinite(x).all():
-        raise ValueError("Input contains NaN or inf")
-
-    x = cn.array(x, copy=False)
-    return x
-
-
-def check_X_y(X: Any, y: Any = None) -> Any:
-    X = check_array(X)
-
-    if y is not None:
-        y = check_array(y)
-        # TODO(Rory): multi-class support
-        y = y.squeeze()
-        y = y.astype(cn.float64)
-        assert y.shape[0] == X.shape[0]
-
-    if np.issubdtype(X.dtype, np.integer):
-        X = X.astype(cn.float32)
-    assert len(X.shape) == 2
-
-    if y is not None:
-        return X, y
-    return X
-
-
 class LBBase(BaseEstimator, _PickleCunumericMixin):
     def __init__(
         self,
@@ -293,14 +226,15 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                     "LegateBoost does not currently support complex data."
                 ),
                 "check_dtype_object": ("object type data not supported."),
-            }
+            },
+            "multioutput": True,
         }
 
     def fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
     ) -> "LBRegressor":
         X, y = check_X_y(X, y)
-        sample_weight = _check_sample_weight(sample_weight, len(y))
+        sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
         self.models_ = []
 

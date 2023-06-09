@@ -3,7 +3,11 @@ import cunumeric as cn
 
 class MSEMetric:
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        return float(((y - pred) ** 2 * w).sum() / w.sum())
+        w_sum = w.sum()
+        if w_sum == 0:
+            return 0
+        numerator = ((y - pred) ** 2 * w).sum()
+        return float(numerator / w_sum)
 
     def name(self) -> str:
         return "MSE"
