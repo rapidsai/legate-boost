@@ -3,11 +3,20 @@ import cunumeric as cn
 
 class MSEMetric:
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        """In multi-output case, return the average of the MSE of each
+        output."""
+        assert w.ndim == 1
+        y = y.reshape(pred.shape)
         w_sum = w.sum()
         if w_sum == 0:
             return 0
-        numerator = ((y - pred) ** 2 * w).sum()
-        return float(numerator / w_sum)
+
+        if y.ndim == 2:
+            w = w[:, cn.newaxis]
+        numerator = ((y - pred) ** 2 * w).sum(axis=0)
+
+        numerator = numerator / w_sum
+        return numerator.mean()
 
     def name(self) -> str:
         return "MSE"

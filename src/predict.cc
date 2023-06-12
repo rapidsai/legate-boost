@@ -27,11 +27,13 @@ struct predict_fn {
     auto& X          = context.inputs().at(0);
     auto X_shape     = context.inputs().at(0).shape<2>();
     auto X_accessor  = context.inputs().at(0).read_accessor<T, 2>();
-    auto leaf_value  = context.inputs().at(1).read_accessor<double, 1>();
+    auto leaf_value  = context.inputs().at(1).read_accessor<double, 2>();
     auto feature     = context.inputs().at(2).read_accessor<int32_t, 1>();
     auto split_value = context.inputs().at(3).read_accessor<double, 1>();
 
-    auto pred = context.outputs().at(0).write_accessor<double, 1>();
+    auto& pred         = context.outputs().at(0);
+    auto pred_accessor = pred.write_accessor<double, 2>();
+    auto n_outputs     = pred.shape<2>().hi[1] - pred.shape<2>().lo[1] + 1;
 
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       int pos = 0;
@@ -39,8 +41,7 @@ struct predict_fn {
         auto x = X_accessor[{i, feature[pos]}];
         pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
       }
-      auto leaf = leaf_value[pos];
-      pred[i]   = leaf;
+      for (int64_t j = 0; j < n_outputs; j++) { pred_accessor[{i, j}] = leaf_value[{pos, j}]; }
     }
   }
 };

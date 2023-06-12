@@ -69,10 +69,11 @@ def check_X_y(X: Any, y: Any = None) -> Any:
 
     if y is not None:
         y = check_array(y)
-        # TODO(Rory): multi-class support
-        y = y.squeeze()
         y = y.astype(cn.float64)
         y = cn.atleast_1d(y)
+
+        if y.ndim == 1:
+            y = y[:, cn.newaxis]
         if y.shape[0] != X.shape[0]:
             raise ValueError("Number of labels does not match number of samples.")
 

@@ -85,6 +85,7 @@ class TreeStructure(_PickleCunumericMixin):
             LegateBoostOpCode.PREDICT,
         )
         task.add_input(_get_legate_store(X))
+        task.add_broadcast(_get_legate_store(X), axes=0)
         task.add_input(_get_legate_store(self.leaf_value))
         task.add_broadcast(_get_legate_store(self.leaf_value))
         task.add_input(_get_legate_store(self.feature))
@@ -92,16 +93,25 @@ class TreeStructure(_PickleCunumericMixin):
         task.add_input(_get_legate_store(self.split_value))
         task.add_broadcast(_get_legate_store(self.split_value))
 
-        pred = user_context.create_store(types.float64, X.shape[0])
+        pred = user_context.create_store(
+            types.float64, (X.shape[0], self.leaf_value.shape[1])
+        )
         task.add_output(pred)
         task.execute()
         return cn.array(pred, copy=False)
 
     def __str__(self) -> str:
+        def format_vector(v: cn.ndarray) -> str:
+            if cn.isscalar(v):
+                return "{:0.4f}".format(v)
+            return "[" + ",".join(["{:0.4f}".format(x) for x in v]) + "]"
+
         def recurse_print(id: int, depth: int) -> str:
             if self.is_leaf(id):
-                text = "\t" * depth + "{}:leaf={:0.4f},hess={:0.4f}\n".format(
-                    id, self.leaf_value[id], self.hessian[id]
+                text = "\t" * depth + "{}:leaf={},hess={}\n".format(
+                    id,
+                    format_vector(self.leaf_value[id]),
+                    format_vector(self.hessian[id]),
                 )
             else:
                 text = (
@@ -160,7 +170,9 @@ def build_tree_native(
     task.add_input(_get_legate_store(X))
     task.add_broadcast(_get_legate_store(X), axes=0)
     task.add_input(_get_legate_store(g))
+    task.add_broadcast(_get_legate_store(g), axes=0)
     task.add_input(_get_legate_store(h))
+    task.add_broadcast(_get_legate_store(h), axes=0)
     task.add_input(_get_legate_store(split_proposals))
     task.add_broadcast(_get_legate_store(split_proposals))
     task.add_alignment(_get_legate_store(g), _get_legate_store(h))
@@ -169,11 +181,12 @@ def build_tree_native(
     task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
 
     max_nodes = 2 ** (max_depth + 1)
-    leaf_value = user_context.create_store(types.float64, max_nodes)
+    n_outputs = g.shape[1]
+    leaf_value = user_context.create_store(types.float64, (max_nodes, n_outputs))
     feature = user_context.create_store(types.int32, max_nodes)
     split_value = user_context.create_store(types.float64, max_nodes)
     gain = user_context.create_store(types.float64, max_nodes)
-    hessian = user_context.create_store(types.float64, max_nodes)
+    hessian = user_context.create_store(types.float64, (max_nodes, n_outputs))
 
     task.add_output(leaf_value)
     task.add_output(feature)
@@ -236,6 +249,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         X, y = check_X_y(X, y)
         sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
+        self.n_outputs_ = y.shape[1]
         self.models_ = []
 
         objective = objectives[self.objective]()
@@ -292,9 +306,11 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         X = check_X_y(X)
         check_is_fitted(self, "is_fitted_")
         assert X.shape[1] == self.n_features_in_
-        pred = cn.full(X.shape[0], self.model_init_)
+        pred = cn.full((X.shape[0], self.n_outputs_), self.model_init_)
         for m in self.models_:
             pred += m.predict(X)
+        if pred.shape[1] == 1:
+            return pred.squeeze()
         return pred
 
     def dump_trees(self) -> str:

@@ -5,6 +5,8 @@ from .metrics import LogLossMetric, MSEMetric
 
 class SquaredErrorObjective:
     def gradient(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
+        if y.ndim == 2:
+            w = cn.repeat(w[:, cn.newaxis], y.shape[1], axis=1)
         return pred - y, w
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:

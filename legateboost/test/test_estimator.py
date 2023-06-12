@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cunumeric as cn
@@ -13,14 +14,15 @@ def non_decreasing(x):
     return all(x <= y for x, y in zip(x, x[1:]))
 
 
-def test_regressor():
+@pytest.mark.parametrize("num_outputs", [1, 5])
+def test_regressor(num_outputs):
     np.random.seed(2)
     X = cn.random.random((100, 10))
-    y = cn.random.random(X.shape[0])
+    y = cn.random.random((X.shape[0], num_outputs))
     model = lb.LBRegressor(
         n_estimators=20, max_depth=3, random_state=2, learning_rate=0.5
     ).fit(X, y)
-    mse = lb.MSEMetric().metric(y, model.predict(X), cn.ones_like(y))
+    mse = lb.MSEMetric().metric(y, model.predict(X), cn.ones(y.shape[0]))
     assert np.isclose(model.train_metric_[-1], mse)
     assert non_increasing(model.train_metric_)
 
@@ -28,9 +30,10 @@ def test_regressor():
     model.dump_trees()
 
 
-def test_regressor_improving_with_depth():
+@pytest.mark.parametrize("num_outputs", [1, 5])
+def test_regressor_improving_with_depth(num_outputs):
     X = cn.random.random((100, 10))
-    y = cn.random.random(X.shape[0])
+    y = cn.random.random((X.shape[0], num_outputs))
     metrics = []
     for max_depth in range(0, 10):
         model = lb.LBRegressor(n_estimators=2, random_state=0, max_depth=max_depth).fit(
@@ -40,9 +43,10 @@ def test_regressor_improving_with_depth():
     assert non_increasing(metrics)
 
 
-def test_regressor_determinism():
+@pytest.mark.parametrize("num_outputs", [1, 5])
+def test_regressor_determinism(num_outputs):
     X = cn.random.random((100, 10))
-    y = cn.random.random(X.shape[0])
+    y = cn.random.random((X.shape[0], num_outputs))
     preds = []
     for _ in range(0, 10):
         model = lb.LBRegressor(n_estimators=2, random_state=83).fit(X, y)
@@ -114,11 +118,14 @@ def test_prediction():
     tree = lb.TreeStructure(
         cn.array(
             [0.0, 0.0, -0.04619769, 0.01845179, -0.01151532, 0.0, 0.0, 0.0, 0.0, 0.0]
-        ),
+        ).reshape(10, 1),
         cn.array([0, 1, -1, -1, -1, -1, -1, -1, -1, -1]).astype(cn.int32),
         cn.array([0.79172504, 0.71518937, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-        cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(
+            10,
+            1,
+        ),
     )
     """0:[f0<=0.79172504] yes=1 no=2 1:[f1<=0.71518937] yes=3 no=4
     3:leaf=0.01845179 4:leaf=-0.01151532 2:leaf=-0.04619769."""
