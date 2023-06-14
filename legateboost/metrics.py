@@ -24,7 +24,20 @@ class MSEMetric:
 
 class LogLossMetric:
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        logloss = -(y * cn.log(pred) + (1 - y) * cn.log(1 - pred))
+        y = y.squeeze()
+        eps = cn.finfo(pred.dtype).eps
+        cn.clip(pred, eps, 1 - eps, out=pred)
+
+        # binary case
+        if pred.ndim == 1 or pred.shape[1] == 1:
+            pred = pred.squeeze()
+            logloss = -(y * cn.log(pred) + (1 - y) * cn.log(1 - pred))
+            return float((logloss * w).sum() / w.sum())
+
+        # multi-class case
+        assert pred.ndim == 2
+        label = y.astype(cn.int32)
+        logloss = -cn.log(pred[cn.arange(label.size), label])
         return float((logloss * w).sum() / w.sum())
 
     def name(self) -> str:

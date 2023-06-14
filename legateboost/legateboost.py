@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import warnings
 from enum import IntEnum
 from typing import Any, Union
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.exceptions import DataConversionWarning
 from sklearn.utils.validation import check_is_fitted, check_random_state
 
 import cunumeric as cn
@@ -189,10 +191,15 @@ def build_tree_native(
     hessian = user_context.create_store(types.float64, (max_nodes, n_outputs))
 
     task.add_output(leaf_value)
+    task.add_broadcast(leaf_value)
     task.add_output(feature)
+    task.add_broadcast(feature)
     task.add_output(split_value)
+    task.add_broadcast(split_value)
     task.add_output(gain)
+    task.add_broadcast(gain)
     task.add_output(hessian)
+    task.add_broadcast(hessian)
     task.add_cpu_communicator()
     task.execute()
 
@@ -240,32 +247,28 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                 ),
                 "check_dtype_object": ("object type data not supported."),
             },
-            "multioutput": True,
         }
 
     def fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
-    ) -> "LBRegressor":
-        X, y = check_X_y(X, y)
+    ) -> "LBBase":
         sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
-        self.n_outputs_ = y.shape[1]
         self.models_ = []
 
         objective = objectives[self.objective]()
-        self.model_init_ = 0.0
+        self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
         if self.init == "average":
             # initialise the model to some good average value
             # this is equivalent to a tree with a single leaf and learning rate 1.0
-            g, h = objective.gradient(
-                y, cn.full_like(y, objective.transform(self.model_init_)), sample_weight
-            )
+            pred = cn.tile(self.model_init_, (y.shape[0], 1))
+            g, h = objective.gradient(y, objective.transform(pred), sample_weight)
             H = h.sum()
             if H > 0.0:
-                self.model_init_ = -g.sum() / H
+                self.model_init_ = -g.sum(axis=0) / H
 
         # current model prediction
-        pred = cn.full(y.shape, self.model_init_)
+        pred = cn.tile(self.model_init_, (y.shape[0], 1))
         self._metric = objective.metric()
         self.train_metric_ = []
         for i in range(self.n_estimators):
@@ -274,6 +277,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
                 g.dtype, h.dtype
             )
+            assert g.shape == h.shape
 
             # build new tree
             tree = build_tree_native(
@@ -305,12 +309,15 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         X = check_X_y(X)
         check_is_fitted(self, "is_fitted_")
-        assert X.shape[1] == self.n_features_in_
-        pred = cn.full((X.shape[0], self.n_outputs_), self.model_init_)
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                "X.shape[1] = {} should be equal to {}".format(
+                    X.shape[1], self.n_features_in_
+                )
+            )
+        pred = cn.tile(self.model_init_, (X.shape[0], 1))
         for m in self.models_:
             pred += m.predict(X)
-        if pred.shape[1] == 1:
-            return pred.squeeze()
         return pred
 
     def dump_trees(self) -> str:
@@ -344,6 +351,26 @@ class LBRegressor(LBBase, RegressorMixin):
             version=version,
         )
 
+    def _more_tags(self) -> Any:
+        return {
+            "multioutput": True,
+        }
+
+    def fit(
+        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+    ) -> "LBRegressor":
+        self.n_margin_outputs_ = 1
+        X, y = check_X_y(X, y)
+        if y.ndim > 1:
+            self.n_margin_outputs_ = y.shape[1]
+        return super().fit(X, y, sample_weight)
+
+    def predict(self, X: cn.ndarray) -> cn.ndarray:
+        pred = super().predict(X)
+        if pred.shape[1] == 1:
+            pred = pred.squeeze(axis=1)
+        return pred
+
 
 class LBClassifier(LBBase, ClassifierMixin):
     def __init__(
@@ -368,9 +395,46 @@ class LBClassifier(LBBase, ClassifierMixin):
             version=version,
         )
 
+    def fit(
+        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+    ) -> "LBClassifier":
+        X, y = check_X_y(X, y)
+
+        # Validate classifier inputs
+        if y.size <= 1:
+            raise ValueError("y has only 1 sample in classifer training.")
+        if y.ndim > 1:
+            warnings.warn(
+                "A column-vector y was passed when a 1d array was expected.",
+                DataConversionWarning,
+            )
+
+        self.classes_ = cn.unique(y)
+        assert np.issubdtype(self.classes_.dtype, np.integer) or np.issubdtype(
+            self.classes_.dtype, np.floating
+        ), "y must be integer or floating type"
+        if np.issubdtype(self.classes_.dtype, np.floating):
+            whole_numbers = cn.all(self.classes_ == cn.floor(self.classes_))
+            if not whole_numbers:
+                raise ValueError("Unknown label type: ", self.classes_)
+
+        self.n_margin_outputs_ = len(self.classes_) if len(self.classes_) > 2 else 1
+        if len(self.classes_) < 2:
+            raise ValueError("y must have at least 2 classes")
+
+        super().fit(X, y, sample_weight=sample_weight)
+        return self
+
+    def predict_raw(self, X: cn.ndarray) -> cn.ndarray:
+        return super().predict(X)
+
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
         objective = objectives[self.objective]()
-        return objective.transform(super().predict(X))
+        pred = objective.transform(super().predict(X))
+        if len(self.classes_) == 2:
+            pred = pred.squeeze(axis=1)
+            pred = cn.stack([1.0 - pred, pred], axis=1)
+        return pred
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
-        return self.predict_proba(X) >= 0.5
+        return cn.argmax(self.predict_proba(X), axis=1)

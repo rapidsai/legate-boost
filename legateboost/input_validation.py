@@ -29,7 +29,7 @@ def check_array(x: Any) -> cn.ndarray:
         raise ValueError("Sparse matrix not allowed.")
 
     if not hasattr(x, "__legate_data_interface__"):
-        x = cn.array(x)
+        x = cn.array(np.require(x, requirements=["C", "A"]))
     if hasattr(x, "__array_interface__"):
         shape = x.__array_interface__["shape"]
         if shape[0] <= 0:

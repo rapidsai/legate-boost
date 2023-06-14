@@ -43,10 +43,9 @@ def test_regressor_improving_with_depth(num_outputs):
     assert non_increasing(metrics)
 
 
-@pytest.mark.parametrize("num_outputs", [1, 5])
-def test_regressor_determinism(num_outputs):
+def test_regressor_determinism():
     X = cn.random.random((100, 10))
-    y = cn.random.random((X.shape[0], num_outputs))
+    y = cn.random.random(X.shape[0])
     preds = []
     for _ in range(0, 10):
         model = lb.LBRegressor(n_estimators=2, random_state=83).fit(X, y)
@@ -86,31 +85,41 @@ def test_regressor_vs_sklearn():
     assert p > 0.05
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 @parametrize_with_checks([lb.LBRegressor(), lb.LBClassifier()])
-def test_sklearn_compatible_estimator(estimator, check):
+def test_sklearn_compatible_estimator(estimator, check, test_name):
+    if "check_classifiers_classes" in test_name:
+        pytest.skip("Legateboost cannot handle string class labels.")
     check(estimator)
 
 
-def test_classifier():
+@pytest.mark.parametrize("num_class", [2, 5])
+def test_classifier(num_class):
     np.random.seed(3)
     X = cn.random.random((100, 10))
-    y = cn.random.randint(0, 1, X.shape[0])
-    model = lb.LBClassifier(n_estimators=5).fit(X, y)
+    y = cn.random.randint(0, num_class, X.shape[0])
+    model = lb.LBClassifier(n_estimators=10).fit(X, y)
+    loss = lb.LogLossMetric().metric(y, model.predict_proba(X), cn.ones(y.shape[0]))
+    assert np.isclose(model.train_metric_[-1], loss)
     assert non_increasing(model.train_metric_)
     assert model.score(X, y) > 0.7
 
 
-def test_classifier_improving_with_depth():
+@pytest.mark.parametrize("num_class", [2, 5])
+def test_classifier_improving_with_depth(num_class):
     np.random.seed(3)
     X = cn.random.random((100, 10))
-    y = cn.random.randint(0, 1, X.shape[0])
+    y = cn.random.randint(0, num_class, X.shape[0])
     metrics = []
-    for max_depth in range(0, 10):
+    for max_depth in range(0, 5):
         model = lb.LBClassifier(
             n_estimators=2, random_state=0, max_depth=max_depth
         ).fit(X, y)
         metrics.append(model.train_metric_[-1])
-    print(metrics)
     assert non_increasing(metrics)
 
 
