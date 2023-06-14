@@ -1,6 +1,9 @@
 # LegateBoost
 
-GBM implementation on Legate. In development.
+GBM implementation on Legate. The primary goals of LegateBoost is to provide a state-of-the-art distributed GBM implementation on Legate, capable of running on CPUs or GPUs at supercomputer scale.
+
+
+For developers - see [contributing](contributing.md)
 
 ## Example
 
@@ -35,27 +38,4 @@ Dependencies:
 From the project directory
 ```
 pip install .
-```
-
-For editable installation
-```
-pip install -e .
-```
-
-## Running tests
-```
-legate --sysmem 40000 --module pytest legateboost/test
-```
-
-## Pre-commit hooks
-
-The pre-commit package is used for linting, formatting and type checks. This project uses strict mypy type checking.
-
-Install pre-commit.
-```
-pip install pre-commit
-```
-Run all checks manually.
-```
-pre-commit run --all-files
 ```
