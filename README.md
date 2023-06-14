@@ -12,13 +12,6 @@ Run with the legate launcher
 legate example_script.py
 ```
 
-If a stall is experienced you may need to increase the avaialable memory.
-
-```bash
-legate --sysmem 40000 example_script.py
-```
-
-
 ```python
 import cunumeric as cn
 import legateboost as lbst
