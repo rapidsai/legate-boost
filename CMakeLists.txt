@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
 project(legateboost VERSION 1.0 LANGUAGES C CXX)
 
+option(SANITIZE "Build with address sanitizer" OFF)
+
 # This is for convenience only when doing
 # editable builds to avoid setting the flag
 if (NOT legateboost_ROOT)

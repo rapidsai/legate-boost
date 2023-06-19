@@ -99,6 +99,7 @@ class TreeStructure(_PickleCunumericMixin):
             types.float64, (X.shape[0], self.leaf_value.shape[1])
         )
         task.add_output(pred)
+        task.add_broadcast(pred, axes=0)
         task.execute()
         return cn.array(pred, copy=False)
 
@@ -398,18 +399,21 @@ class LBClassifier(LBBase, ClassifierMixin):
     def fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
     ) -> "LBClassifier":
+        if hasattr(y, "ndim") and y.ndim > 1:
+            warnings.warn(
+                "A column-vector y was passed when a 1d array was expected.",
+                DataConversionWarning,
+            )
         X, y = check_X_y(X, y)
 
         # Validate classifier inputs
         if y.size <= 1:
             raise ValueError("y has only 1 sample in classifer training.")
-        if y.ndim > 1:
-            warnings.warn(
-                "A column-vector y was passed when a 1d array was expected.",
-                DataConversionWarning,
-            )
 
-        self.classes_ = cn.unique(y)
+        self.classes_ = cn.unique(y.squeeze())
+        assert cn.all(
+            self.classes_ == cn.arange(len(self.classes_))
+        ), "y must contain all classes, beggining at 0"
         assert np.issubdtype(self.classes_.dtype, np.integer) or np.issubdtype(
             self.classes_.dtype, np.floating
         ), "y must be integer or floating type"

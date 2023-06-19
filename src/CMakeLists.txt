@@ -6,6 +6,8 @@ add_library(
   legateboost.h
   build_tree.cc
   predict.cc
+  utils.h
+  utils.cc
   ${TEMPLATE_SOURCES}
 )
 

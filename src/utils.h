@@ -15,9 +15,12 @@
  */
 
 #pragma once
+#include "legate_library.h"
 #include <core/type/type_info.h>
 
 namespace legateboost {
+
+extern Legion::Logger logger;
 
 inline void expect(bool condition, std::string message, std::string file, int line)
 {
