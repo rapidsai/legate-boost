@@ -7,7 +7,7 @@ pip install -e .
 
 ## Running tests
 ```
-legate --sysmem 40000 --module pytest legateboost/test
+legate --module pytest legateboost/test
 ```
 
 ## Pre-commit hooks

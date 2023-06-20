@@ -28,6 +28,28 @@ inline void expect(bool condition, std::string message, std::string file, int li
 }
 #define EXPECT(condition, message) (expect(condition, message, __FILE__, __LINE__))
 
+template <int AXIS, typename ShapeAT, typename ShapeBT>
+void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, std::string file, int line)
+{
+  expect((a.lo[AXIS] == b.lo[AXIS]) && (a.hi[AXIS] == b.hi[AXIS]),
+         "Inconsistent axis alignment.",
+         file,
+         line);
+}
+#define EXPECT_AXIS_ALIGNED(axis, shape_a, shape_b) \
+  (expect_axis_aligned<axis>(shape_a, shape_b, __FILE__, __LINE__))
+
+template <typename ShapeT>
+void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
+{
+  for (int i = 0; i < sizeof(shape.lo.x) / sizeof(shape.lo[0]); i++) {
+    std::stringstream ss;
+    ss << "Expected a broadcast store. Got shape: " << shape << ".";
+    expect(shape.lo[i] == 0, ss.str(), file, line);
+  }
+}
+#define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
+
 template <typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f, Fnargs&&... args)
 {

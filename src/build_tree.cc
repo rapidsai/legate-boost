@@ -164,19 +164,16 @@ struct build_tree_fn {
     auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
     const auto& g     = context.inputs().at(1);
     const auto& h     = context.inputs().at(2);
-    auto g_shape      = context.inputs().at(1).shape<2>();
-    auto h_shape      = context.inputs().at(2).shape<2>();
-    EXPECT(g_shape == h_shape, "Expected same shape for g and h.");
-    EXPECT(g_shape.hi[0] - g_shape.lo[0] + 1 == num_rows,
-           "Expected same number of rows for X and g/h.");
-
-    auto num_outputs             = g.shape<2>().hi[1] - g.shape<2>().lo[1] + 1;
-    auto g_accessor              = g.read_accessor<double, 2>();
-    auto h_accessor              = h.read_accessor<double, 2>();
-    const auto& split_proposals  = context.inputs().at(3);
-    auto split_proposals_shape   = split_proposals.shape<2>();
+    EXPECT_AXIS_ALIGNED(0, X.shape<2>(), g.shape<2>());
+    EXPECT_AXIS_ALIGNED(0, g.shape<2>(), h.shape<2>());
+    EXPECT_AXIS_ALIGNED(1, g.shape<2>(), h.shape<2>());
+    auto g_shape                = context.inputs().at(1).shape<2>();
+    auto num_outputs            = g.shape<2>().hi[1] - g.shape<2>().lo[1] + 1;
+    auto g_accessor             = g.read_accessor<double, 2>();
+    auto h_accessor             = h.read_accessor<double, 2>();
+    const auto& split_proposals = context.inputs().at(3);
+    EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X.shape<2>());
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
-    EXPECT(X.code() == split_proposals.code(), "Expected same type for X and split proposals.");
 
     // Scalars
     auto learning_rate = context.scalars().at(0).value<double>();

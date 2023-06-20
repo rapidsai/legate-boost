@@ -411,9 +411,7 @@ class LBClassifier(LBBase, ClassifierMixin):
             raise ValueError("y has only 1 sample in classifer training.")
 
         self.classes_ = cn.unique(y.squeeze())
-        assert cn.all(
-            self.classes_ == cn.arange(len(self.classes_))
-        ), "y must contain all classes, beggining at 0"
+        num_classes = int(self.classes_.max() + 1)
         assert np.issubdtype(self.classes_.dtype, np.integer) or np.issubdtype(
             self.classes_.dtype, np.floating
         ), "y must be integer or floating type"
@@ -422,10 +420,7 @@ class LBClassifier(LBBase, ClassifierMixin):
             if not whole_numbers:
                 raise ValueError("Unknown label type: ", self.classes_)
 
-        self.n_margin_outputs_ = len(self.classes_) if len(self.classes_) > 2 else 1
-        if len(self.classes_) < 2:
-            raise ValueError("y must have at least 2 classes")
-
+        self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
         super().fit(X, y, sample_weight=sample_weight)
         return self
 
@@ -435,8 +430,8 @@ class LBClassifier(LBBase, ClassifierMixin):
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
         objective = objectives[self.objective]()
         pred = objective.transform(super().predict(X))
-        if len(self.classes_) == 2:
-            pred = pred.squeeze(axis=1)
+        if self.n_margin_outputs_ == 1:
+            pred = pred.squeeze()
             pred = cn.stack([1.0 - pred, pred], axis=1)
         return pred
 

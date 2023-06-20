@@ -32,8 +32,17 @@ struct predict_fn {
     auto split_value = context.inputs().at(3).read_accessor<double, 1>();
 
     auto& pred         = context.outputs().at(0);
+    auto pred_shape    = pred.shape<2>();
     auto pred_accessor = pred.write_accessor<double, 2>();
     auto n_outputs     = pred.shape<2>().hi[1] - pred.shape<2>().lo[1] + 1;
+
+    // We should have one output prediction per row of X
+    EXPECT_AXIS_ALIGNED(0, X_shape, pred_shape);
+
+    // We should have the whole tree
+    EXPECT_IS_BROADCAST(context.inputs().at(1).shape<2>());
+    EXPECT_IS_BROADCAST(context.inputs().at(2).shape<1>());
+    EXPECT_IS_BROADCAST(context.inputs().at(3).shape<1>());
 
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       int pos = 0;
