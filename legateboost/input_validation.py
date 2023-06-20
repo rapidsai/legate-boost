@@ -21,6 +21,7 @@ def check_sample_weight(sample_weight: Any, n: int) -> cn.ndarray:
             + str(n)
             + ",)"
         )
+    assert sample_weight.min() >= 0, "Negative weights are not supported."
     return sample_weight.astype(cn.float64)
 
 

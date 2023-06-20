@@ -263,7 +263,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             # initialise the model to some good average value
             # this is equivalent to a tree with a single leaf and learning rate 1.0
             pred = cn.tile(self.model_init_, (y.shape[0], 1))
-            g, h = objective.gradient(y, objective.transform(pred), sample_weight)
+            g, h = objective.gradient(y, objective.transform(pred))
             H = h.sum()
             if H > 0.0:
                 self.model_init_ = -g.sum(axis=0) / H
@@ -274,11 +274,13 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         self.train_metric_ = []
         for i in range(self.n_estimators):
             # obtain gradients
-            g, h = objective.gradient(y, objective.transform(pred), sample_weight)
+            g, h = objective.gradient(y, objective.transform(pred))
             assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
                 g.dtype, h.dtype
             )
             assert g.shape == h.shape
+            g = g * sample_weight[:, None]
+            h = h * sample_weight[:, None]
 
             # build new tree
             tree = build_tree_native(

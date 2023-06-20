@@ -14,6 +14,21 @@ def non_decreasing(x):
     return all(x <= y for x, y in zip(x, x[1:]))
 
 
+def sanity_check_tree_stats(trees):
+    for tree in trees:
+        # Check that we have no 0 hessian splits
+        split_nodes = tree.feature != -1
+        assert cn.all(tree.hessian[split_nodes] > 0.0)
+
+        # Check gain is positive
+        assert cn.all(tree.gain[split_nodes] > 0.0)
+
+        # Check that hessians of leaves add up to root.
+        leaves = (tree.feature == -1) & (tree.hessian[:, 0] > 0.0)
+        leaf_sum = tree.hessian[leaves].sum(axis=0)
+        assert np.isclose(leaf_sum, tree.hessian[0]).all()
+
+
 @pytest.mark.parametrize("num_outputs", [1, 5])
 def test_regressor(num_outputs):
     np.random.seed(2)
@@ -28,10 +43,12 @@ def test_regressor(num_outputs):
 
     # test print
     model.dump_trees()
+    sanity_check_tree_stats(model.models_)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
 def test_regressor_improving_with_depth(num_outputs):
+    np.random.seed(3)
     X = cn.random.random((100, 10))
     y = cn.random.random((X.shape[0], num_outputs))
     metrics = []
@@ -41,6 +58,23 @@ def test_regressor_improving_with_depth(num_outputs):
         )
         metrics.append(model.train_metric_[-1])
     assert non_increasing(metrics)
+
+
+@pytest.mark.parametrize("num_outputs", [1, 5])
+def test_regressor_weights(num_outputs):
+    """We expect that a tree with high enough depth/learning rate will reach 0
+    training loss.
+
+    Check this happens with weights.
+    """
+    np.random.seed(4)
+    X = cn.random.random((100, 10))
+    y = cn.random.random((X.shape[0], num_outputs))
+    w = cn.random.random(X.shape[0])
+    model = lb.LBRegressor(
+        n_estimators=5, random_state=0, max_depth=10, learning_rate=1.0
+    ).fit(X, y, sample_weight=w)
+    assert cn.isclose(model.train_metric_[-1], 0.0, atol=1e-5)
 
 
 def test_regressor_determinism():
@@ -107,6 +141,19 @@ def test_classifier(num_class):
     assert np.isclose(model.train_metric_[-1], loss)
     assert non_increasing(model.train_metric_)
     assert model.score(X, y) > 0.7
+    sanity_check_tree_stats(model.models_)
+
+
+@pytest.mark.parametrize("num_class", [2, 5])
+def test_classifier_weights(num_class):
+    np.random.seed(7)
+    X = cn.random.random((100, 10))
+    y = cn.random.randint(0, num_class, X.shape[0])
+    w = cn.random.random(X.shape[0])
+    model = lb.LBClassifier(n_estimators=10, learning_rate=1.0, max_depth=10).fit(
+        X, y, w
+    )
+    assert np.isclose(model.train_metric_[-1], 0.0, atol=1e-3)
 
 
 @pytest.mark.parametrize("num_class", [2, 5])

@@ -4,10 +4,8 @@ from .metrics import LogLossMetric, MSEMetric
 
 
 class SquaredErrorObjective:
-    def gradient(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
-        if y.ndim == 2:
-            w = cn.repeat(w[:, cn.newaxis], y.shape[1], axis=1)
-        return pred - y, w
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
+        return pred - y, cn.ones(pred.shape)
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         return pred
@@ -17,7 +15,7 @@ class SquaredErrorObjective:
 
 
 class LogLossObjective:
-    def gradient(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
         assert pred.ndim == 2
         eps = 1e-15
         # binary case
