@@ -86,8 +86,8 @@ struct Tree {
 template <typename T>
 void WriteOutput(legate::Store& out, const std::vector<T>& x)
 {
-  EXPECT(out.shape<1>().volume() >= x.size(), "Output not large enough.");
-  std::copy(x.begin(), x.end(), out.write_accessor<T, 1>().ptr(0));
+  EXPECT(out.shape<2>().volume() >= x.size(), "Output not large enough.");
+  std::copy(x.begin(), x.end(), out.write_accessor<T, 2>().ptr({0, 0}));
 }
 void WriteOutput(legate::Store& out, const legate::Buffer<double, 2>& x)
 {
@@ -200,12 +200,14 @@ struct build_tree_fn {
     std::vector<int32_t> positions(num_rows);
     for (int64_t depth = 0; depth < max_depth; ++depth) {
       GradientHistogram histogram(num_features, depth, num_outputs);
-      for (int64_t i = 0; i < num_rows; i++) {
+      for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
+        auto index_local = i - X_shape.lo[0];
         for (int64_t j = 0; j < num_features; j++) {
           for (int64_t k = 0; k < num_outputs; ++k) {
             auto x    = X_accessor[{i, j}];
             bool left = x <= split_proposal_accessor[{depth, j}];
-            histogram.Add(j, positions[i], k, GPair{g_accessor[{i, k}], h_accessor[{i, k}]}, left);
+            histogram.Add(
+              j, positions[index_local], k, GPair{g_accessor[{i, k}], h_accessor[{i, k}]}, left);
           }
         }
       }
@@ -258,8 +260,9 @@ struct build_tree_fn {
       }
 
       // Update the positions
-      for (int64_t i = 0; i < num_rows; i++) {
-        int& pos = positions[i];
+      for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
+        auto index_local = i - X_shape.lo[0];
+        int& pos         = positions[index_local];
         if (pos < 0 || tree.IsLeaf(pos)) {
           pos = -1;
           continue;

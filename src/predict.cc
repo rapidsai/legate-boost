@@ -23,10 +23,13 @@ struct predict_fn {
   template <legate::Type::Code CODE>
   void operator()(legate::TaskContext& context)
   {
-    using T          = legate::legate_type_of<CODE>;
-    auto& X          = context.inputs().at(0);
-    auto X_shape     = context.inputs().at(0).shape<2>();
-    auto X_accessor  = context.inputs().at(0).read_accessor<T, 2>();
+    using T         = legate::legate_type_of<CODE>;
+    auto& X         = context.inputs().at(0);
+    auto X_shape    = context.inputs().at(0).shape<2>();
+    auto X_accessor = context.inputs().at(0).read_accessor<T, 2>();
+
+    // The tree structure stores all have 1 extra 'dummy' dimension
+    // due to broadcasting
     auto leaf_value  = context.inputs().at(1).read_accessor<double, 2>();
     auto feature     = context.inputs().at(2).read_accessor<int32_t, 1>();
     auto split_value = context.inputs().at(3).read_accessor<double, 1>();
@@ -46,7 +49,9 @@ struct predict_fn {
 
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       int pos = 0;
-      while (feature[pos] != -1) {
+      // Use a max depth of 100 to avoid infinite loops
+      for (int depth = 0; depth < 100; depth++) {
+        if (feature[pos] == -1) break;
         auto x = X_accessor[{i, feature[pos]}];
         pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
       }

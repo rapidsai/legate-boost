@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from enum import IntEnum
-from typing import Any, Union
+from typing import Any, Tuple, Union
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
@@ -10,7 +10,7 @@ from sklearn.exceptions import DataConversionWarning
 from sklearn.utils.validation import check_is_fitted, check_random_state
 
 import cunumeric as cn
-from legate.core import Store, types
+from legate.core import Rect, Store, get_legate_runtime, types
 
 from .input_validation import check_sample_weight, check_X_y
 from .library import user_context, user_lib
@@ -83,17 +83,17 @@ class TreeStructure(_PickleCunumericMixin):
         assert gain.dtype == cn.float64
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
-        task = user_context.create_auto_task(
-            LegateBoostOpCode.PREDICT,
-        )
-        task.add_input(_get_legate_store(X))
-        task.add_broadcast(_get_legate_store(X), axes=0)
-        task.add_input(_get_legate_store(self.leaf_value))
-        task.add_broadcast(_get_legate_store(self.leaf_value))
-        task.add_input(_get_legate_store(self.feature))
-        task.add_broadcast(_get_legate_store(self.feature))
-        task.add_input(_get_legate_store(self.split_value))
-        task.add_broadcast(_get_legate_store(self.split_value))
+        task = user_context.create_auto_task(LegateBoostOpCode.PREDICT)
+        task.add_input(_get_store(X))
+        task.add_broadcast(_get_store(X), axes=0)
+
+        # broadcast the tree structure
+        task.add_input(_get_store(self.leaf_value))
+        task.add_input(_get_store(self.feature))
+        task.add_input(_get_store(self.split_value))
+        task.add_broadcast(_get_store(self.leaf_value))
+        task.add_broadcast(_get_store(self.feature))
+        task.add_broadcast(_get_store(self.split_value))
 
         pred = user_context.create_store(
             types.float64, (X.shape[0], self.leaf_value.shape[1])
@@ -136,7 +136,7 @@ class TreeStructure(_PickleCunumericMixin):
         return recurse_print(0, 0)
 
 
-def _get_legate_store(input: Any) -> Store:
+def _get_store(input: Any) -> Store:
     """Extracts a Legate store from any object implementing the legete data
     interface.
 
@@ -165,50 +165,62 @@ def build_tree_native(
 ) -> TreeStructure:
 
     # choose possible splits
-    split_proposals = X[random_state.randint(0, X.shape[0], max_depth)]
+    split_proposals = X[
+        random_state.randint(0, X.shape[0], max_depth)
+    ]  # may not be efficient, maybe write new task
+    num_features = X.shape[1]
+    num_outputs = g.shape[1]
+    n_rows = X.shape[0]
+    num_procs = len(get_legate_runtime().machine)
+    # dont launch more tasks than rows
+    # num_procs = min(num_procs, n_rows)
+    rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
-    task = user_context.create_auto_task(
-        LegateBoostOpCode.BUILD_TREE,
+    task = user_context.create_manual_task(
+        LegateBoostOpCode.BUILD_TREE, launch_domain=Rect((num_procs, 1))
     )
-    task.add_input(_get_legate_store(X))
-    task.add_broadcast(_get_legate_store(X), axes=0)
-    task.add_input(_get_legate_store(g))
-    task.add_broadcast(_get_legate_store(g), axes=0)
-    task.add_input(_get_legate_store(h))
-    task.add_broadcast(_get_legate_store(h), axes=0)
-    task.add_input(_get_legate_store(split_proposals))
-    task.add_broadcast(_get_legate_store(split_proposals))
-    task.add_alignment(_get_legate_store(g), _get_legate_store(h))
+
+    # inputs
     task.add_scalar_arg(learning_rate, types.float64)
     task.add_scalar_arg(max_depth, types.int32)
     task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
 
-    max_nodes = 2 ** (max_depth + 1)
-    n_outputs = g.shape[1]
-    leaf_value = user_context.create_store(types.float64, (max_nodes, n_outputs))
-    feature = user_context.create_store(types.int32, max_nodes)
-    split_value = user_context.create_store(types.float64, max_nodes)
-    gain = user_context.create_store(types.float64, max_nodes)
-    hessian = user_context.create_store(types.float64, (max_nodes, n_outputs))
+    task.add_input(_get_store(X).partition_by_tiling((rows_per_tile, num_features)))
+    task.add_input(_get_store(g).partition_by_tiling((rows_per_tile, num_outputs)))
+    task.add_input(_get_store(h).partition_by_tiling((rows_per_tile, num_outputs)))
+    task.add_input(_get_store(split_proposals))
 
-    task.add_output(leaf_value)
-    task.add_broadcast(leaf_value)
-    task.add_output(feature)
-    task.add_broadcast(feature)
-    task.add_output(split_value)
-    task.add_broadcast(split_value)
-    task.add_output(gain)
-    task.add_broadcast(gain)
-    task.add_output(hessian)
-    task.add_broadcast(hessian)
+    # outputs
+    # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
+    max_nodes = 2 ** (max_depth + 1)
+    leaf_value = user_context.create_store(types.float64, (max_nodes, num_outputs))
+    feature = user_context.create_store(types.int32, (max_nodes, 1))
+    split_value = user_context.create_store(types.float64, (max_nodes, 1))
+    gain = user_context.create_store(types.float64, (max_nodes, 1))
+    hessian = user_context.create_store(types.float64, (max_nodes, num_outputs))
+
+    # All outputs belong to a single tile on worker 0
+    # Defining a projection function (even the identity) prevents legate
+    # from trying to assign empty tiles to workers
+    # in the case where the number of tiles is less than the launch grid
+    def proj(x: Tuple[int, int]) -> Tuple[int, int]:
+        return (x[0], 0)  # everything crashes if this is lambda x: x ????
+
+    task.add_output(leaf_value.partition_by_tiling((max_nodes, num_outputs)), proj=proj)
+    task.add_output(feature.partition_by_tiling((max_nodes, 1)), proj=proj)
+    task.add_output(split_value.partition_by_tiling((max_nodes, 1)), proj=proj)
+    task.add_output(gain.partition_by_tiling((max_nodes, 1)), proj=proj)
+    task.add_output(hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj)
+
     task.add_cpu_communicator()
+
     task.execute()
 
     return TreeStructure(
         cn.array(leaf_value, copy=False),
-        cn.array(feature, copy=False),
-        cn.array(split_value, copy=False),
-        cn.array(gain, copy=False),
+        cn.array(feature, copy=False).squeeze(),
+        cn.array(split_value, copy=False).squeeze(),
+        cn.array(gain, copy=False).squeeze(),
         cn.array(hessian, copy=False),
     )
 
@@ -417,10 +429,12 @@ class LBClassifier(LBBase, ClassifierMixin):
         assert np.issubdtype(self.classes_.dtype, np.integer) or np.issubdtype(
             self.classes_.dtype, np.floating
         ), "y must be integer or floating type"
-        if np.issubdtype(self.classes_.dtype, np.floating):
-            whole_numbers = cn.all(self.classes_ == cn.floor(self.classes_))
-            if not whole_numbers:
-                raise ValueError("Unknown label type: ", self.classes_)
+
+        # legion segfault
+        # if np.issubdtype(self.classes_.dtype, np.floating):
+        #    whole_numbers = cn.all(self.classes_ == cn.floor(self.classes_))
+        #    if not whole_numbers:
+        #        raise ValueError("Unknown label type: ", self.classes_)
 
         self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
         super().fit(X, y, sample_weight=sample_weight)
