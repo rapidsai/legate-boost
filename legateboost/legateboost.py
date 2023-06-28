@@ -10,7 +10,7 @@ from sklearn.exceptions import DataConversionWarning
 from sklearn.utils.validation import check_is_fitted, check_random_state
 
 import cunumeric as cn
-from legate.core import Rect, Store, get_legate_runtime, types
+from legate.core import Future, Rect, Store, get_legate_runtime, types
 
 from .input_validation import check_sample_weight, check_X_y
 from .library import user_context, user_lib
@@ -39,6 +39,15 @@ class _PickleCunumericMixin:
 
         replace(state)
         self.__dict__.update(state)
+
+
+# handle the case of 1 input row, where the store can be a future
+# calls to partition_by_tiling will fail
+def partition_if_not_future(array: cn.ndarray, shape: Tuple[int, int]) -> Any:
+    store = _get_store(array)
+    if store.kind == Future:
+        return store
+    return store.partition_by_tiling(shape)
 
 
 class TreeStructure(_PickleCunumericMixin):
@@ -83,23 +92,25 @@ class TreeStructure(_PickleCunumericMixin):
         assert gain.dtype == cn.float64
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
-        task = user_context.create_auto_task(LegateBoostOpCode.PREDICT)
-        task.add_input(_get_store(X))
-        task.add_broadcast(_get_store(X), axes=0)
+        n_rows = X.shape[0]
+        n_features = X.shape[1]
+        n_outputs = self.leaf_value.shape[1]
+        num_procs = len(get_legate_runtime().machine)
+        # dont launch more tasks than rows
+        num_procs = min(num_procs, n_rows)
+        rows_per_tile = int(cn.ceil(n_rows / num_procs))
+        task = user_context.create_manual_task(
+            LegateBoostOpCode.PREDICT, Rect((num_procs, 1))
+        )
+        task.add_input(partition_if_not_future(X, (rows_per_tile, n_features)))
 
         # broadcast the tree structure
         task.add_input(_get_store(self.leaf_value))
         task.add_input(_get_store(self.feature))
         task.add_input(_get_store(self.split_value))
-        task.add_broadcast(_get_store(self.leaf_value))
-        task.add_broadcast(_get_store(self.feature))
-        task.add_broadcast(_get_store(self.split_value))
 
-        pred = user_context.create_store(
-            types.float64, (X.shape[0], self.leaf_value.shape[1])
-        )
-        task.add_output(pred)
-        task.add_broadcast(pred, axes=0)
+        pred = user_context.create_store(types.float64, (n_rows, n_outputs))
+        task.add_output(partition_if_not_future(pred, (rows_per_tile, n_outputs)))
         task.execute()
         return cn.array(pred, copy=False)
 
@@ -173,7 +184,7 @@ def build_tree_native(
     n_rows = X.shape[0]
     num_procs = len(get_legate_runtime().machine)
     # dont launch more tasks than rows
-    # num_procs = min(num_procs, n_rows)
+    num_procs = min(num_procs, n_rows)
     rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
     task = user_context.create_manual_task(
@@ -185,9 +196,9 @@ def build_tree_native(
     task.add_scalar_arg(max_depth, types.int32)
     task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
 
-    task.add_input(_get_store(X).partition_by_tiling((rows_per_tile, num_features)))
-    task.add_input(_get_store(g).partition_by_tiling((rows_per_tile, num_outputs)))
-    task.add_input(_get_store(h).partition_by_tiling((rows_per_tile, num_outputs)))
+    task.add_input(partition_if_not_future(X, (rows_per_tile, num_features)))
+    task.add_input(partition_if_not_future(g, (rows_per_tile, num_outputs)))
+    task.add_input(partition_if_not_future(h, (rows_per_tile, num_outputs)))
     task.add_input(_get_store(split_proposals))
 
     # outputs
@@ -251,9 +262,6 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             "_xfail_checks": {
                 "check_sample_weights_invariance": (
                     "zero sample_weight is not equivalent to removing samples"
-                ),
-                "check_sample_weights_not_an_array": (
-                    "LegateBoost does not convert inputs."
                 ),
                 "check_complex_data": (
                     "LegateBoost does not currently support complex data."
@@ -430,11 +438,10 @@ class LBClassifier(LBBase, ClassifierMixin):
             self.classes_.dtype, np.floating
         ), "y must be integer or floating type"
 
-        # legion segfault
-        # if np.issubdtype(self.classes_.dtype, np.floating):
-        #    whole_numbers = cn.all(self.classes_ == cn.floor(self.classes_))
-        #    if not whole_numbers:
-        #        raise ValueError("Unknown label type: ", self.classes_)
+        if np.issubdtype(self.classes_.dtype, np.floating):
+            whole_numbers = cn.all(self.classes_ == cn.floor(self.classes_))
+            if not whole_numbers:
+                raise ValueError("Unknown label type: ", self.classes_)
 
         self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
         super().fit(X, y, sample_weight=sample_weight)
