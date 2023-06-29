@@ -12,7 +12,7 @@ jobs:
       - name: Install dependencies
         run: |
           PATH=$PATH:/opt/conda/bin;
-          mamba install -y -c legate -c conda-forge legate-core cunumeric scikit-learn scikit-build;
+          mamba install  -c nvidia -c conda-forge -c legate legate-core cunumeric scikit-learn scikit-build;
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build
