@@ -10,8 +10,10 @@ jobs:
         DEFAULT_CONDA_ENV: legate
     steps:
       - name: hello
-        run:
-          echo "hello";
+        shell: bash
+        run: |
+          echo ${PATH};
+          echo "/opt/conda/bin" >> $GITHUB_PATH;
           echo ${PATH};
           mamba list;
   job2_gpu:
