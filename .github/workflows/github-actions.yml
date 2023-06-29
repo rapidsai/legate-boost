@@ -9,7 +9,8 @@ jobs:
       - name: hello
         run:
           echo "hello";
-          /opt/conda/bin/mamba list;
+          echo "hello2";
+          mamba list;
   job2_gpu:
     runs-on: linux-amd64-gpu-v100-latest-1
     container: # GPU jobs must run in a container
