@@ -13,9 +13,9 @@ jobs:
         shell: bash
         run: |
           echo ${PATH};
-          echo "/opt/conda/bin" >> $GITHUB_PATH;
+          PATH=$PATH:/opt/conda/bin
           echo ${PATH};
-          mamba list;
+          mamba install -y -c legate legate-core cunumeric
   job2_gpu:
     runs-on: linux-amd64-gpu-v100-latest-1
     container: # GPU jobs must run in a container
