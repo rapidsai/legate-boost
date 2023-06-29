@@ -12,13 +12,13 @@ jobs:
       - name: Install dependencies
         run: |
           PATH=$PATH:/opt/conda/bin;
-          mamba install  -c nvidia -c conda-forge -c legate -c "nvidia/label/cuda-11.8.0" cuda-runtime legate-core cunumeric scikit-learn scikit-build;
+          mamba install  -c nvidia -c conda-forge -c legate legate-core cunumeric scikit-learn scikit-build;
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build
         run: |
           PATH=$PATH:/opt/conda/bin;
-          pip install .
+          CMAKE_ARGS="-DSANITIZE=ON" pip install . --verbose
   job2_gpu:
     runs-on: linux-amd64-gpu-v100-latest-1
     container: # GPU jobs must run in a container
