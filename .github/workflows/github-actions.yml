@@ -1,5 +1,5 @@
 name: Test Self Hosted Runners
-on: push
+on: [push, pull_request]
 jobs:
   job1_cpu:
     runs-on: linux-amd64-cpu8
