@@ -12,7 +12,7 @@ jobs:
       - name: hello
         run:
           echo "hello";
-          echo "hello2";
+          echo ${PATH};
           mamba list;
   job2_gpu:
     runs-on: linux-amd64-gpu-v100-latest-1
