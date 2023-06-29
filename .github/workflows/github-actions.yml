@@ -3,9 +3,13 @@ on: push
 jobs:
   job1_cpu:
     runs-on: linux-amd64-cpu8
+    container:
+      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
     steps:
       - name: hello
-        run: echo "hello"
+        run:
+          echo "hello";
+          conda list;
   job2_gpu:
     runs-on: linux-amd64-gpu-v100-latest-1
     container: # GPU jobs must run in a container
