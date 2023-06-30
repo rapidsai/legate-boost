@@ -2,6 +2,9 @@ name: Test Self Hosted Runners
 on: push
 jobs:
   build:
+    defaults:
+      run:
+        shell: bash -el {0}
     runs-on: linux-amd64-cpu8
     env:
       CONDA_PREFIX: /opt/conda
@@ -10,13 +13,6 @@ jobs:
       env:
         DEFAULT_CONDA_ENV: legate
     steps:
-      - name: Set path
-        shell: bash
-        run: |
-          echo ${PATH};
-          echo "/opt/conda/bin" >> $GITHUB_PATH;
-          echo "/usr/local/cuda/bin" >> $GITHUB_PATH;
-          echo ${PATH};
       - name: Checkout legate core
         uses: actions/checkout@v3
         with:
@@ -24,7 +20,6 @@ jobs:
             path: legate.core
             ref: v23.07.00.dev
       - name: Install legate core
-        shell: bash
         run: |
           ls;
           cd $GITHUB_WORKSPACE/legate.core;
@@ -39,7 +34,6 @@ jobs:
             path: cunumeric
             ref: v23.07.00.dev
       - name: Install cunumeric
-        shell: bash
         run: |
           ls;
           cd $GITHUB_WORKSPACE/cunumeric;
