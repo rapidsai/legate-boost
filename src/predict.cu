@@ -1,0 +1,104 @@
+/* Copyright 2023 NVIDIA Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+#include "legate_library.h"
+#include "legateboost.h"
+#include "cuda_help.h"
+#include "utils.h"
+#include "predict.h"
+
+namespace legateboost {
+
+template <typename TYPE>
+__global__ static void predict_kernel(legate::AccessorRO<TYPE, 2> X,
+                                      int64_t sample_offset,
+                                      size_t n_local_samples,
+                                      legate::AccessorRO<double, 2> leaf_value,
+                                      legate::AccessorRO<int32_t, 1> feature,
+                                      legate::AccessorRO<double, 1> split_value,
+                                      legate::AccessorWO<double, 2> prediction,
+                                      int32_t n_outputs)
+{
+  int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (tid >= n_local_samples) return;
+
+  int64_t pos              = 0;
+  legate::Point<2> x_point = {sample_offset + tid, 0};
+
+  // Use a max depth of 100 to avoid infinite loops
+  for (int depth = 0; depth < 100; depth++) {
+    if (feature[pos] == -1) break;
+    x_point[1]   = feature[pos];
+    double X_val = X[x_point];
+    pos          = X_val <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
+  }
+  for (int64_t j = 0; j < n_outputs; j++) {
+    prediction[legate::Point<2>{sample_offset, j}] = leaf_value[legate::Point<2>{pos, j}];
+  }
+}
+
+namespace {
+struct predict_fn {
+  template <legate::Type::Code CODE>
+  void operator()(legate::TaskContext& context)
+  {
+    using T         = legate::legate_type_of<CODE>;
+    auto& X         = context.inputs().at(0);
+    auto X_shape    = context.inputs().at(0).shape<2>();
+    auto X_accessor = context.inputs().at(0).read_accessor<T, 2>();
+
+    // The tree structure stores all have 1 extra 'dummy' dimension
+    // due to broadcasting
+    auto leaf_value  = context.inputs().at(1).read_accessor<double, 2>();
+    auto feature     = context.inputs().at(2).read_accessor<int32_t, 1>();
+    auto split_value = context.inputs().at(3).read_accessor<double, 1>();
+
+    auto& pred         = context.outputs().at(0);
+    auto pred_shape    = pred.shape<2>();
+    auto pred_accessor = pred.write_accessor<double, 2>();
+    auto n_outputs     = pred.shape<2>().hi[1] - pred.shape<2>().lo[1] + 1;
+
+    // We should have one output prediction per row of X
+    EXPECT_AXIS_ALIGNED(0, X_shape, pred_shape);
+
+    // We should have the whole tree
+    EXPECT_IS_BROADCAST(context.inputs().at(1).shape<2>());
+    EXPECT_IS_BROADCAST(context.inputs().at(2).shape<1>());
+    EXPECT_IS_BROADCAST(context.inputs().at(3).shape<1>());
+
+    // rowwise kernel
+    size_t n_local_samples = X_shape.hi[0] - X_shape.lo[0] + 1;
+    const size_t blocks    = (n_local_samples + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    auto stream            = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    predict_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(X_accessor,
+                                                             X_shape.lo[0],
+                                                             n_local_samples,
+                                                             leaf_value,
+                                                             feature,
+                                                             split_value,
+                                                             pred_accessor,
+                                                             n_outputs);
+  }
+};
+}  // namespace
+
+/*static*/ void PredictTask::gpu_variant(legate::TaskContext& context)
+{
+  const auto& X = context.inputs().at(0);
+  type_dispatch_float(X.code(), predict_fn(), context);
+}
+
+}  // namespace legateboost

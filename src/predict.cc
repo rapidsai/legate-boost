@@ -13,12 +13,12 @@
  * limitations under the License.
  *
  */
-#include "legate_library.h"
-#include "legateboost.h"
+#include "predict.h"
 #include "utils.h"
 
 namespace legateboost {
 
+namespace {
 struct predict_fn {
   template <legate::Type::Code CODE>
   void operator()(legate::TaskContext& context)
@@ -59,15 +59,14 @@ struct predict_fn {
     }
   }
 };
+}  // namespace
 
-class PredictTask : public Task<PredictTask, PREDICT> {
- public:
-  static void cpu_variant(legate::TaskContext& context)
-  {
-    const auto& X = context.inputs().at(0);
-    type_dispatch_float(X.code(), predict_fn(), context);
-  }
-};
+/*static*/ void PredictTask::cpu_variant(legate::TaskContext& context)
+{
+  const auto& X = context.inputs().at(0);
+  type_dispatch_float(X.code(), predict_fn(), context);
+}
+
 }  // namespace legateboost
 
 namespace  // unnamed
