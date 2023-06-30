@@ -57,14 +57,23 @@ jobs:
           cd $GITHUB_WORKSPACE/cunumeric;
           ./install.py
         if: steps.cache.outputs.cache-hit != 'true'
-  job2_gpu:
+  test:
     runs-on: linux-amd64-gpu-v100-latest-1
     container: # GPU jobs must run in a container
-      image: nvidia/cuda:11.8.0-base-ubuntu22.04
+      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
+      - name: Restore cached build
+        id: cache-restore
+        uses: actions/cache/restore@v3
+        with:
+          path: /opt/conda/envs/legate
+          key: conda--${{
+            steps.get-date.outputs.today }}--0
       - name: hello
         run: |
+          mamba activate legate
+          mamba list
           echo "hello"
           nvidia-smi
