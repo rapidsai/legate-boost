@@ -7,6 +7,7 @@ jobs:
       image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         DEFAULT_CONDA_ENV: legate
+        CONDA_PREFIX: /opt/conda
     steps:
       - name: Set path
         shell: bash
