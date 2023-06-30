@@ -16,6 +16,18 @@ jobs:
       - name: Get Date
         id: get-date
         run: echo "today=$(/bin/date -u '+%Y%m%d')" >> $GITHUB_OUTPUT
+      - name: Cache Conda env
+        uses: actions/cache@v3
+        with:
+          path: /opt/conda/envs/legate
+          key:
+            conda--${{
+            steps.get-date.outputs.today }}--${{ env.CACHE_NUMBER
+            }}
+        env:
+          # Increase this value to reset cache if etc/example-environment.yml has not changed
+          CACHE_NUMBER: 0
+        id: cache
       - name: Checkout legate core
         uses: actions/checkout@v3
         with:
@@ -31,6 +43,7 @@ jobs:
           mamba activate legate;
           mamba install -y -c conda-forge openmpi ucx rust;
           ./install.py --network ucx --cuda --arch RAPIDS -j 10;
+        if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v3
         with:
@@ -43,7 +56,7 @@ jobs:
           mamba list;
           cd $GITHUB_WORKSPACE/cunumeric;
           ./install.py
-          
+        if: steps.cache.outputs.cache-hit != 'true'
   job2_gpu:
     runs-on: linux-amd64-gpu-v100-latest-1
     container: # GPU jobs must run in a container
