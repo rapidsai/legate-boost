@@ -13,6 +13,9 @@ jobs:
       env:
         DEFAULT_CONDA_ENV: legate
     steps:
+      - name: Get Date
+        id: get-date
+        run: echo "today=$(/bin/date -u '+%Y%m%d')" >> $GITHUB_OUTPUT
       - name: Checkout legate core
         uses: actions/checkout@v3
         with:
@@ -25,9 +28,9 @@ jobs:
           cd $GITHUB_WORKSPACE/legate.core;
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
-          mamba activate legate
+          mamba activate legate;
           mamba install -y -c conda-forge openmpi ucx rust;
-          #./install.py --network ucx --cuda --arch RAPIDS -j 10;
+          ./install.py --network ucx --cuda --arch RAPIDS -j 10;
       - name: Checkout cunumeric
         uses: actions/checkout@v3
         with:
@@ -39,7 +42,7 @@ jobs:
           echo $CONDA_PREFIX;
           mamba list;
           cd $GITHUB_WORKSPACE/cunumeric;
-          #./install.py
+          ./install.py
           
   job2_gpu:
     runs-on: linux-amd64-gpu-v100-latest-1
