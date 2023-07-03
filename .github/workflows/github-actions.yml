@@ -58,6 +58,9 @@ jobs:
           ./install.py
         if: steps.cache.outputs.cache-hit != 'true'
   test:
+    defaults:
+      run:
+        shell: bash -el {0}
     runs-on: linux-amd64-gpu-v100-latest-1
     container: # GPU jobs must run in a container
       image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
