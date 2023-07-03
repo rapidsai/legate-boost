@@ -53,6 +53,9 @@ jobs:
         working-directory: ./cunumeric
         run: |
           ./install.py
+          # make the conda directory smaller for easier caching
+          # this removes unneeded files from the env
+          mamba clean -all 
         if: steps.cache.outputs.cache-hit != 'true'
   test:
     needs: build
@@ -75,9 +78,11 @@ jobs:
           path: /opt/conda/envs/legate
           key: conda--${{
             steps.get-date.outputs.today }}--0
-      - name: hello
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Run tests
+        working-directory: ./legateboost
         run: |
           mamba activate legate
-          mamba list
-          echo "hello"
           nvidia-smi
+          legate --module pytest legateboost/test -sv
