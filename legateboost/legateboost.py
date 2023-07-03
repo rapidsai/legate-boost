@@ -273,6 +273,22 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
     def fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
     ) -> "LBBase":
+        """Build a gradient boosting model from the training set (X, y).
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training input samples.
+        y : array-like of shape (n_samples,)
+            The target values (class labels) as integers or as floating point numbers.
+        sample_weight : array-like of shape (n_samples,), default=None
+            Sample weights. If None, then samples are equally weighted.
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
         sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
         self.models_ = []
@@ -352,6 +368,58 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
 
 class LBRegressor(LBBase, RegressorMixin):
+    """Implementation of a gradient boosting algorithm for regression problems.
+    Uses decision trees as weak learners and iteratively improves the model by
+    minimizing a loss function.
+
+    Parameters
+    ----------
+    n_estimators : int, default=100
+        The number of boosting stages to perform.
+    objective : str, default='squared_error'
+        The loss function to optimize. Possible values are ['squared_error'].
+    learning_rate : float, default=0.1
+        The learning rate shrinks the contribution of each tree.
+    init : str or None, default='average'
+        The initial prediction of the model. If `None`, the initial prediction
+        is zero. If 'average', the initial prediction minimises a second order
+        approximation of the loss-function (simply the mean label in the case of
+        regression).
+    verbose : int, default=0
+        Controls the verbosity when fitting and predicting.
+    random_state : np.random.RandomState or None, default=None
+        Controls the randomness of the estimator. Pass an int for reproducible
+        results across multiple function calls.
+    max_depth : int, default=3
+        The maximum depth of the decision trees.
+
+    Attributes
+    ----------
+    n_features_in_ : int
+        The number of features when `fit` is performed.
+    is_fitted_ : bool
+        Whether the estimator has been fitted.
+    models_ :
+        list of models from each iteration.
+    train_metric_ :
+        evaluated training metrics from each iteration.
+
+
+    See Also
+    --------
+    LBClassifier
+
+    Examples
+    --------
+    >>> import cunumeric as cn
+    >>> import legateboost as lbst
+    >>> X = cn.random.random((1000, 10))
+    >>> y = cn.random.random(X.shape[0])
+    >>> model = lbst.LBRegressor(verbose=1,
+    ... n_estimators=100, random_state=0, max_depth=2).fit(X, y)
+    >>> model.predict(X)
+    """
+
     def __init__(
         self,
         n_estimators: int = 100,
@@ -361,7 +429,6 @@ class LBRegressor(LBBase, RegressorMixin):
         verbose: int = 0,
         random_state: np.random.RandomState = None,
         max_depth: int = 3,
-        version: str = "native",
     ) -> None:
         super().__init__(
             n_estimators=n_estimators,
@@ -371,7 +438,6 @@ class LBRegressor(LBBase, RegressorMixin):
             verbose=verbose,
             random_state=random_state,
             max_depth=max_depth,
-            version=version,
         )
 
     def _more_tags(self) -> Any:
@@ -389,6 +455,18 @@ class LBRegressor(LBBase, RegressorMixin):
         return super().fit(X, y, sample_weight)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
+        """Predict labels for samples in X.
+
+        Parameters
+        ----------
+        X : cn.ndarray
+            Input data.
+
+        Returns
+        -------
+        cn.ndarray
+            Predicted labels for X.
+        """
         pred = super().predict(X)
         if pred.shape[1] == 1:
             pred = pred.squeeze(axis=1)
@@ -396,6 +474,54 @@ class LBRegressor(LBBase, RegressorMixin):
 
 
 class LBClassifier(LBBase, ClassifierMixin):
+    """Implements a gradient boosting algorithm for classification problems.
+
+    Parameters
+    ----------
+    n_estimators : int, default=100
+        The number of boosting stages to perform.
+    objective : str, default='log_loss'
+        The loss function to be optimized. Possible values: ['log_loss'].
+    learning_rate : float, default=0.1
+        The learning rate shrinks the contribution of each tree by `learning_rate`.
+    init : str or None, default='average'
+        The initial prediction of the model. If `None`, the initial prediction
+        is zero. If 'average', the initial prediction minimises a second order
+        approximation of the loss-function.
+    verbose : int, default=0
+        Controls the verbosity of the boosting process.
+    random_state : np.random.RandomState or None, default=None
+        Controls the randomness of the estimator. Pass an int for reproducible output
+        across multiple function calls.
+    max_depth : int, default=3
+        The maximum depth of the individual trees.
+
+    Attributes
+    ----------
+    classes_ : array of shape (n_classes,)
+        The classes labels.
+    n_features_ : int
+        The number of features.
+    n_classes_ : int
+        The number of classes.
+    models_ : list of models from each iteration.
+    train_metric_ : evaluated training metrics from each iteration.
+
+    See Also
+    --------
+    LBRegressor
+
+    Examples
+    --------
+    >>> import cunumeric as cn
+    >>> import legateboost as lbst
+    >>> X = cn.random.random((1000, 10))
+    >>> y = cn.random.randint(0, 2, X.shape[0])
+    >>> model = lbst.LBClassifier(verbose=1, n_estimators=100,
+    ...     random_state=0, max_depth=2).fit(X, y)
+    >>> model.predict(X)
+    """
+
     def __init__(
         self,
         n_estimators: int = 100,
@@ -405,7 +531,6 @@ class LBClassifier(LBBase, ClassifierMixin):
         verbose: int = 0,
         random_state: np.random.RandomState = None,
         max_depth: int = 3,
-        version: str = "native",
     ) -> None:
         super().__init__(
             n_estimators=n_estimators,
@@ -415,7 +540,6 @@ class LBClassifier(LBBase, ClassifierMixin):
             verbose=verbose,
             random_state=random_state,
             max_depth=max_depth,
-            version=version,
         )
 
     def fit(
@@ -448,9 +572,38 @@ class LBClassifier(LBBase, ClassifierMixin):
         return self
 
     def predict_raw(self, X: cn.ndarray) -> cn.ndarray:
+        """Predict pre-transformed values for samples in X. E.g. before
+        applying a sigmoid function.
+
+        Parameters
+        ----------
+
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+
+        y : ndarray of shape (n_samples,)
+            The predicted raw values for each sample in X.
+        """
         return super().predict(X)
 
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
+        """Predict class probabilities for samples in X.
+
+        Parameters
+        ----------
+
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+
+        y : ndarray of shape (n_samples, n_classes)
+            The predicted class probabilities for each sample in X.
+        """
         objective = objectives[self.objective]()
         pred = objective.transform(super().predict(X))
         if self.n_margin_outputs_ == 1:
@@ -459,4 +612,18 @@ class LBClassifier(LBBase, ClassifierMixin):
         return pred
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
+        """Predict class labels for samples in X.
+
+        Parameters
+        ----------
+
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+
+        y : ndarray of shape (n_samples,)
+            The predicted class labels for each sample in X.
+        """
         return cn.argmax(self.predict_proba(X), axis=1)
