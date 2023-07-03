@@ -15,17 +15,17 @@ jobs:
     steps:
       - name: Get Date
         id: get-date
-        run: echo "today=$(/bin/date -u '+%Y%m%d')" >> $GITHUB_OUTPUT
+        run: echo "today=$(/bin/date -u '+%Y%U')" >> $GITHUB_OUTPUT
       - name: Cache Conda env
         uses: actions/cache@v3
         with:
           path: /opt/conda/envs/legate
+          # renew cache weekly with legate.core/cunumeric builds
           key:
             conda--${{
             steps.get-date.outputs.today }}--${{ env.CACHE_NUMBER
             }}
         env:
-          # Increase this value to reset cache if etc/example-environment.yml has not changed
           CACHE_NUMBER: 0
         id: cache
       - name: Checkout legate core
@@ -70,7 +70,7 @@ jobs:
     steps:
       - name: Get Date
         id: get-date
-        run: echo "today=$(/bin/date -u '+%Y%m%d')" >> $GITHUB_OUTPUT
+        run: echo "today=$(/bin/date -u '+%Y%U')" >> $GITHUB_OUTPUT
       - name: Restore cached build
         id: cache-restore
         uses: actions/cache/restore@v3
