@@ -53,16 +53,20 @@ jobs:
         working-directory: ./cunumeric
         run: |
           ./install.py
+          # make the conda directory smaller for easier caching
+          # this removes unneeded files from the env
+          mamba clean -all -y
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout legateboost
         uses: actions/checkout@v3
       - name: Build legateboost
         run: |
-          pip install . 
-          # make the conda directory smaller for easier caching
-          # this removes unneeded files from the env
-          mamba clean -all -y
-        
+          pip wheel . 
+      - uses: actions/upload-artifact@v3
+        with:
+          name: legateboost-wheel
+          path: legateboost*.whl
+          
   test:
     needs: build
     defaults:
@@ -86,6 +90,9 @@ jobs:
             steps.get-date.outputs.today }}--0
       - name: Checkout
         uses: actions/checkout@v3
+      - uses: actions/download-artifact@v3
+        with:
+          name: legateboost-wheel
       - name: Run tests
         run: |
           mamba activate legate
