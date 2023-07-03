@@ -53,10 +53,16 @@ jobs:
         working-directory: ./cunumeric
         run: |
           ./install.py
+        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Checkout legateboost
+        uses: actions/checkout@v3
+      - name: Build legateboost
+        run: |
+          pip install . 
           # make the conda directory smaller for easier caching
           # this removes unneeded files from the env
           mamba clean -all -y
-        if: steps.cache.outputs.cache-hit != 'true'
+        
   test:
     needs: build
     defaults:
@@ -81,7 +87,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Run tests
-        working-directory: ./legateboost
         run: |
           mamba activate legate
           ls
