@@ -35,9 +35,8 @@ jobs:
             path: legate.core
             ref: v23.07.00.dev
       - name: Install legate core
+        working-directory: ./legate.core
         run: |
-          ls;
-          cd $GITHUB_WORKSPACE/legate.core;
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
@@ -51,13 +50,12 @@ jobs:
             path: cunumeric
             ref: v23.07.00.dev
       - name: Install cunumeric
+        working-directory: ./cunumeric
         run: |
-          echo $CONDA_PREFIX;
-          mamba list;
-          cd $GITHUB_WORKSPACE/cunumeric;
           ./install.py
         if: steps.cache.outputs.cache-hit != 'true'
   test:
+    needs: build
     defaults:
       run:
         shell: bash -el {0}
