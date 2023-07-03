@@ -25,6 +25,7 @@ set(legateboost_srcs
 if(Legion_USE_CUDA)
   list(APPEND legateboost_srcs
     predict.cu
+    build_tree.cu
   )
 endif()
 

@@ -46,7 +46,7 @@ __global__ static void predict_kernel(legate::AccessorRO<TYPE, 2> X,
     pos          = X_val <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
   }
   for (int64_t j = 0; j < n_outputs; j++) {
-    prediction[legate::Point<2>{sample_offset, j}] = leaf_value[legate::Point<2>{pos, j}];
+    prediction[{sample_offset + tid, j}] = leaf_value[{pos, j}];
   }
 }
 
