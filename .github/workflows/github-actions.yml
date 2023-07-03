@@ -65,6 +65,9 @@ jobs:
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
+      - name: Get Date
+        id: get-date
+        run: echo "today=$(/bin/date -u '+%Y%m%d')" >> $GITHUB_OUTPUT
       - name: Restore cached build
         id: cache-restore
         uses: actions/cache/restore@v3
@@ -74,8 +77,6 @@ jobs:
             steps.get-date.outputs.today }}--0
       - name: hello
         run: |
-          ls /opt/conda/envs
-          mamba info --envs
           mamba activate legate
           mamba list
           echo "hello"
