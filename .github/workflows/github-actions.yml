@@ -63,11 +63,11 @@ jobs:
         run: |
           cmake -S . -B build
           cmake --build build
-          pip wheel . 
+          python setup.py bdist_wheel
       - uses: actions/upload-artifact@v3
         with:
           name: legateboost-wheel
-          path: legateboost*.whl
+          path: dist/legateboost*.whl
           
   test:
     needs: build
