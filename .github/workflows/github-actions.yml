@@ -40,7 +40,7 @@ jobs:
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
-          mamba install -y -c conda-forge openmpi ucx rust;
+          mamba install -y -c conda-forge openmpi ucx rust sklearn;
           ./install.py --network ucx --cuda --arch RAPIDS -j 10;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
@@ -83,7 +83,7 @@ jobs:
       - name: Get Date
         id: get-date
         run: echo "today=$(/bin/date -u '+%Y%U')" >> $GITHUB_OUTPUT
-      - name: Restore cached build
+      - name: Restore cached environment
         id: cache-restore
         uses: actions/cache/restore@v3
         with:
@@ -98,6 +98,7 @@ jobs:
       - name: Run tests
         run: |
           mamba activate legate
-          ls
+          mamba install -y sklearn
+          pip install legateboost*.whl
           nvidia-smi
           legate --module pytest legateboost/test -sv
