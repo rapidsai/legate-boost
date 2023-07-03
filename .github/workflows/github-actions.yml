@@ -40,7 +40,7 @@ jobs:
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
-          mamba install -y -c conda-forge openmpi ucx rust sklearn;
+          mamba install -y -c conda-forge openmpi ucx rust scikit-learn;
           ./install.py --network ucx --cuda --arch RAPIDS -j 10;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
@@ -98,7 +98,7 @@ jobs:
       - name: Run tests
         run: |
           mamba activate legate
-          mamba install -y sklearn
+          mamba install -y scikit-learn
           pip install legateboost*.whl
           nvidia-smi
           legate --module pytest legateboost/test -sv
