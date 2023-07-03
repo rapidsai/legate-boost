@@ -55,7 +55,7 @@ jobs:
           ./install.py
           # make the conda directory smaller for easier caching
           # this removes unneeded files from the env
-          mamba clean -all 
+          mamba clean -all -y
         if: steps.cache.outputs.cache-hit != 'true'
   test:
     needs: build
@@ -84,5 +84,6 @@ jobs:
         working-directory: ./legateboost
         run: |
           mamba activate legate
+          ls
           nvidia-smi
           legate --module pytest legateboost/test -sv
