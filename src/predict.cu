@@ -91,6 +91,7 @@ struct predict_fn {
                                                              split_value,
                                                              pred_accessor,
                                                              n_outputs);
+    CHECK_CUDA_STREAM(stream);
   }
 };
 }  // namespace

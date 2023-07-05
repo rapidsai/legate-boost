@@ -64,7 +64,7 @@ __global__ static void fill_histogram(legate::AccessorRO<TYPE, 2> X,
 
   for (int64_t sample_id = threadIdx.x; sample_id < n_local_samples; sample_id += blockDim.x) {
     int32_t sample_pos = positions[sample_id];
-    if (sample_pos < 0) return;
+    if (sample_pos < 0) continue;
     auto x_value = X[{sample_offset + sample_id, feature}];
     bool left    = x_value <= split_proposal[{depth, feature}];
 
@@ -159,22 +159,21 @@ __global__ static void perform_best_split(legate::Buffer<GPair, 4> histogram,
       auto [G_L, H_L] = histogram[{node_id, node_best_feature, output, true}];
       auto [G_R, H_R] = histogram[{node_id, node_best_feature, output, false}];
 
-      int left_child  = global_node_id * 2 + 1;
-      int right_child = left_child + 1;
-
       // FIXME: is there a reason to skip the split here?
-      // if (hessian_left[0] <= 0.0 || hessian_right[0] <= 0.0) continue;
+      if (H_L <= 0.0 || H_R <= 0.0) continue;
 
+      int left_child                         = global_node_id * 2 + 1;
+      int right_child                        = left_child + 1;
       tree_leaf_value[{left_child, output}]  = -(G_L / (H_L + eps)) * learning_rate;
       tree_leaf_value[{right_child, output}] = -(G_R / (H_R + eps)) * learning_rate;
       tree_hessian[{left_child, output}]     = H_L;
       tree_hessian[{right_child, output}]    = H_R;
-    }
 
-    if (threadIdx.x == 0) {
-      tree_feature[global_node_id]     = node_best_feature;
-      tree_split_value[global_node_id] = split_proposal[{depth, node_best_feature}];
-      tree_gain[global_node_id]        = node_best_gain;
+      if (output == 0) {
+        tree_feature[global_node_id]     = node_best_feature;
+        tree_split_value[global_node_id] = split_proposal[{depth, node_best_feature}];
+        tree_gain[global_node_id]        = node_best_gain;
+      }
     }
   }
 }
@@ -187,16 +186,16 @@ __global__ static void update_positions(legate::AccessorRO<TYPE, 2> X,
                                         legate::Buffer<int32_t, 1> tree_feature,
                                         legate::Buffer<double, 1> tree_split_value)
 {
-  for (int64_t sample_id = threadIdx.x; sample_id < n_local_samples; sample_id += blockDim.x) {
-    int32_t& pos = positions[sample_id];
-    if (pos < 0 || tree_feature[pos] == -1) {
-      pos = -1;
-      return;
-    }
-    double x_value = X[{sample_offset + sample_id, tree_feature[pos]}];
-    bool left      = x_value <= tree_split_value[pos];
-    pos            = left ? 2 * pos + 1 : 2 * pos + 2;
+  int64_t sample_id = threadIdx.x + blockDim.x * blockIdx.x;
+  if (sample_id >= n_local_samples) return;
+  int32_t pos = positions[sample_id];
+  if (pos < 0 || tree_feature[pos] == -1) {
+    positions[sample_id] = -1;
+    return;
   }
+  double x_value       = X[{sample_offset + sample_id, tree_feature[pos]}];
+  bool left            = x_value <= tree_split_value[pos];
+  positions[sample_id] = left ? 2 * pos + 1 : 2 * pos + 2;
 }
 
 namespace {
@@ -208,8 +207,10 @@ void SumAllReduce(legate::TaskContext& context, double* x, int count, cudaStream
   auto domain           = context.get_launch_domain();
   size_t num_ranks      = domain.get_volume();
   ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();
+
   if (num_ranks > 1) {
     CHECK_NCCL(ncclAllReduce(x, x, count, ncclDouble, ncclSum, *nccl_comm, stream));
+    CHECK_CUDA_STREAM(stream);
   }
 }
 
@@ -295,6 +296,7 @@ struct Tree {
     WriteOutput(context.outputs().at(2), split_value);
     WriteOutput(context.outputs().at(3), gain);
     WriteOutput(context.outputs().at(4), hessian);
+    CHECK_CUDA_STREAM(stream);
   }
 
   legate::Buffer<double, 2> leaf_value;
@@ -392,6 +394,7 @@ struct build_tree_fn {
                                            base_sums.ptr(0),
                                            same_column(num_rows));
       assert(thrust::get<1>(out_end) - base_sums.ptr(0) == num_outputs);
+      CHECK_CUDA_STREAM(stream);
 
       out_end = thrust::reduce_by_key(exec_policy,
                                       keys_in_begin,
@@ -401,12 +404,14 @@ struct build_tree_fn {
                                       base_sums.ptr(0) + num_outputs,
                                       same_column(num_rows));
       assert(thrust::get<1>(out_end) - base_sums.ptr(0) == 2 * num_outputs);
+      CHECK_CUDA_STREAM(stream);
 
       SumAllReduce(context, reinterpret_cast<double*>(base_sums.ptr(0)), num_outputs * 2, stream);
 
       tree.InitializeBase(base_sums.ptr(0), learning_rate);
 
       base_sums.destroy();
+      CHECK_CUDA_STREAM(stream);
     }
 
     // Begin building the tree
@@ -436,6 +441,7 @@ struct build_tree_fn {
                                                                    positions,
                                                                    histogram_buffer,
                                                                    depth);
+      CHECK_CUDA_STREAM(stream);
 
       SumAllReduce(context,
                    reinterpret_cast<double*>(histogram_buffer.ptr({0, 0, 0, 0})),
@@ -456,6 +462,7 @@ struct build_tree_fn {
                                                                       tree.split_value,
                                                                       tree.gain,
                                                                       depth);
+      CHECK_CUDA_STREAM(stream);
 
       histogram_buffer.destroy();
 
@@ -463,6 +470,7 @@ struct build_tree_fn {
       const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
       update_positions<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
         X_accessor, num_rows, X_shape.lo[0], positions, tree.feature, tree.split_value);
+      CHECK_CUDA_STREAM(stream);
     }
 
     if (context.get_task_index()[0] == 0) { tree.WriteTreeOutput(context); }
