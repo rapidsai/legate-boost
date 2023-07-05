@@ -1,5 +1,9 @@
 name: legateboost build/test
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+      - "branch-*"
 jobs:
   build:
     defaults:
