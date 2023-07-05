@@ -74,6 +74,7 @@ jobs:
       image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
+        DEFAULT_CONDA_ENV: legate
     steps:
       - name: Get Date
         id: get-date
@@ -90,10 +91,15 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: legateboost-wheel
-      - name: Run tests
+      - name: Run cpu tests
         run: |
           mamba activate legate
-          mamba install -y scikit-learn
           pip install legateboost*.whl
-          nvidia-smi
-          legate --module pytest legateboost/test -sv
+          legate --module pytest legateboost/test -sv --durations=0
+      - name: Run cpu multi-node tests
+        run: |
+          legate --launcher mpirun --ranks-per-node 2 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
+      - name: Run gpu tests
+        run: |
+          legate --gpus 1 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
+      
