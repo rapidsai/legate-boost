@@ -56,6 +56,7 @@ def test_regressor_improving_with_depth(num_outputs):
         model = lb.LBRegressor(n_estimators=2, random_state=0, max_depth=max_depth).fit(
             X, y
         )
+
         metrics.append(model.train_metric_[-1])
     assert non_increasing(metrics)
 
@@ -74,7 +75,7 @@ def test_regressor_weights(num_outputs):
     model = lb.LBRegressor(
         n_estimators=5, random_state=0, max_depth=10, learning_rate=1.0
     ).fit(X, y, sample_weight=w)
-    assert cn.isclose(model.train_metric_[-1], 0.0, atol=1e-5)
+    assert model.train_metric_[-1] < 1e-5
 
 
 def test_regressor_determinism():
