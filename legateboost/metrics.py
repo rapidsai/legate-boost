@@ -16,7 +16,7 @@ class MSEMetric:
         numerator = ((y - pred) ** 2 * w).sum(axis=0)
 
         numerator = numerator / w_sum
-        return numerator.mean()
+        return float(numerator.mean())
 
     def name(self) -> str:
         return "MSE"

@@ -1,0 +1,110 @@
+name: legateboost build/test
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+      - "branch-*"
+jobs:
+  build:
+    defaults:
+      run:
+        shell: bash -el {0}
+    runs-on: linux-amd64-cpu8
+    env:
+      CONDA_PREFIX: /opt/conda
+    container:
+      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
+      env:
+        DEFAULT_CONDA_ENV: legate
+    steps:
+      - name: Get Date
+        id: get-date
+        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
+      - name: Cache Conda env
+        uses: actions/cache@v3
+        with:
+          path: /opt/conda/envs/legate
+          # renew cache weekly with legate.core/cunumeric builds
+          key:
+            conda--${{
+            steps.get-date.outputs.week }}
+        id: cache
+      - name: Checkout legate core
+        uses: actions/checkout@v3
+        with:
+            repository: nv-legate/legate.core
+            path: legate.core
+            ref: v23.07.00.dev
+      - name: Install legate core
+        working-directory: ./legate.core
+        run: |
+          python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
+          mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
+          mamba activate legate;
+          mamba install -y -c conda-forge openmpi ucx rust scikit-learn build;
+          ./install.py --network ucx --cuda --arch RAPIDS;
+        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Checkout cunumeric
+        uses: actions/checkout@v3
+        with:
+            repository: nv-legate/cunumeric
+            path: cunumeric
+            ref: v23.07.00.dev
+      - name: Install cunumeric
+        working-directory: ./cunumeric
+        run: |
+          ./install.py
+          # make the conda directory smaller for easier caching
+          # this removes unneeded files from the env
+          mamba clean -all -y
+        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Checkout legateboost
+        uses: actions/checkout@v3
+      - name: Build legateboost
+        run: |
+          python -m build -n --wheel
+      - uses: actions/upload-artifact@v3
+        with:
+          name: legateboost-wheel
+          path: dist/legateboost*.whl
+
+  test:
+    needs: build
+    defaults:
+      run:
+        shell: bash -el {0}
+    runs-on: linux-amd64-gpu-v100-latest-1
+    container:
+      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
+      env:
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
+        DEFAULT_CONDA_ENV: legate
+    steps:
+      - name: Get Date
+        id: get-date
+        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
+      - name: Restore cached environment
+        id: cache-restore
+        uses: actions/cache/restore@v3
+        with:
+          path: /opt/conda/envs/legate
+          key: conda--${{
+            steps.get-date.outputs.today }}
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: actions/download-artifact@v3
+        with:
+          name: legateboost-wheel
+      - name: Run cpu tests
+        run: |
+          mamba activate legate
+          pip install legateboost*.whl
+          legate --module pytest legateboost/test -sv --durations=0
+      - name: Run cpu multi-node tests
+        run: |
+          # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
+          OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 legate --launcher mpirun --ranks-per-node 2 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
+        if: ${{ false }} # disabled due to issue #5
+      - name: Run gpu tests
+        run: |
+          legate --gpus 1 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
