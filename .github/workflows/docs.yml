@@ -19,8 +19,12 @@ jobs:
       - uses: actions/setup-python@v3
       - name: Install dependencies
         run: |
-          pip install sphinx pydata-sphinx-theme
+          pip install sphinx pydata-sphinx-theme myst-parser
       - name: Sphinx build
         working-directory: docs
         run: |
           make html
+      - name: Link check
+        working-directory: docs
+        run: |
+          make linkcheck
