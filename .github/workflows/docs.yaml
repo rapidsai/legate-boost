@@ -1,16 +1,16 @@
 name: Docs
+
+concurrency:
+  group: ci-docs-on-${{ github.event_name }}-from-${{ github.ref_name }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
       - "pull-request/[0-9]+"
       - "branch-*"
       - "main"
-      - "ci"
-  pull_request:
-  workflow_dispatch:
 
-permissions:
-    contents: write
 jobs:
   docs:
     runs-on: ubuntu-latest
