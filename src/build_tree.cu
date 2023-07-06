@@ -33,21 +33,20 @@ __global__ static void reduce_base_sums(legate::AccessorRO<double, 2> g,
                                         legate::Buffer<double, 1> base_sums,
                                         size_t n_outputs)
 {
+  typedef cub::BlockReduce<double, THREADS_PER_BLOCK> BlockReduce;
+  __shared__ typename BlockReduce::TempStorage temp_storage_g;
+  __shared__ typename BlockReduce::TempStorage temp_storage_h;
+
   int32_t output = blockIdx.y;
 
-  __shared__ double blocksumG;
-  __shared__ double blocksumH;
-
   int64_t sample_id = threadIdx.x + blockDim.x * blockIdx.x;
-  if (sample_id >= n_local_samples) return;
 
-  // atomicAdd in shared memory
-  atomicAdd(&blocksumG, g[{sample_id + sample_offset, output}]);
-  atomicAdd(&blocksumH, h[{sample_id + sample_offset, output}]);
+  double G = sample_id < n_local_samples ? g[{sample_id + sample_offset, output}] : 0.0;
+  double H = sample_id < n_local_samples ? h[{sample_id + sample_offset, output}] : 0.0;
 
-  __syncthreads();
+  double blocksumG = BlockReduce(temp_storage_g).Sum(G);
+  double blocksumH = BlockReduce(temp_storage_h).Sum(H);
 
-  // write back global
   if (threadIdx.x == 0) {
     atomicAdd(&base_sums[output], blocksumG);
     atomicAdd(&base_sums[output + n_outputs], blocksumH);
@@ -144,6 +143,10 @@ __global__ static void perform_best_split(legate::Buffer<GPair, 4> histogram,
       auto [G_R, H_R] = histogram[{node_id, feature_id, output, false}];
       auto G          = G_L + G_R;
       auto H          = H_L + H_R;
+      if (H_L <= 0.0 || H_R <= 0.0) {
+        gain = 0;
+        break;
+      }
       gain += 0.5 * ((G_L * G_L) / (H_L + eps) + (G_R * G_R) / (H_R + eps) - (G * G) / (H + eps));
     }
     if (gain > thread_best_gain) {
@@ -168,9 +171,6 @@ __global__ static void perform_best_split(legate::Buffer<GPair, 4> histogram,
     for (int output = threadIdx.x; output < n_outputs; output += blockDim.x) {
       auto [G_L, H_L] = histogram[{node_id, node_best_feature, output, true}];
       auto [G_R, H_R] = histogram[{node_id, node_best_feature, output, false}];
-
-      // If this is true for output 0 there will be no tree_feature written
-      if (H_L <= 0.0 || H_R <= 0.0) continue;
 
       int left_child                         = global_node_id * 2 + 1;
       int right_child                        = left_child + 1;
@@ -317,31 +317,6 @@ struct Tree {
   const int num_outputs;
   const int max_nodes;
   cudaStream_t stream;
-};
-
-struct col_wise_selector : public thrust::unary_function<int, double> {
-  legate::AccessorRO<double, 2> X_;
-  legate::Rect<2> rect_;
-  int n_rows;
-
-  col_wise_selector(legate::AccessorRO<double, 2> X, legate::Rect<2> rect)
-    : X_(X), rect_(rect), n_rows(rect.hi[0] - rect.lo[0] + 1)
-  {
-  }
-
-  __host__ __device__ double operator()(int idx) const
-  {
-    return X_[{rect_.lo[0] + idx % n_rows, rect_.lo[1] + idx / n_rows}];
-  }
-};
-
-struct same_column : public thrust::binary_function<int, int, bool> {
-  int num_rows_;
-  same_column(int num_rows) : num_rows_(num_rows){};
-  __device__ bool operator()(const int& idx1, const int& idx2)
-  {
-    return (idx1 / num_rows_ == idx2 / num_rows_);
-  }
 };
 
 struct build_tree_fn {
