@@ -28,3 +28,6 @@ jobs:
         working-directory: docs
         run: |
           make linkcheck
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs/build/html
