@@ -26,23 +26,33 @@
 
 namespace legateboost {
 
-#if __CUDA_ARCH__ < 600
-__device__ double atomicAdd(double* address, double val)
+__global__ static void reduce_base_sums(legate::AccessorRO<double, 2> g,
+                                        legate::AccessorRO<double, 2> h,
+                                        size_t n_local_samples,
+                                        int64_t sample_offset,
+                                        legate::Buffer<double, 1> base_sums,
+                                        size_t n_outputs)
 {
-  unsigned long long int* address_as_ull = (unsigned long long int*)address;
-  unsigned long long int old             = *address_as_ull, assumed;
+  int32_t output = blockIdx.y;
 
-  do {
-    assumed = old;
-    old =
-      atomicCAS(address_as_ull, assumed, __double_as_longlong(val + __longlong_as_double(assumed)));
+  __shared__ double blocksumG;
+  __shared__ double blocksumH;
 
-    // Note: uses integer comparison to avoid hang in case of NaN (since NaN != NaN)
-  } while (assumed != old);
+  int64_t sample_id = threadIdx.x + blockDim.x * blockIdx.x;
+  if (sample_id >= n_local_samples) return;
 
-  return __longlong_as_double(old);
+  // atomicAdd in shared memory
+  atomicAdd(&blocksumG, g[{sample_id + sample_offset, output}]);
+  atomicAdd(&blocksumH, h[{sample_id + sample_offset, output}]);
+
+  __syncthreads();
+
+  // write back global
+  if (threadIdx.x == 0) {
+    atomicAdd(&base_sums[output], blocksumG);
+    atomicAdd(&base_sums[output + n_outputs], blocksumH);
+  }
 }
-#endif
 
 template <typename TYPE>
 __global__ static void fill_histogram(legate::AccessorRO<TYPE, 2> X,
@@ -159,7 +169,7 @@ __global__ static void perform_best_split(legate::Buffer<GPair, 4> histogram,
       auto [G_L, H_L] = histogram[{node_id, node_best_feature, output, true}];
       auto [G_R, H_R] = histogram[{node_id, node_best_feature, output, false}];
 
-      // FIXME: is there a reason to skip the split here?
+      // If this is true for output 0 there will be no tree_feature written
       if (H_L <= 0.0 || H_R <= 0.0) continue;
 
       int left_child                         = global_node_id * 2 + 1;
@@ -279,9 +289,9 @@ struct Tree {
     const legate::Point<2> zero2    = legate::Point<2>::ZEROES();
     const legate::Rect<2> out_shape = out.shape<2>();
     auto out_acc                    = out.write_accessor<T, 2>();
-    assert(DIM == 2 || out_shape.hi[1] == out_shape.lo[1]);
-    assert(out_shape.lo == zero2);
-    assert(out_acc.accessor.is_dense_row_major(out_shape));
+    EXPECT(DIM == 2 || out_shape.hi[1] == out_shape.lo[1], "Buffer is 1D but store has 2D.");
+    EXPECT(out_shape.lo == zero2, "Output store shape should start at zero.");
+    EXPECT(out_acc.accessor.is_dense_row_major(out_shape), "Output store is not dense row major.");
     CHECK_CUDA(cudaMemcpyAsync(out_acc.ptr(zero2),
                                x.ptr(zero),
                                out_shape.volume() * sizeof(T),
@@ -371,39 +381,12 @@ struct build_tree_fn {
       // base sums contain g-sums first, h sums second [0,...,num_outputs-1, num_outputs, ...,
       // num_outputs*2 -1]
       auto base_sums = legate::create_buffer<double, 1>(num_outputs * 2);
+      CHECK_CUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
 
-      auto keys_in_begin  = thrust::make_counting_iterator(0);
-      auto keys_in_end    = thrust::make_counting_iterator((int)(num_rows * num_outputs));
-      auto keys_out_begin = thrust::make_discard_iterator();
-
-      // transform access on the fly
-      // TODO - maybe align data in advance or make requirement to mapper
-      // curently the data is aligned row-major: h_accessor.accessor.is_dense_row_major(g_shape)
-
-      auto g_vals_in_begin = thrust::make_transform_iterator(
-        thrust::make_counting_iterator(0), col_wise_selector(g_accessor, g_shape));
-      auto h_vals_in_begin = thrust::make_transform_iterator(
-        thrust::make_counting_iterator(0), col_wise_selector(h_accessor, g_shape));
-      auto exec_policy = thrust::cuda::par.on(stream);
-
-      auto out_end = thrust::reduce_by_key(exec_policy,
-                                           keys_in_begin,
-                                           keys_in_end,
-                                           g_vals_in_begin,
-                                           keys_out_begin,
-                                           base_sums.ptr(0),
-                                           same_column(num_rows));
-      assert(thrust::get<1>(out_end) - base_sums.ptr(0) == num_outputs);
-      CHECK_CUDA_STREAM(stream);
-
-      out_end = thrust::reduce_by_key(exec_policy,
-                                      keys_in_begin,
-                                      keys_in_end,
-                                      h_vals_in_begin,
-                                      keys_out_begin,
-                                      base_sums.ptr(0) + num_outputs,
-                                      same_column(num_rows));
-      assert(thrust::get<1>(out_end) - base_sums.ptr(0) == 2 * num_outputs);
+      const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+      dim3 grid_shape     = dim3(blocks, num_outputs);
+      reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
+        g_accessor, h_accessor, num_rows, X_shape.lo[0], base_sums, num_outputs);
       CHECK_CUDA_STREAM(stream);
 
       SumAllReduce(context, reinterpret_cast<double*>(base_sums.ptr(0)), num_outputs * 2, stream);
