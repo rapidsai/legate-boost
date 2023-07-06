@@ -1,5 +1,9 @@
 name: legateboost build/test
-on: push
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+      - "branch-*"
 jobs:
   build:
     defaults:
@@ -63,7 +67,7 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
-          
+
   test:
     needs: build
     defaults:
@@ -104,4 +108,3 @@ jobs:
       - name: Run gpu tests
         run: |
           legate --gpus 1 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
-      
