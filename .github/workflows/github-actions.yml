@@ -114,3 +114,67 @@ jobs:
       - name: Run gpu tests
         run: |
           legate --gpus 1 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
+
+  build-docs:
+    needs: build
+    defaults:
+      run:
+        shell: bash -el {0}
+    runs-on: linux-amd64-cpu8
+    env:
+      CONDA_PREFIX: /opt/conda
+    container:
+      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
+      env:
+        DEFAULT_CONDA_ENV: legate
+    steps:
+      - name: Get Date
+        id: get-date
+        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
+      - name: Restore cached environment
+        id: cache-restore
+        uses: actions/cache/restore@v3
+        with:
+          path: /opt/conda/envs/legate
+          key: conda--${{
+            steps.get-date.outputs.today }}
+      - uses: actions/download-artifact@v3
+        with:
+          name: legateboost-wheel
+      - name: Install dependencies
+        run: |
+          pip install sphinx pydata-sphinx-theme myst-parser
+          pip install legateboost*.whl
+      - name: Sphinx build
+        working-directory: docs
+        run: |
+          # warnings as errors
+          make html SPHINXOPTS="-W"
+      - name: Link check
+        working-directory: docs
+        run: |
+          make linkcheck
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs/build/html
+  deploy:
+    needs: build-docs
+    # only main branch uploads docs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    # Specify runner + deployment step
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
