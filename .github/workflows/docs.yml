@@ -33,7 +33,9 @@ jobs:
           path: docs/build/html
   deploy:
     needs: build-docs
-
+    # only main branch uploads docs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
     # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
     permissions:
       pages: write      # to deploy to Pages
