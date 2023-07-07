@@ -73,6 +73,19 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
+      - name: Build legateboost docs
+        working-directory: docs
+        run: |
+          pip install sphinx pydata-sphinx-theme myst-parser
+          # warnings as errors
+          make html SPHINXOPTS="-W"
+      - name: Link check docs
+        working-directory: docs
+        run: |
+          make linkcheck
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs/build/html
 
   test:
     needs: build
@@ -115,52 +128,8 @@ jobs:
         run: |
           legate --gpus 1 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
 
-  build-docs:
-    needs: build
-    defaults:
-      run:
-        shell: bash -el {0}
-    runs-on: linux-amd64-cpu8
-    env:
-      CONDA_PREFIX: /opt/conda
-    container:
-      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
-      env:
-        DEFAULT_CONDA_ENV: legate
-    steps:
-      - name: Get Date
-        id: get-date
-        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
-      - name: Restore cached environment
-        id: cache-restore
-        uses: actions/cache/restore@v3
-        with:
-          path: /opt/conda/envs/legate
-          key: conda--${{
-            steps.get-date.outputs.today }}
-      - uses: actions/download-artifact@v3
-        with:
-          name: legateboost-wheel
-      - name: Install dependencies
-        run: |
-          pip install sphinx pydata-sphinx-theme myst-parser
-          pip install legateboost*.whl
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: Sphinx build
-        working-directory: docs
-        run: |
-          # warnings as errors
-          make html SPHINXOPTS="-W"
-      - name: Link check
-        working-directory: docs
-        run: |
-          make linkcheck
-      - uses: actions/upload-pages-artifact@v1
-        with:
-          path: docs/build/html
   deploy:
-    needs: build-docs
+    needs: build
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
