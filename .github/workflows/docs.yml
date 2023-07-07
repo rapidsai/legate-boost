@@ -5,10 +5,11 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  workflow_run:
-    workflows: ["legateboost build/test"]
-    types:
-      - completed
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+      - "branch-*"
+      - "main"
 
 jobs:
   build-docs:
