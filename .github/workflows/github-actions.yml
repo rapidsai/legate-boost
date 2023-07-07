@@ -69,6 +69,7 @@ jobs:
       - name: Build legateboost
         run: |
           python -m build -n --wheel
+          pip install .
       - uses: actions/upload-artifact@v3
         with:
           name: legateboost-wheel
