@@ -13,8 +13,27 @@ on:
 
 jobs:
   build-docs:
-    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    runs-on: linux-amd64-cpu8
+    env:
+      CONDA_PREFIX: /opt/conda
+    container:
+      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
+      env:
+        DEFAULT_CONDA_ENV: legate
     steps:
+      - name: Get Date
+        id: get-date
+        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
+      - name: Restore cached environment
+        id: cache-restore
+        uses: actions/cache/restore@v3
+        with:
+          path: /opt/conda/envs/legate
+          key: conda--${{
+            steps.get-date.outputs.today }}
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v3
       - name: Install dependencies
@@ -35,7 +54,7 @@ jobs:
     needs: build-docs
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
+
     # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
     permissions:
       pages: write      # to deploy to Pages
