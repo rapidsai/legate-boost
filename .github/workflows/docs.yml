@@ -5,11 +5,10 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-      - "pull-request/[0-9]+"
-      - "branch-*"
-      - "main"
+  workflow_run:
+    workflows: ["legateboost build/test"]
+    types:
+      - completed
 
 jobs:
   build-docs:
@@ -34,15 +33,18 @@ jobs:
           path: /opt/conda/envs/legate
           key: conda--${{
             steps.get-date.outputs.today }}
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v3
+      - uses: actions/download-artifact@v3
+        with:
+          name: legateboost-wheel
       - name: Install dependencies
         run: |
           pip install sphinx pydata-sphinx-theme myst-parser
+          pip install legateboost*.whl
       - name: Sphinx build
         working-directory: docs
         run: |
-          make html
+          # warnings as errors
+          make html SPHINXOPTS="-W"
       - name: Link check
         working-directory: docs
         run: |
