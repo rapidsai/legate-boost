@@ -145,6 +145,8 @@ jobs:
         run: |
           pip install sphinx pydata-sphinx-theme myst-parser
           pip install legateboost*.whl
+      - name: Checkout
+        uses: actions/checkout@v3
       - name: Sphinx build
         working-directory: docs
         run: |
