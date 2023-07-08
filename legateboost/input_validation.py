@@ -47,7 +47,7 @@ def check_array(x: Any) -> cn.ndarray:
     if cn.iscomplexobj(x):
         raise ValueError("Complex data not supported.")
 
-    if not cn.isfinite(x).all():
+    if np.issubdtype(x.dtype, np.floating) and not cn.isfinite(x).all():
         raise ValueError("Input contains NaN or inf")
 
     x = cn.array(x, copy=False)
