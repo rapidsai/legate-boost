@@ -48,7 +48,7 @@ jobs:
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
           mamba install -y -c conda-forge openmpi ucx rust scikit-learn build;
-          ./install.py --network ucx --cuda --arch RAPIDS;
+          CONDA_PREFIX=/opt/conda/envs/legate ./install.py --network ucx --cuda --arch RAPIDS;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v3
@@ -73,6 +73,14 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
+      - name: Build legateboost docs
+        working-directory: docs
+        run: |
+          pip install sphinx pydata-sphinx-theme myst-parser
+          make html
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs/build/html
       
 
   test:
@@ -115,14 +123,7 @@ jobs:
       - name: Run gpu tests
         run: |
           legate --gpus 1 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
-      - name: Build legateboost docs
-        working-directory: docs
-        run: |
-          pip install sphinx pydata-sphinx-theme myst-parser
-          make html
-      - uses: actions/upload-pages-artifact@v1
-        with:
-          path: docs/build/html
+
 
   deploy:
     needs: build
