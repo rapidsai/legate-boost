@@ -16,39 +16,11 @@
 #include "legate_library.h"
 #include "legateboost.h"
 #include "cuda_help.h"
+#include "kernel_helper.cuh"
 #include "utils.h"
 #include "predict.h"
 
 namespace legateboost {
-
-template <typename TYPE>
-__global__ static void predict_kernel(legate::AccessorRO<TYPE, 2> X,
-                                      int64_t sample_offset,
-                                      size_t n_local_samples,
-                                      legate::AccessorRO<double, 2> leaf_value,
-                                      legate::AccessorRO<int32_t, 1> feature,
-                                      legate::AccessorRO<double, 1> split_value,
-                                      legate::AccessorWO<double, 2> prediction,
-                                      int32_t n_outputs)
-{
-  int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if (tid >= n_local_samples) return;
-
-  int64_t pos              = 0;
-  legate::Point<2> x_point = {sample_offset + tid, 0};
-
-  // Use a max depth of 100 to avoid infinite loops
-  for (int depth = 0; depth < 100; depth++) {
-    if (feature[pos] == -1) break;
-    x_point[1]   = feature[pos];
-    double X_val = X[x_point];
-    pos          = X_val <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
-  }
-  for (int64_t j = 0; j < n_outputs; j++) {
-    prediction[{sample_offset + tid, j}] = leaf_value[{pos, j}];
-  }
-}
 
 namespace {
 struct predict_fn {
@@ -80,17 +52,25 @@ struct predict_fn {
     EXPECT_IS_BROADCAST(context.inputs().at(3).shape<1>());
 
     // rowwise kernel
-    size_t n_local_samples = X_shape.hi[0] - X_shape.lo[0] + 1;
-    const size_t blocks    = (n_local_samples + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    auto stream            = legate::cuda::StreamPool::get_stream_pool().get_stream();
-    predict_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(X_accessor,
-                                                             X_shape.lo[0],
-                                                             n_local_samples,
-                                                             leaf_value,
-                                                             feature,
-                                                             split_value,
-                                                             pred_accessor,
-                                                             n_outputs);
+    auto prediction_lambda = [=] __device__(size_t idx) {
+      int64_t pos              = 0;
+      legate::Point<2> x_point = {X_shape.lo[0] + (int64_t)idx, 0};
+
+      // Use a max depth of 100 to avoid infinite loops
+      for (int depth = 0; depth < 100; depth++) {
+        if (feature[pos] == -1) break;
+        x_point[1]   = feature[pos];
+        double X_val = X_accessor[x_point];
+        pos          = X_val <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
+      }
+      for (int64_t j = 0; j < n_outputs; j++) {
+        pred_accessor[{X_shape.lo[0] + (int64_t)idx, j}] = leaf_value[{pos, j}];
+      }
+    };
+
+    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    LaunchN(X_shape.hi[0] - X_shape.lo[0] + 1, stream, prediction_lambda);
+
     CHECK_CUDA_STREAM(stream);
   }
 };

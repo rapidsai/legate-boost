@@ -11,6 +11,8 @@ if(Legion_USE_CUDA)
   # Currently NCCL has no CMake build-system so we require
   # it built and installed on the machine already
   rapids_find_package(NCCL REQUIRED)
+
+  list(APPEND CMAKE_CUDA_FLAGS --extended-lambda )
 endif()
 
 set(legateboost_srcs

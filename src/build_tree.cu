@@ -19,6 +19,7 @@
 #include "core/comm/coll.h"
 #include "build_tree.h"
 #include "cuda_help.h"
+#include "kernel_helper.cuh"
 
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
@@ -186,26 +187,6 @@ __global__ static void perform_best_split(legate::Buffer<GPair, 4> histogram,
       }
     }
   }
-}
-
-template <typename TYPE>
-__global__ static void update_positions(legate::AccessorRO<TYPE, 2> X,
-                                        size_t n_local_samples,
-                                        int64_t sample_offset,
-                                        legate::Buffer<int32_t, 1> positions,
-                                        legate::Buffer<int32_t, 1> tree_feature,
-                                        legate::Buffer<double, 1> tree_split_value)
-{
-  int64_t sample_id = threadIdx.x + blockDim.x * blockIdx.x;
-  if (sample_id >= n_local_samples) return;
-  int32_t pos = positions[sample_id];
-  if (pos < 0 || tree_feature[pos] == -1) {
-    positions[sample_id] = -1;
-    return;
-  }
-  double x_value       = X[{sample_offset + sample_id, tree_feature[pos]}];
-  bool left            = x_value <= tree_split_value[pos];
-  positions[sample_id] = left ? 2 * pos + 1 : 2 * pos + 2;
 }
 
 namespace {
@@ -425,9 +406,21 @@ struct build_tree_fn {
       histogram_buffer.destroy();
 
       // Update the positions
-      const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-      update_positions<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
-        X_accessor, num_rows, X_shape.lo[0], positions, tree.feature, tree.split_value);
+      auto tree_split_value        = tree.split_value;
+      auto tree_feature            = tree.feature;
+      auto update_positions_lambda = [=] __device__(size_t idx) {
+        int32_t pos = positions[idx];
+        if (pos < 0 || tree_feature[pos] == -1) {
+          positions[idx] = -1;
+          return;
+        }
+        double x_value = X_accessor[{X_shape.lo[0] + (int64_t)idx, tree_feature[pos]}];
+        bool left      = x_value <= tree_split_value[pos];
+        positions[idx] = left ? 2 * pos + 1 : 2 * pos + 2;
+      };
+
+      LaunchN(num_rows, stream, update_positions_lambda);
+
       CHECK_CUDA_STREAM(stream);
     }
 
