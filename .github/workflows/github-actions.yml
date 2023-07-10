@@ -75,7 +75,7 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
-      
+
 
   test:
     needs: build
@@ -131,7 +131,7 @@ jobs:
 
 
   deploy:
-    needs: build
+    needs: test
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
