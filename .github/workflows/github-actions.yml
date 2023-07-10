@@ -79,7 +79,8 @@ jobs:
         working-directory: docs
         run: |
           pip install sphinx pydata-sphinx-theme myst-parser
-          make html
+          # invoke sphinx build using legate
+          legate --module sphinx.cmd.build source build -b html
       - uses: actions/upload-pages-artifact@v1
         with:
           path: docs/build/html
