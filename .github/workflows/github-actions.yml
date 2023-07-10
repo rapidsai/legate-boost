@@ -48,7 +48,9 @@ jobs:
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
           mamba install -y -c conda-forge openmpi ucx rust scikit-learn build;
-          CONDA_PREFIX=/opt/conda/envs/legate ./install.py --network ucx --cuda --arch RAPIDS --verbose;
+          # workaround issue https://github.com/nv-legate/legate.core/issues/789
+          mkdir _skbuild/linux-x86_64-3.10/cmake-build
+          ./install.py --network ucx --cuda --arch RAPIDS --verbose;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v3
