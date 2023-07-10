@@ -13,8 +13,12 @@
  * limitations under the License.
  *
  */
-#include "predict.h"
+#include "legate_library.h"
+#include "legateboost.h"
+#include "cuda_help.h"
+#include "kernel_helper.cuh"
 #include "utils.h"
+#include "predict.h"
 
 namespace legateboost {
 
@@ -47,32 +51,35 @@ struct predict_fn {
     EXPECT_IS_BROADCAST(context.inputs().at(2).shape<1>());
     EXPECT_IS_BROADCAST(context.inputs().at(3).shape<1>());
 
-    for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
-      int pos = 0;
+    // rowwise kernel
+    auto prediction_lambda = [=] __device__(size_t idx) {
+      int64_t pos              = 0;
+      legate::Point<2> x_point = {X_shape.lo[0] + (int64_t)idx, 0};
+
       // Use a max depth of 100 to avoid infinite loops
       for (int depth = 0; depth < 100; depth++) {
         if (feature[pos] == -1) break;
-        auto x = X_accessor[{i, feature[pos]}];
-        pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
+        x_point[1]   = feature[pos];
+        double X_val = X_accessor[x_point];
+        pos          = X_val <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
       }
-      for (int64_t j = 0; j < n_outputs; j++) { pred_accessor[{i, j}] = leaf_value[{pos, j}]; }
-    }
+      for (int64_t j = 0; j < n_outputs; j++) {
+        pred_accessor[{X_shape.lo[0] + (int64_t)idx, j}] = leaf_value[{pos, j}];
+      }
+    };
+
+    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    LaunchN(X_shape.hi[0] - X_shape.lo[0] + 1, stream, prediction_lambda);
+
+    CHECK_CUDA_STREAM(stream);
   }
 };
 }  // namespace
 
-/*static*/ void PredictTask::cpu_variant(legate::TaskContext& context)
+/*static*/ void PredictTask::gpu_variant(legate::TaskContext& context)
 {
   const auto& X = context.inputs().at(0);
   type_dispatch_float(X.code(), predict_fn(), context);
 }
 
 }  // namespace legateboost
-
-namespace  // unnamed
-{
-static void __attribute__((constructor)) register_tasks(void)
-{
-  legateboost::PredictTask::register_variants();
-}
-}  // namespace

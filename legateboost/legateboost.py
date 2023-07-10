@@ -183,6 +183,7 @@ def build_tree_native(
     num_outputs = g.shape[1]
     n_rows = X.shape[0]
     num_procs = len(get_legate_runtime().machine)
+    use_gpu = get_legate_runtime().machine.preferred_kind == 1
     # dont launch more tasks than rows
     num_procs = min(num_procs, n_rows)
     rows_per_tile = int(cn.ceil(n_rows / num_procs))
@@ -223,7 +224,11 @@ def build_tree_native(
     task.add_output(gain.partition_by_tiling((max_nodes, 1)), proj=proj)
     task.add_output(hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj)
 
-    task.add_cpu_communicator()
+    if num_procs > 1:
+        if use_gpu:
+            task.add_nccl_communicator()
+        else:
+            task.add_cpu_communicator()
 
     task.execute()
 
