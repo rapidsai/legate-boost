@@ -49,7 +49,7 @@ jobs:
           mamba activate legate;
           mamba install -y -c conda-forge openmpi ucx rust scikit-learn build;
           # workaround issue https://github.com/nv-legate/legate.core/issues/789
-          mkdir _skbuild/linux-x86_64-3.10/cmake-build
+          mkdir -p _skbuild/linux-x86_64-3.10/cmake-build
           ./install.py --network ucx --cuda --arch RAPIDS --verbose;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
