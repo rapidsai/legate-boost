@@ -75,15 +75,6 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
-      - name: Build legateboost docs
-        working-directory: docs
-        run: |
-          pip install sphinx pydata-sphinx-theme myst-parser
-          # invoke sphinx build using legate
-          legate --module sphinx.cmd.build source build -b html
-      - uses: actions/upload-pages-artifact@v1
-        with:
-          path: docs/build/html
       
 
   test:
@@ -113,10 +104,21 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: legateboost-wheel
-      - name: Run cpu tests
+      - name: Install legateboost artifact
         run: |
           mamba activate legate
           pip install legateboost*.whl
+      - name: Build legateboost docs
+        working-directory: docs
+        run: |
+          pip install sphinx pydata-sphinx-theme myst-parser
+          # invoke sphinx build using legate
+          legate --module sphinx.cmd.build source build -b html
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs/build/html
+      - name: Run cpu tests
+        run: |
           legate --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
         run: |
