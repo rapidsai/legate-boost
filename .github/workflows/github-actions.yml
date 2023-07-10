@@ -1,9 +1,15 @@
 name: legateboost build/test
+
+concurrency:
+  group: ci-on-${{ github.event_name }}-from-${{ github.ref_name }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
       - "pull-request/[0-9]+"
       - "branch-*"
+      - "main"
 jobs:
   build:
     defaults:
@@ -42,7 +48,9 @@ jobs:
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
           mamba install -y -c conda-forge openmpi ucx rust scikit-learn build;
-          ./install.py --network ucx --cuda --arch RAPIDS;
+          # workaround issue https://github.com/nv-legate/legate.core/issues/789
+          mkdir -p _skbuild/linux-x86_64-3.10/cmake-build
+          ./install.py --network ucx --cuda --arch RAPIDS --verbose;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v3
@@ -67,6 +75,7 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
+      
 
   test:
     needs: build
@@ -95,10 +104,21 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: legateboost-wheel
-      - name: Run cpu tests
+      - name: Install legateboost artifact
         run: |
           mamba activate legate
           pip install legateboost*.whl
+      - name: Build legateboost docs
+        working-directory: docs
+        run: |
+          pip install sphinx pydata-sphinx-theme myst-parser
+          # invoke sphinx build using legate
+          legate --module sphinx.cmd.build source build -b html
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs/build
+      - name: Run cpu tests
+        run: |
           legate --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
         run: |
@@ -108,3 +128,26 @@ jobs:
       - name: Run gpu tests
         run: |
           legate --gpus 1 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
+
+
+  deploy:
+    needs: build
+    # only main branch uploads docs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    # Specify runner + deployment step
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
