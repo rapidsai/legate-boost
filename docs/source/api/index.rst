@@ -1,12 +1,12 @@
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Python API Reference
-====================
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. contents::
-  :backlinks: none
-  :local:
+.. currentmodule:: legateboost
 
-.. autoclass:: legateboost.LBRegressor
-    :members:
+.. toctree::
+   :maxdepth: 2
 
-.. autoclass:: legateboost.LBClassifier
-    :members:
+   estimators
+   metrics
+   objectives
