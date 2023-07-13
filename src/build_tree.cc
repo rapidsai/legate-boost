@@ -17,9 +17,11 @@
 #include "legateboost.h"
 #include "utils.h"
 #include "core/comm/coll.h"
+#include "build_tree.h"
 
 namespace legateboost {
 
+namespace {
 void SumAllReduce(legate::TaskContext& context, double* x, int count)
 {
   if (context.communicators().size() == 0) return;
@@ -104,18 +106,6 @@ void WriteTreeOutput(legate::TaskContext& context, const Tree& tree)
   WriteOutput(context.outputs().at(3), tree.gain);
   WriteOutput(context.outputs().at(4), tree.hessian);
 }
-
-struct GPair {
-  double grad = 0.0;
-  double hess = 0.0;
-
-  GPair& operator+=(const GPair& b)
-  {
-    this->grad += b.grad;
-    this->hess += b.hess;
-    return *this;
-  }
-};
 
 struct GradientHistogram {
   // Dimensions
@@ -277,14 +267,14 @@ struct build_tree_fn {
   }
 };
 
-class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
- public:
-  static void cpu_variant(legate::TaskContext& context)
-  {
-    const auto& X = context.inputs().at(0);
-    type_dispatch_float(X.code(), build_tree_fn{}, context);
-  };
-};
+}  // namespace
+
+/*static*/ void BuildTreeTask::cpu_variant(legate::TaskContext& context)
+{
+  const auto& X = context.inputs().at(0);
+  type_dispatch_float(X.code(), build_tree_fn(), context);
+}
+
 }  // namespace legateboost
 
 namespace  // unnamed

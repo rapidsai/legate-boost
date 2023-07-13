@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
-project(legateboost VERSION 1.0 LANGUAGES C CXX)
+project(legateboost VERSION 1.0 LANGUAGES C CXX CUDA)
 
 option(SANITIZE "Build with address sanitizer" OFF)
 
