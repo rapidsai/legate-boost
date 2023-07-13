@@ -63,16 +63,34 @@ def regression_generated_dataset_strategy(draw):
     return X.astype(dtype), y.astype(dtype)
 
 
+@st.composite
+def regression_dataset_strategy(draw):
+    X, y = draw(
+        st.one_of(
+            [
+                regression_generated_dataset_strategy(),
+                regression_real_dataset_strategy(),
+            ]
+        )
+    )
+    if draw(st.booleans()):
+        w = cn.random.random(y.shape[0])
+    else:
+        w = None
+
+    return X, y, w
+
+
 @given(
     general_model_param_strategy,
     regression_param_strategy,
-    st.one_of(
-        [regression_generated_dataset_strategy(), regression_real_dataset_strategy()]
-    ),
+    regression_dataset_strategy(),
 )
 def test_regressor(model_params, regression_params, regression_dataset):
-    X, y = regression_dataset
-    model = lb.LBRegressor(**model_params, **regression_params).fit(X, y)
+    X, y, w = regression_dataset
+    model = lb.LBRegressor(**model_params, **regression_params).fit(
+        X, y, sample_weight=w
+    )
     model.predict(X)
     assert utils.non_increasing(model.train_metric_)
 
@@ -104,15 +122,15 @@ def classification_real_dataset_strategy(draw):
 
 @st.composite
 def classification_generated_dataset_strategy(draw):
-    num_outputs = draw(st.integers(2, 5))
+    num_classes = draw(st.integers(2, 5))
     num_features = draw(st.integers(1, 150))
-    num_rows = draw(st.integers(num_outputs, 10000))
+    num_rows = draw(st.integers(num_classes, 10000))
     np.random.seed(3)
     X = cn.random.random((num_rows, num_features))
-    y = cn.random.randint(0, num_outputs, size=X.shape[0])
+    y = cn.random.randint(0, num_classes, size=X.shape[0])
 
     # ensure we have at least one of each class
-    y[:num_outputs] = np.arange(num_outputs)
+    y[:num_classes] = np.arange(num_classes)
 
     X_dtype = draw(st.sampled_from([np.float16, np.float32, np.float64]))
     y_dtype = draw(
@@ -124,25 +142,40 @@ def classification_generated_dataset_strategy(draw):
     return (
         X.astype(X_dtype),
         y.astype(y_dtype),
-        "Generated: num_outputs: {}, num_features: {}, num_rows: {}".format(
-            num_outputs, num_features, num_rows
+        "Generated: num_classes: {}, num_features: {}, num_rows: {}".format(
+            num_classes, num_features, num_rows
         ),
     )
+
+
+@st.composite
+def classification_dataset_strategy(draw):
+    X, y, name = draw(
+        st.one_of(
+            [
+                classification_generated_dataset_strategy(),
+                classification_real_dataset_strategy(),
+            ]
+        )
+    )
+    if draw(st.booleans()):
+        w = cn.random.random(y.shape[0])
+    else:
+        w = None
+
+    return X, y, w, name
 
 
 @given(
     general_model_param_strategy,
     classification_param_strategy,
-    st.one_of(
-        [
-            classification_generated_dataset_strategy(),
-            classification_real_dataset_strategy(),
-        ]
-    ),
+    classification_dataset_strategy(),
 )
 def test_classifier(model_params, classification_params, classification_dataset):
-    X, y, _ = classification_dataset
-    model = lb.LBClassifier(**model_params, **classification_params).fit(X, y)
+    X, y, w, _ = classification_dataset
+    model = lb.LBClassifier(**model_params, **classification_params).fit(
+        X, y, sample_weight=w
+    )
     model.predict(X)
     model.predict_proba(X)
     model.predict_raw(X)

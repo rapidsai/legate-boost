@@ -147,25 +147,3 @@ def test_classifier_improving_with_depth(num_class):
         ).fit(X, y)
         metrics.append(model.train_metric_[-1])
     assert utils.non_increasing(metrics)
-
-
-def test_prediction():
-    tree = lb.TreeStructure(
-        cn.array(
-            [0.0, 0.0, -0.04619769, 0.01845179, -0.01151532, 0.0, 0.0, 0.0, 0.0, 0.0]
-        ).reshape(10, 1),
-        cn.array([0, 1, -1, -1, -1, -1, -1, -1, -1, -1]).astype(cn.int32),
-        cn.array([0.79172504, 0.71518937, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-        cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-        cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(
-            10,
-            1,
-        ),
-    )
-    """0:[f0<=0.79172504] yes=1 no=2 1:[f1<=0.71518937] yes=3 no=4
-    3:leaf=0.01845179 4:leaf=-0.01151532 2:leaf=-0.04619769."""
-    pred = tree.predict(cn.array([[1.0, 0.0], [0.5, 0.5]]))
-    assert pred[0] == -0.04619769
-    assert pred[1] == 0.01845179
-    assert tree.predict(cn.array([[0.5, 1.0]])) == -0.01151532
-    assert tree.predict(cn.array([[0.79172504, 0.71518937]])) == 0.01845179

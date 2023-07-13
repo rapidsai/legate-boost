@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import warnings
 from enum import IntEnum
 from typing import Any, Tuple, Union
@@ -71,38 +72,102 @@ class TreeStructure(_PickleCunumericMixin):
     def right_child(self, id: int) -> int:
         return id * 2 + 2
 
+    def num_procs_to_use(self, num_rows: int) -> int:
+        min_rows_per_worker = 10
+        available_procs = len(get_legate_runtime().machine)
+        return min(available_procs, int(math.ceil(num_rows / min_rows_per_worker)))
+
     def __init__(
         self,
-        leaf_value: cn.ndarray,
-        feature: cn.ndarray,
-        split_value: cn.ndarray,
-        gain: cn.ndarray,
-        hessian: cn.ndarray,
+        X: cn.ndarray,
+        g: cn.ndarray,
+        h: cn.ndarray,
+        learning_rate: float,
+        max_depth: int,
+        random_state: np.random.RandomState,
     ) -> None:
-        """Initialise from existing storage."""
-        self.leaf_value = leaf_value
-        assert leaf_value.dtype == cn.float64
-        self.feature = feature
-        assert feature.dtype == cn.int32
-        self.split_value = split_value
-        assert split_value.dtype == cn.float64
-        self.hessian = hessian
-        assert hessian.dtype == cn.float64
-        self.gain = gain
-        assert gain.dtype == cn.float64
+        # choose possible splits
+        split_proposals = X[
+            random_state.randint(0, X.shape[0], max_depth)
+        ]  # may not be efficient, maybe write new task
+        num_features = X.shape[1]
+        num_outputs = g.shape[1]
+        n_rows = X.shape[0]
+        num_procs = self.num_procs_to_use(n_rows)
+        rows_per_tile = int(cn.ceil(n_rows / num_procs))
+
+        task = user_context.create_manual_task(
+            LegateBoostOpCode.BUILD_TREE, launch_domain=Rect((num_procs, 1))
+        )
+
+        # Defining a projection function (even the identity) prevents legate
+        # from trying to assign empty tiles to workers
+        # in the case where the number of tiles is less than the launch grid
+        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
+            return (x[0], 0)  # everything crashes if this is lambda x: x ????
+
+        # inputs
+        task.add_scalar_arg(learning_rate, types.float64)
+        task.add_scalar_arg(max_depth, types.int32)
+        task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
+
+        task.add_input(
+            partition_if_not_future(X, (rows_per_tile, num_features)), proj=proj
+        )
+        task.add_input(
+            partition_if_not_future(g, (rows_per_tile, num_outputs)), proj=proj
+        )
+        task.add_input(
+            partition_if_not_future(h, (rows_per_tile, num_outputs)), proj=proj
+        )
+        task.add_input(_get_store(split_proposals))
+
+        # outputs
+        # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
+        max_nodes = 2 ** (max_depth + 1)
+        leaf_value = user_context.create_store(types.float64, (max_nodes, num_outputs))
+        feature = user_context.create_store(types.int32, (max_nodes, 1))
+        split_value = user_context.create_store(types.float64, (max_nodes, 1))
+        gain = user_context.create_store(types.float64, (max_nodes, 1))
+        hessian = user_context.create_store(types.float64, (max_nodes, num_outputs))
+
+        # All outputs belong to a single tile on worker 0
+        task.add_output(
+            leaf_value.partition_by_tiling((max_nodes, num_outputs)), proj=proj
+        )
+        task.add_output(feature.partition_by_tiling((max_nodes, 1)), proj=proj)
+        task.add_output(split_value.partition_by_tiling((max_nodes, 1)), proj=proj)
+        task.add_output(gain.partition_by_tiling((max_nodes, 1)), proj=proj)
+        task.add_output(
+            hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj
+        )
+
+        task.add_cpu_communicator()
+
+        task.execute()
+
+        self.leaf_value = cn.array(leaf_value, copy=False)
+        self.feature = cn.array(feature, copy=False).squeeze()
+        self.split_value = cn.array(split_value, copy=False).squeeze()
+        self.gain = cn.array(gain, copy=False).squeeze()
+        self.hessian = cn.array(hessian, copy=False)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         n_rows = X.shape[0]
         n_features = X.shape[1]
         n_outputs = self.leaf_value.shape[1]
-        num_procs = len(get_legate_runtime().machine)
-        # dont launch more tasks than rows
-        num_procs = min(num_procs, n_rows)
+        num_procs = self.num_procs_to_use(n_rows)
         rows_per_tile = int(cn.ceil(n_rows / num_procs))
         task = user_context.create_manual_task(
             LegateBoostOpCode.PREDICT, Rect((num_procs, 1))
         )
-        task.add_input(partition_if_not_future(X, (rows_per_tile, n_features)))
+
+        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
+            return (x[0], 0)
+
+        task.add_input(
+            partition_if_not_future(X, (rows_per_tile, n_features)), proj=proj
+        )
 
         # broadcast the tree structure
         task.add_input(_get_store(self.leaf_value))
@@ -110,7 +175,9 @@ class TreeStructure(_PickleCunumericMixin):
         task.add_input(_get_store(self.split_value))
 
         pred = user_context.create_store(types.float64, (n_rows, n_outputs))
-        task.add_output(partition_if_not_future(pred, (rows_per_tile, n_outputs)))
+        task.add_output(
+            partition_if_not_future(pred, (rows_per_tile, n_outputs)), proj=proj
+        )
         task.execute()
         return cn.array(pred, copy=False)
 
@@ -164,76 +231,6 @@ def _get_store(input: Any) -> Store:
     array = data[field]
     _, store = array.stores()
     return store
-
-
-def build_tree_native(
-    X: cn.ndarray,
-    g: cn.ndarray,
-    h: cn.ndarray,
-    learning_rate: float,
-    max_depth: int,
-    random_state: np.random.RandomState,
-) -> TreeStructure:
-
-    # choose possible splits
-    split_proposals = X[
-        random_state.randint(0, X.shape[0], max_depth)
-    ]  # may not be efficient, maybe write new task
-    num_features = X.shape[1]
-    num_outputs = g.shape[1]
-    n_rows = X.shape[0]
-    num_procs = len(get_legate_runtime().machine)
-    # dont launch more tasks than rows
-    num_procs = min(num_procs, n_rows)
-    rows_per_tile = int(cn.ceil(n_rows / num_procs))
-
-    task = user_context.create_manual_task(
-        LegateBoostOpCode.BUILD_TREE, launch_domain=Rect((num_procs, 1))
-    )
-
-    # inputs
-    task.add_scalar_arg(learning_rate, types.float64)
-    task.add_scalar_arg(max_depth, types.int32)
-    task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
-
-    task.add_input(partition_if_not_future(X, (rows_per_tile, num_features)))
-    task.add_input(partition_if_not_future(g, (rows_per_tile, num_outputs)))
-    task.add_input(partition_if_not_future(h, (rows_per_tile, num_outputs)))
-    task.add_input(_get_store(split_proposals))
-
-    # outputs
-    # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
-    max_nodes = 2 ** (max_depth + 1)
-    leaf_value = user_context.create_store(types.float64, (max_nodes, num_outputs))
-    feature = user_context.create_store(types.int32, (max_nodes, 1))
-    split_value = user_context.create_store(types.float64, (max_nodes, 1))
-    gain = user_context.create_store(types.float64, (max_nodes, 1))
-    hessian = user_context.create_store(types.float64, (max_nodes, num_outputs))
-
-    # All outputs belong to a single tile on worker 0
-    # Defining a projection function (even the identity) prevents legate
-    # from trying to assign empty tiles to workers
-    # in the case where the number of tiles is less than the launch grid
-    def proj(x: Tuple[int, int]) -> Tuple[int, int]:
-        return (x[0], 0)  # everything crashes if this is lambda x: x ????
-
-    task.add_output(leaf_value.partition_by_tiling((max_nodes, num_outputs)), proj=proj)
-    task.add_output(feature.partition_by_tiling((max_nodes, 1)), proj=proj)
-    task.add_output(split_value.partition_by_tiling((max_nodes, 1)), proj=proj)
-    task.add_output(gain.partition_by_tiling((max_nodes, 1)), proj=proj)
-    task.add_output(hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj)
-
-    task.add_cpu_communicator()
-
-    task.execute()
-
-    return TreeStructure(
-        cn.array(leaf_value, copy=False),
-        cn.array(feature, copy=False).squeeze(),
-        cn.array(split_value, copy=False).squeeze(),
-        cn.array(gain, copy=False).squeeze(),
-        cn.array(hessian, copy=False),
-    )
 
 
 class LBBase(BaseEstimator, _PickleCunumericMixin):
@@ -319,15 +316,16 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             h = h * sample_weight[:, None]
 
             # build new tree
-            tree = build_tree_native(
-                X,
-                g,
-                h,
-                self.learning_rate,
-                self.max_depth,
-                check_random_state(self.random_state),
+            self.models_.append(
+                TreeStructure(
+                    X,
+                    g,
+                    h,
+                    self.learning_rate,
+                    self.max_depth,
+                    check_random_state(self.random_state),
+                )
             )
-            self.models_.append(tree)
 
             # update current predictions
             pred += self.models_[-1].predict(X)
