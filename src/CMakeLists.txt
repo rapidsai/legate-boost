@@ -12,7 +12,14 @@ if(Legion_USE_CUDA)
   # it built and installed on the machine already
   rapids_find_package(NCCL REQUIRED)
 
-  list(APPEND CMAKE_CUDA_FLAGS --extended-lambda )
+  list(APPEND LB_CUDA_FLAGS --expt-extended-lambda  --expt-relaxed-constexpr )
+  list(APPEND LB_CUDA_FLAGS -lineinfo )
+
+  if(CMAKE_BUILD_TYPE MATCHES Debug)
+    message(VERBOSE "CUML: Building with debugging flags")
+    list(APPEND LB_CUDA_FLAGS -G -Xcompiler=-rdynamic)
+  endif()
+
 endif()
 
 set(legateboost_srcs
@@ -36,6 +43,13 @@ add_library(
   ${legateboost_srcs}
   ${TEMPLATE_SOURCES}
 )
+
+target_compile_options(legateboost
+      PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${LB_CXX_FLAGS}>"
+              "$<$<COMPILE_LANGUAGE:CUDA>:${LB_CUDA_FLAGS}>"
+)
+set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES native)
+
 
 if (Legion_USE_CUDA)
   target_compile_definitions(legateboost PRIVATE LEGATEBOOST_USE_CUDA)
