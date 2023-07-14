@@ -485,6 +485,8 @@ struct build_tree_fn {
     size_t cub_buffer_size = 0;
     thrust::sequence(thrust_exec_policy, sequence.ptr(0), sequence.ptr(0) + num_rows);
 
+    int32_t skip_rows = 0;
+
     for (int depth = 0; depth < max_depth; ++depth) {
       int max_nodes = 1 << depth;
 
@@ -497,10 +499,9 @@ struct build_tree_fn {
                                  stream));
 
       // reorder indices to sort by nodes
-      int32_t skip_rows     = 0;
       int32_t* position_ptr = positions.ptr(0);
       int32_t* indices_ptr  = sequence.ptr(0);
-      if (depth > 0) {
+      if (depth > 0 && skip_rows < num_rows) {
         // update positions from previous step
         auto tree_split_value_ptr    = tree.split_value.ptr(0);
         auto tree_feature_ptr        = tree.feature.ptr(0);
@@ -562,27 +563,29 @@ struct build_tree_fn {
         CHECK_CUDA_STREAM(stream);
       }
 
-      constexpr size_t threads_histogram  = 256;
-      constexpr size_t features_per_block = 8;
-      const size_t blocks_x = (num_rows - skip_rows + threads_histogram - 1) / threads_histogram;
-      const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
-      dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
-      fill_histogram2<T, threads_histogram, features_per_block>
-        <<<grid_shape, threads_histogram, 0, stream>>>(X_accessor,
-                                                       num_rows - skip_rows,
-                                                       num_features,
-                                                       X_shape.lo[0],
-                                                       g_accessor,
-                                                       h_accessor,
-                                                       num_outputs,
-                                                       split_proposal_accessor,
-                                                       position_ptr,
-                                                       indices_ptr,
-                                                       histogram_buffer,
-                                                       max_nodes,
-                                                       depth);
+      if (skip_rows < num_rows) {
+        constexpr size_t threads_histogram  = 256;
+        constexpr size_t features_per_block = 8;
+        const size_t blocks_x = (num_rows - skip_rows + threads_histogram - 1) / threads_histogram;
+        const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
+        dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
+        fill_histogram2<T, threads_histogram, features_per_block>
+          <<<grid_shape, threads_histogram, 0, stream>>>(X_accessor,
+                                                         num_rows - skip_rows,
+                                                         num_features,
+                                                         X_shape.lo[0],
+                                                         g_accessor,
+                                                         h_accessor,
+                                                         num_outputs,
+                                                         split_proposal_accessor,
+                                                         position_ptr,
+                                                         indices_ptr,
+                                                         histogram_buffer,
+                                                         max_nodes,
+                                                         depth);
 
-      CHECK_CUDA_STREAM(stream);
+        CHECK_CUDA_STREAM(stream);
+      }
 
       SumAllReduce(context,
                    reinterpret_cast<double*>(histogram_buffer.ptr({0, 0, 0, 0})),
