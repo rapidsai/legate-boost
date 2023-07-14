@@ -14,6 +14,7 @@ from legate.core import Future, Rect, Store, get_legate_runtime, types
 
 from .input_validation import check_sample_weight, check_X_y
 from .library import user_context, user_lib
+from .metrics import metrics
 from .objectives import objectives
 
 
@@ -246,6 +247,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         self,
         n_estimators: int = 100,
         objective: str = "squared_error",
+        metric: str = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,
@@ -255,6 +257,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
     ) -> None:
         self.n_estimators = n_estimators
         self.objective = objective
+        self.metric = metric
         self.learning_rate = learning_rate
         self.init = init
         self.verbose = verbose
@@ -299,23 +302,26 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         self.models_ = []
 
         objective = objectives[self.objective]()
+        objective.check_labels(y)
         self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
         if self.init == "average":
             # initialise the model to some good average value
             # this is equivalent to a tree with a single leaf and learning rate 1.0
             pred = cn.tile(self.model_init_, (y.shape[0], 1))
-            g, h = objective.gradient(y, objective.transform(pred))
+            g, h = objective.gradient(y, pred)
             H = h.sum()
             if H > 0.0:
                 self.model_init_ = -g.sum(axis=0) / H
 
         # current model prediction
         pred = cn.tile(self.model_init_, (y.shape[0], 1))
-        self._metric = objective.metric()
+        self._metric = (
+            objective.metric() if self.metric == "default" else metrics[self.metric]()
+        )
         self.train_metric_ = []
         for i in range(self.n_estimators):
             # obtain gradients
-            g, h = objective.gradient(y, objective.transform(pred))
+            g, h = objective.gradient(y, pred)
             assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
                 g.dtype, h.dtype
             )
@@ -338,8 +344,13 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             pred += self.models_[-1].predict(X)
 
             # evaluate our progress
+            metric_pred = (
+                objective.transform(pred)
+                if self._metric.requires_probability()
+                else pred
+            )
             self.train_metric_.append(
-                self._metric.metric(y, objective.transform(pred), sample_weight)
+                self._metric.metric(y, metric_pred, sample_weight)
             )
             if self.verbose:
                 print(
@@ -429,6 +440,7 @@ class LBRegressor(LBBase, RegressorMixin):
         self,
         n_estimators: int = 100,
         objective: str = "squared_error",
+        metric: str = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,
@@ -438,6 +450,7 @@ class LBRegressor(LBBase, RegressorMixin):
         super().__init__(
             n_estimators=n_estimators,
             objective=objective,
+            metric=metric,
             learning_rate=learning_rate,
             init=init,
             verbose=verbose,
@@ -531,6 +544,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         self,
         n_estimators: int = 100,
         objective: str = "log_loss",
+        metric: str = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,
@@ -540,6 +554,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         super().__init__(
             n_estimators=n_estimators,
             objective=objective,
+            metric=metric,
             learning_rate=learning_rate,
             init=init,
             verbose=verbose,

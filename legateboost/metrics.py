@@ -21,6 +21,9 @@ class MSEMetric:
     def name(self) -> str:
         return "MSE"
 
+    def requires_probability(self) -> bool:
+        return False
+
 
 class LogLossMetric:
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
@@ -40,5 +43,26 @@ class LogLossMetric:
         logloss = -cn.log(pred[cn.arange(label.size), label])
         return float((logloss * w).sum() / w.sum())
 
+    def requires_probability(self) -> bool:
+        return True
+
     def name(self) -> str:
         return "logloss"
+
+
+class ExponentialMetric:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        y = y.squeeze()
+        pred = pred.squeeze()
+        adjusted_y = 2 * y - 1.0
+        exp = cn.exp(-pred * adjusted_y)
+        return float((exp * w).sum() / w.sum())
+
+    def requires_probability(self) -> bool:
+        return False
+
+    def name(self) -> str:
+        return "exp"
+
+
+metrics = {"logloss": LogLossMetric, "mse": MSEMetric, "exp": ExponentialMetric}
