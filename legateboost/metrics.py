@@ -68,7 +68,7 @@ class MSEMetric(BaseMetric):
         return float(numerator.mean())
 
     def name(self) -> str:
-        return "MSE"
+        return "mse"
 
 
 class LogLossMetric(BaseMetric):
@@ -111,7 +111,7 @@ class LogLossMetric(BaseMetric):
         return True
 
     def name(self) -> str:
-        return "logloss"
+        return "log_loss"
 
 
 class ExponentialMetric(BaseMetric):
@@ -151,4 +151,4 @@ class ExponentialMetric(BaseMetric):
         return "exp"
 
 
-metrics = {"logloss": LogLossMetric, "mse": MSEMetric, "exp": ExponentialMetric}
+metrics = {"log_loss": LogLossMetric, "mse": MSEMetric, "exp": ExponentialMetric}

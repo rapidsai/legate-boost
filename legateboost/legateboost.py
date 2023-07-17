@@ -247,7 +247,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         self,
         n_estimators: int = 100,
         objective: Union[str, BaseObjective] = "squared_error",
-        metric: str = "default",
+        metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,
@@ -277,6 +277,79 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                 "check_dtype_object": ("object type data not supported."),
             },
         }
+
+    def _setup_metrics(self, objective: BaseObjective) -> list[BaseMetric]:
+        iterable = (self.metric,) if not isinstance(self.metric, list) else self.metric
+        metric_instances = []
+        for metric in iterable:
+            if isinstance(metric, str):
+                if metric == "default":
+                    metric_instances.append(objective.metric())
+                else:
+                    metric_instances.append(metrics[metric]())
+            elif isinstance(metric, BaseMetric):
+                metric_instances.append(metric)
+            else:
+                raise ValueError(
+                    "Expected metric to be a string or instance of BaseMetric"
+                )
+        return metric_instances
+
+    def _compute_metrics(
+        self,
+        i: int,
+        pred: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray,
+        objective: BaseObjective,
+        metrics: list[BaseMetric],
+        verbose: int,
+    ) -> None:
+        """Computes the metrics dict for the current iteration of the gradient
+        boosting algorithm.
+
+        Parameters
+        ----------
+        i : int
+            The current iteration of the gradient boosting algorithm.
+        pred : cn.ndarray
+            The predicted values for the current iteration.
+        y : cn.ndarray
+            The true target values.
+        sample_weight : cn.ndarray
+            The sample weights.
+        objective : BaseObjective
+            The objective function used to calculate the loss.
+        metrics : list[BaseMetric]
+            The list of metrics to compute.
+        verbose : int
+            The verbosity level.
+
+        Returns
+        -------
+        None
+        """
+        if not hasattr(self, "train_metric_"):
+            for metric in metrics:
+                self.train_metric_: dict[str, list[float]] = {
+                    metric.name(): [] for metric in metrics
+                }
+        pred_prob = (
+            objective.transform(pred)
+            if any(metric.requires_probability() for metric in metrics)
+            else None
+        )
+        for metric in metrics:
+            metric_pred = pred_prob if metric.requires_probability() else pred
+            self.train_metric_[metric.name()].append(
+                metric.metric(y, metric_pred, sample_weight)
+            )
+            if verbose:
+                print(
+                    "i: {} {}: {}".format(
+                        i, metric.name(), self.train_metric_[metric.name()][-1]
+                    )
+                )
 
     def fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
@@ -311,16 +384,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                 "Expected objective to be a string or instance of BaseObjective"
             )
 
-        # setup metric
-        if isinstance(self.metric, str):
-            if self.metric == "default":
-                self._metric = objective.metric()
-            else:
-                self._metric = metrics[self.metric]()
-        elif isinstance(self.metric, BaseMetric):
-            self._metric = self.metric
-        else:
-            raise ValueError("Expected metric to be a string or instance of BaseMetric")
+        self._metrics = self._setup_metrics(objective)
 
         objective.check_labels(y)
         self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
@@ -335,7 +399,6 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
         # current model prediction
         pred = cn.tile(self.model_init_, (y.shape[0], 1))
-        self.train_metric_ = []
         for i in range(self.n_estimators):
             # obtain gradients
             g, h = objective.gradient(y, pred)
@@ -361,20 +424,10 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             pred += self.models_[-1].predict(X)
 
             # evaluate our progress
-            metric_pred = (
-                objective.transform(pred)
-                if self._metric.requires_probability()
-                else pred
+            self._compute_metrics(
+                i, pred, y, sample_weight, objective, self._metrics, self.verbose
             )
-            self.train_metric_.append(
-                self._metric.metric(y, metric_pred, sample_weight)
-            )
-            if self.verbose:
-                print(
-                    "i: {} {}: {}".format(
-                        i, self._metric.name(), self.train_metric_[-1]
-                    )
-                )
+
         self.is_fitted_ = True
         return self
 
@@ -411,6 +464,10 @@ class LBRegressor(LBBase, RegressorMixin):
         The number of boosting stages to perform.
     objective : str, default='squared_error'
         The loss function to optimize. Possible values are ['squared_error'].
+    metric : str or BaseMetric or list, default='default'
+        Metric for evaluation. 'default' indicates for the objective function to choose
+        the accompanying metric. Possible values: ['mse'] or instance of BaseMetric. Can
+        be a list multiple metrics.
     learning_rate : float, default=0.1
         The learning rate shrinks the contribution of each tree.
     init : str or None, default='average'
@@ -456,8 +513,8 @@ class LBRegressor(LBBase, RegressorMixin):
     def __init__(
         self,
         n_estimators: int = 100,
-        objective: str = "squared_error",
-        metric: str = "default",
+        objective: Union[str, BaseObjective] = "squared_error",
+        metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,
@@ -515,8 +572,13 @@ class LBClassifier(LBBase, ClassifierMixin):
     ----------
     n_estimators : int, default=100
         The number of boosting stages to perform.
-    objective : str, default='log_loss'
-        The loss function to be optimized. Possible values: ['log_loss'].
+    objective : str or BaseObjective, default='log_loss'
+        The loss function to be optimized. Possible values: ['log_loss', 'exp']
+        or instance of BaseObjective.
+    metric : str or BaseMetric or list, default='default'
+        Metric for evaluation. 'default' indicates for the objective function to
+        choose the accompanying metric. Possible values: ['log_loss', 'exp'] or
+        instance of BaseMetric. Can be a list multiple metrics.
     learning_rate : float, default=0.1
         The learning rate shrinks the contribution of each tree by `learning_rate`.
     init : str or None, default='average'
@@ -560,8 +622,8 @@ class LBClassifier(LBBase, ClassifierMixin):
     def __init__(
         self,
         n_estimators: int = 100,
-        objective: str = "log_loss",
-        metric: str = "default",
+        objective: Union[str, BaseObjective] = "log_loss",
+        metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,

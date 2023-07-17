@@ -38,8 +38,9 @@ def test_regressor(num_outputs):
         n_estimators=20, max_depth=3, random_state=2, learning_rate=0.5
     ).fit(X, y)
     mse = lb.MSEMetric().metric(y, model.predict(X), cn.ones(y.shape[0]))
-    assert np.isclose(model.train_metric_[-1], mse)
-    assert non_increasing(model.train_metric_)
+    loss = next(iter(model.train_metric_.values()))
+    assert np.isclose(loss[-1], mse)
+    assert non_increasing(loss)
 
     # test print
     model.dump_trees()
@@ -57,7 +58,8 @@ def test_regressor_improving_with_depth(num_outputs):
             X, y
         )
 
-        metrics.append(model.train_metric_[-1])
+        loss = next(iter(model.train_metric_.values()))
+        metrics.append(loss[-1])
     assert non_increasing(metrics)
 
 
@@ -75,7 +77,8 @@ def test_regressor_weights(num_outputs):
     model = lb.LBRegressor(
         n_estimators=5, random_state=0, max_depth=10, learning_rate=1.0
     ).fit(X, y, sample_weight=w)
-    assert model.train_metric_[-1] < 1e-5
+    loss = next(iter(model.train_metric_.values()))
+    assert loss[-1] < 1e-5
 
 
 def test_regressor_determinism():
@@ -139,15 +142,16 @@ def test_classifier(num_class, objective):
     X = cn.random.random((100, 10))
     y = cn.random.randint(0, num_class, X.shape[0])
     model = lb.LBClassifier(n_estimators=10, objective=objective).fit(X, y)
-    metric = model._metric
+    metric = model._metrics[0]
     pred = (
         model.predict_proba(X)
         if metric.requires_probability()
         else model.predict_raw(X)
     )
     loss = metric.metric(y, pred, cn.ones(y.shape[0]))
-    assert np.isclose(model.train_metric_[-1], loss)
-    assert non_increasing(model.train_metric_)
+    train_loss = next(iter(model.train_metric_.values()))
+    assert np.isclose(train_loss[-1], loss)
+    assert non_increasing(train_loss)
     assert model.score(X, y) > 0.7
     sanity_check_tree_stats(model.models_)
 
@@ -162,7 +166,8 @@ def test_classifier_weights(num_class, objective):
     model = lb.LBClassifier(
         n_estimators=10, learning_rate=1.0, max_depth=10, objective=objective
     ).fit(X, y, w)
-    assert np.isclose(model.train_metric_[-1], 0.0, atol=1e-3)
+    train_loss = next(iter(model.train_metric_.values()))
+    assert np.isclose(train_loss[-1], 0.0, atol=1e-3)
 
 
 @pytest.mark.parametrize("num_class", [2, 5])
@@ -176,7 +181,8 @@ def test_classifier_improving_with_depth(num_class, objective):
         model = lb.LBClassifier(
             n_estimators=2, random_state=0, max_depth=max_depth, objective=objective
         ).fit(X, y)
-        metrics.append(model.train_metric_[-1])
+        train_loss = next(iter(model.train_metric_.values()))
+        metrics.append(train_loss[-1])
     assert non_increasing(metrics)
 
 
