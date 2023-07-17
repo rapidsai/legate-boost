@@ -115,7 +115,6 @@ __global__ static void fill_histogram2(legate::AccessorRO<TYPE, 2> X,
 
   // further improvements:
   // * restructure surrounding histogram storage to keep parent and left child only
-  // * optimize read alignment to shared memory
   // * quantize values to work with int instead of double
 
   typedef cub::BlockReduce<double, THREADS> BlockReduce;
@@ -126,25 +125,34 @@ __global__ static void fill_histogram2(legate::AccessorRO<TYPE, 2> X,
 
   __shared__ bool left_shared[FEATURES_PER_BLOCK][THREADS + 1];
 
+  __shared__ int32_t index_mapping[THREADS];
+
   // check if thread has actual work todo (besides taking part in reductions)
   int64_t sampleId         = blockIdx.x * THREADS + threadIdx.x;
   int64_t lastActiveThread = (blockIdx.x + 1) * THREADS - 1;
   if (lastActiveThread >= n_local_samples) lastActiveThread = n_local_samples - 1;
-  bool validThread        = sampleId < n_local_samples;
-  int64_t sampleId_global = validThread ? sample_index_local[sampleId] + sample_offset : -1;
+  bool validThread = sampleId < n_local_samples;
 
-  // read shared memory X -- maybe we can do this better transposed
-  // TODO improve loading pattern!
+  index_mapping[threadIdx.x] = validThread ? sample_index_local[sampleId] + sample_offset : -1;
+
+  __syncthreads();
+
+  int64_t sampleId_global = validThread ? index_mapping[threadIdx.x] : -1;
+
+  // read input X and store split decision in shared memory
   for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
-    int feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
-    left_shared[featureIdx][threadIdx.x] =
-      (validThread && feature < n_features)
-        ? X[{sampleId_global, feature}] <= split_proposal[{depth, feature}]
+    int32_t elementId      = threadIdx.x + featureIdx * THREADS;
+    int32_t localFeatureId = elementId % FEATURES_PER_BLOCK;
+    int32_t localSampleId  = elementId / FEATURES_PER_BLOCK;
+    int32_t feature        = blockIdx.y * FEATURES_PER_BLOCK + localFeatureId;
+    left_shared[localFeatureId][localSampleId] =
+      (blockIdx.x * THREADS + localSampleId < n_local_samples && feature < n_features)
+        ? X[{index_mapping[localSampleId], feature}] <= split_proposal[{depth, feature}]
         : false;
   }
 
   // in case loading left_shared was done in different order we need syncthreads
-  //__syncthreads();
+  __syncthreads();
 
   int32_t firstNode  = positions_local[blockIdx.x * THREADS] - max_nodes_in_level + 1;
   int32_t lastNode   = positions_local[lastActiveThread] - max_nodes_in_level + 1;
@@ -376,8 +384,6 @@ struct Tree {
                                sizeof(double) * num_outputs,
                                cudaMemcpyDeviceToDevice,
                                stream));
-
-    CHECK_CUDA(cudaStreamSynchronize(stream));
   }
 
   template <typename T, int DIM>
@@ -618,6 +624,9 @@ struct build_tree_fn {
     indices_reordered.destroy();
 
     if (context.get_task_index()[0] == 0) { tree.WriteTreeOutput(context); }
+
+    CHECK_CUDA(cudaStreamSynchronize(stream));
+    CHECK_CUDA_STREAM(stream);
   }
 };
 
