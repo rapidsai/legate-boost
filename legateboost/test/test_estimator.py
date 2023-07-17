@@ -133,12 +133,19 @@ def test_sklearn_compatible_estimator(estimator, check, test_name):
 
 
 @pytest.mark.parametrize("num_class", [2, 5])
-def test_classifier(num_class):
+@pytest.mark.parametrize("objective", ["log_loss", "exp"])
+def test_classifier(num_class, objective):
     np.random.seed(3)
     X = cn.random.random((100, 10))
     y = cn.random.randint(0, num_class, X.shape[0])
-    model = lb.LBClassifier(n_estimators=10).fit(X, y)
-    loss = lb.LogLossMetric().metric(y, model.predict_proba(X), cn.ones(y.shape[0]))
+    model = lb.LBClassifier(n_estimators=10, objective=objective).fit(X, y)
+    metric = model._metric
+    pred = (
+        model.predict_proba(X)
+        if metric.requires_probability()
+        else model.predict_raw(X)
+    )
+    loss = metric.metric(y, pred, cn.ones(y.shape[0]))
     assert np.isclose(model.train_metric_[-1], loss)
     assert non_increasing(model.train_metric_)
     assert model.score(X, y) > 0.7
@@ -146,26 +153,28 @@ def test_classifier(num_class):
 
 
 @pytest.mark.parametrize("num_class", [2, 5])
-def test_classifier_weights(num_class):
+@pytest.mark.parametrize("objective", ["log_loss", "exp"])
+def test_classifier_weights(num_class, objective):
     np.random.seed(7)
     X = cn.random.random((100, 10))
     y = cn.random.randint(0, num_class, X.shape[0])
     w = cn.random.random(X.shape[0])
-    model = lb.LBClassifier(n_estimators=10, learning_rate=1.0, max_depth=10).fit(
-        X, y, w
-    )
+    model = lb.LBClassifier(
+        n_estimators=10, learning_rate=1.0, max_depth=10, objective=objective
+    ).fit(X, y, w)
     assert np.isclose(model.train_metric_[-1], 0.0, atol=1e-3)
 
 
 @pytest.mark.parametrize("num_class", [2, 5])
-def test_classifier_improving_with_depth(num_class):
+@pytest.mark.parametrize("objective", ["log_loss", "exp"])
+def test_classifier_improving_with_depth(num_class, objective):
     np.random.seed(3)
     X = cn.random.random((100, 10))
     y = cn.random.randint(0, num_class, X.shape[0])
     metrics = []
     for max_depth in range(0, 5):
         model = lb.LBClassifier(
-            n_estimators=2, random_state=0, max_depth=max_depth
+            n_estimators=2, random_state=0, max_depth=max_depth, objective=objective
         ).fit(X, y)
         metrics.append(model.train_metric_[-1])
     assert non_increasing(metrics)
