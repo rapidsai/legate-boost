@@ -1,11 +1,62 @@
+from abc import ABC, abstractmethod
 from typing import Tuple
 
 import cunumeric as cn
 
-from .metrics import ExponentialMetric, LogLossMetric, MSEMetric
+from .metrics import BaseMetric, ExponentialMetric, LogLossMetric, MSEMetric
 
 
-class SquaredErrorObjective:
+class BaseObjective(ABC):
+    @abstractmethod
+    def gradient(
+        self, y: cn.ndarray, pred: cn.ndarray
+    ) -> Tuple[cn.ndarray, cn.ndarray]:
+        """Computes the functional gradient and hessian of the squared error
+        objective function.
+
+        Args:
+            y (cn.ndarray): The true labels.
+            pred (cn.ndarray): The predicted labels.
+
+        Returns:
+            (cn.ndarray, cn.ndarray): The functional gradient and hessian of the squared error
+            objective function.
+        """  # noqa: E501
+        pass
+
+    def transform(self, pred: cn.ndarray) -> cn.ndarray:
+        """Transforms the predicted labels. E.g. sigmoid for log loss.
+
+        Args:
+            pred (cn.ndarray): The predicted labels.
+
+        Returns:
+            cn.ndarray: The transformed labels.
+        """
+        pass
+
+    @abstractmethod
+    def metric(self) -> BaseMetric:
+        """Returns the default error metric for the objective function.
+
+        Returns:
+            Metric: The default error metric for the objective function.
+        """
+        pass
+
+    def check_labels(self, y) -> None:
+        """Checks the validity of the labels for this objective function.
+
+        Args:
+            y (cn.ndarray): The labels.
+
+        Returns:
+            None
+        """
+        pass
+
+
+class SquaredErrorObjective(BaseObjective):
     """The Squared Error objective function for regression problems.
 
     This objective function computes the mean squared error between the
@@ -20,43 +71,19 @@ class SquaredErrorObjective:
     def gradient(
         self, y: cn.ndarray, pred: cn.ndarray
     ) -> Tuple[cn.ndarray, cn.ndarray]:
-        """Computes the functional gradient and hessian of the squared error
-        objective function.
-
-        Args:
-            y (cn.ndarray): The true labels.
-            pred (cn.ndarray): The predicted labels.
-
-        Returns:
-            cn.ndarray: The functional gradient and hessian of the squared error
-            objective function.
-        """
         return pred - y, cn.ones(pred.shape)
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
-        """Transforms the predicted labels. Identity function for MSE.
-
-        Args:
-            pred (cn.ndarray): The predicted labels.
-
-        Returns:
-            cn.ndarray: The transformed predicted labels.
-        """
         return pred
 
     def metric(self) -> MSEMetric:
-        """Returns default error metric.
-
-        Returns:
-            MSEMetric: The mean squared error metric.
-        """
         return MSEMetric()
 
     def check_labels(self, y) -> None:
         return
 
 
-class LogLossObjective:
+class LogLossObjective(BaseObjective):
     """The Log Loss objective function for binary and multi-class
     classification problems.
 
@@ -71,17 +98,6 @@ class LogLossObjective:
     def gradient(
         self, y: cn.ndarray, pred: cn.ndarray
     ) -> Tuple[cn.ndarray, cn.ndarray]:
-        """Computes the functional gradient and hessian of the log loss
-        objective function.
-
-        Args:
-            y (cn.ndarray): The true labels.
-            pred (cn.ndarray): The predicted labels.
-
-        Returns:
-            Tuple[cn.ndarray, cn.ndarray]: The functional gradient and hessian
-            of the log loss objective function.
-        """
         assert pred.ndim == 2
         pred = self.transform(pred)
         eps = 1e-15
@@ -97,16 +113,6 @@ class LogLossObjective:
         return g, cn.maximum(h, eps)
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
-        """Transforms the predicted labels using the sigmoid function for
-        binary classification and the softmax function for multi-class
-        classification.
-
-        Args:
-            pred (cn.ndarray): The predicted labels.
-
-        Returns:
-            cn.ndarray: The transformed predicted labels.
-        """
         assert len(pred.shape) == 2
         if pred.shape[1] == 1:
             return 1.0 / (1.0 + cn.exp(-pred))
@@ -117,27 +123,31 @@ class LogLossObjective:
         return e_x / div[:, cn.newaxis]
 
     def metric(self) -> LogLossMetric:
-        """Returns the metric object for the Log Loss objective function.
-
-        Returns:
-            LogLossMetric: The metric object for the Log Loss objective function.
-        """
         return LogLossMetric()
 
     def check_labels(self, y) -> None:
         if not cn.all((y == cn.floor(y)) & (y >= 0)):
-            raise ValueError("Log loss expected labels to be non-zero whole numbers")
+            raise ValueError("Expected labels to be non-zero whole numbers")
 
 
-class ExponentialObjective:
+class ExponentialObjective(BaseObjective):
     """Exponential loss objective function for binary classification.
-    Equivalent to the AdaBoost exponential loss.
+    Equivalent to the AdaBoost multiclass exponential loss in [1].
 
-    In AdaBoost, the exponential loss is defined as exp(-y * pred),
-    where y is in {-1, 1}
+    Defined as:
 
-    In our case y is in {0, 1} so we adjust the loss to be exp(-(2 * y - 1) * pred).
-    """
+    :math:`L(y_i, p_i) = exp(-\\frac{1}{K} y_i^T p_i)`
+
+    where :math:`K` is the number of classes, and
+    :math:`y_{i,k} = 1` if :math:`k` is the label and :math:`y_{i,k} = -1/(K-1)` otherwise.
+
+    See also:
+        :class:`legateboost.metrics.ExponentialMetric`
+
+    References
+    ----------
+    [1] Hastie, Trevor, et al. "Multi-class adaboost." Statistics and its Interface 2.3 (2009): 349-360.
+    """  # noqa: E501
 
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
         assert pred.ndim == 2
@@ -168,7 +178,7 @@ class ExponentialObjective:
 
     def check_labels(self, y) -> None:
         if not cn.all((y == cn.floor(y)) & (y >= 0)):
-            raise ValueError("Log loss expected labels to be non-zero whole numbers")
+            raise ValueError("Expected labels to be non-zero whole numbers")
 
 
 objectives = {
