@@ -102,9 +102,19 @@ class LogLossMetric:
 class ExponentialMetric:
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
         y = y.squeeze()
-        pred = pred.squeeze()
-        adjusted_y = 2 * y - 1.0
-        exp = cn.exp(-pred * adjusted_y)
+        # binary case
+        if pred.ndim == 1 or pred.shape[1] == 1:
+            pred = pred.squeeze()
+            adjusted_y = 2 * y - 1.0
+            exp = cn.exp(-pred * adjusted_y)
+            return float((exp * w).sum() / w.sum())
+
+        # multi-class case
+        K = pred.shape[1]  # number of classes
+        y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
+        y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
+
+        exp = cn.exp(-1 / K * cn.sum(y_k * pred, axis=1))
         return float((exp * w).sum() / w.sum())
 
     def requires_probability(self) -> bool:

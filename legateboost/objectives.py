@@ -141,11 +141,24 @@ class ExponentialObjective:
 
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
         assert pred.ndim == 2
+
+        # binary case
         if pred.shape[1] == 1:
-            pred = pred.squeeze()
             adjusted_y = 2 * y - 1.0
             exp = cn.exp(-pred * adjusted_y)
             return -adjusted_y * exp, exp
+
+        # multi-class case
+        K = pred.shape[1]  # number of classes
+        y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
+        labels = y.astype(cn.int32).squeeze()
+        y_k[cn.arange(y.size), labels] = 1.0
+        exp = cn.exp(-1 / K * cn.sum(y_k * pred, axis=1))
+
+        return (
+            -1 / K * y_k * exp[:, cn.newaxis],
+            (1 / K**2) * y_k * y_k * exp[:, cn.newaxis],
+        )
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         return 1 / (1 + cn.exp(-2 * pred))
