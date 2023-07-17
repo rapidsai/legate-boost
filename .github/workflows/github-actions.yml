@@ -47,7 +47,7 @@ jobs:
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
-          mamba install -y 'gcc<=10.0.0';
+          mamba install -y 'gcc<=10.0.0' build;
           # workaround issue https://github.com/nv-legate/legate.core/issues/789
           mkdir -p _skbuild/linux-x86_64-3.10/cmake-build
           ./install.py --network ucx --cuda --arch RAPIDS --verbose;
