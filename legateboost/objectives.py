@@ -7,6 +7,11 @@ from .metrics import BaseMetric, ExponentialMetric, LogLossMetric, MSEMetric
 
 
 class BaseObjective(ABC):
+    """The base class for objective functions.
+
+    Implement this class to create custom objectives.
+    """
+
     @abstractmethod
     def gradient(
         self, y: cn.ndarray, pred: cn.ndarray

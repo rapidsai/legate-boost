@@ -1,6 +1,9 @@
 Objectives
 ====================
 
+.. autoclass:: legateboost.BaseObjective
+    :members:
+
 .. autoclass:: legateboost.SquaredErrorObjective
     :members:
 

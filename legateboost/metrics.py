@@ -4,6 +4,11 @@ import cunumeric as cn
 
 
 class BaseMetric(ABC):
+    """The base class for metrics.
+
+    Implement this class to create custom metrics.
+    """
+
     @abstractmethod
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
         """Computes the metric between the true labels `y` and predicted labels

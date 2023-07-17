@@ -1,6 +1,9 @@
 Metrics
 ====================
 
+.. autoclass:: legateboost.BaseMetric
+    :members:
+
 .. autoclass:: legateboost.MSEMetric
     :members:
 
