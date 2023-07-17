@@ -6,3 +6,6 @@ Objectives
 
 .. autoclass:: legateboost.LogLossObjective
     :members:
+
+.. autoclass:: legateboost.ExponentialObjective
+    :members:

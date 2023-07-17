@@ -14,8 +14,8 @@ from legate.core import Future, Rect, Store, get_legate_runtime, types
 
 from .input_validation import check_sample_weight, check_X_y
 from .library import user_context, user_lib
-from .metrics import metrics
-from .objectives import objectives
+from .metrics import BaseMetric, metrics
+from .objectives import BaseObjective, objectives
 
 
 class LegateBoostOpCode(IntEnum):
@@ -246,7 +246,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
     def __init__(
         self,
         n_estimators: int = 100,
-        objective: str = "squared_error",
+        objective: Union[str, BaseObjective] = "squared_error",
         metric: str = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
@@ -301,7 +301,27 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         self.n_features_in_ = X.shape[1]
         self.models_ = []
 
-        objective = objectives[self.objective]()
+        # setup objective
+        if isinstance(self.objective, str):
+            objective = objectives[self.objective]()
+        elif isinstance(self.objective, BaseObjective):
+            objective = self.objective
+        else:
+            raise ValueError(
+                "Expected objective to be a string or instance of BaseObjective"
+            )
+
+        # setup metric
+        if isinstance(self.metric, str):
+            if self.metric == "default":
+                self._metric = objective.metric()
+            else:
+                self._metric = metrics[self.metric]()
+        elif isinstance(self.metric, BaseMetric):
+            self._metric = self.metric
+        else:
+            raise ValueError("Expected metric to be a string or instance of BaseMetric")
+
         objective.check_labels(y)
         self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
         if self.init == "average":
@@ -315,9 +335,6 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
         # current model prediction
         pred = cn.tile(self.model_init_, (y.shape[0], 1))
-        self._metric = (
-            objective.metric() if self.metric == "default" else metrics[self.metric]()
-        )
         self.train_metric_ = []
         for i in range(self.n_estimators):
             # obtain gradients

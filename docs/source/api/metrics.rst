@@ -6,3 +6,6 @@ Metrics
 
 .. autoclass:: legateboost.LogLossMetric
     :members:
+
+.. autoclass:: legateboost.ExponentialMetric
+    :members:
