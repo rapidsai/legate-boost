@@ -1,10 +1,10 @@
 import numpy as np
-import pytest
 import utils
-from hypothesis import HealthCheck, Verbosity, given, settings, strategies as st
+from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 
 import cunumeric as cn
 import legateboost as lb
+from legate.core import get_legate_runtime
 
 np.set_printoptions(threshold=10, edgeitems=1)
 
@@ -172,9 +172,11 @@ def classification_dataset_strategy(draw):
     classification_param_strategy,
     classification_dataset_strategy(),
 )
-@pytest.mark.skip(reason="Currently failing on CI, see #14")
 def test_classifier(model_params, classification_params, classification_dataset):
-    X, y, w, _ = classification_dataset
+    X, y, w, name = classification_dataset
+    if name == "covtype":
+        # V100 fails, see #14
+        assume(get_legate_runtime().machine.preferred_kind != 1)
     model = lb.LBClassifier(**model_params, **classification_params).fit(
         X, y, sample_weight=w
     )

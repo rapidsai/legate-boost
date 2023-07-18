@@ -94,6 +94,7 @@ class TreeStructure(_PickleCunumericMixin):
         num_outputs = g.shape[1]
         n_rows = X.shape[0]
         num_procs = self.num_procs_to_use(n_rows)
+        use_gpu = get_legate_runtime().machine.preferred_kind == 1
         rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
         task = user_context.create_manual_task(
@@ -142,7 +143,11 @@ class TreeStructure(_PickleCunumericMixin):
             hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj
         )
 
-        task.add_cpu_communicator()
+        if num_procs > 1:
+            if use_gpu:
+                task.add_nccl_communicator()
+            else:
+                task.add_cpu_communicator()
 
         task.execute()
 
