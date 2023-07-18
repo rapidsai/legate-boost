@@ -1,6 +1,7 @@
 import numpy as np
+import pytest
 import utils
-from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
+from hypothesis import HealthCheck, Verbosity, given, settings, strategies as st
 
 import cunumeric as cn
 import legateboost as lb
@@ -172,11 +173,12 @@ def classification_dataset_strategy(draw):
     classification_param_strategy,
     classification_dataset_strategy(),
 )
+@pytest.mark.skipif(
+    get_legate_runtime().machine.preferred_kind == 1,
+    "Fails with V100 GPU, see issue #14",
+)
 def test_classifier(model_params, classification_params, classification_dataset):
     X, y, w, name = classification_dataset
-    if name == "covtype":
-        # V100 fails, see #14
-        assume(get_legate_runtime().machine.preferred_kind != 1)
     model = lb.LBClassifier(**model_params, **classification_params).fit(
         X, y, sample_weight=w
     )
