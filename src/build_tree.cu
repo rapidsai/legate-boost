@@ -128,11 +128,15 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     // loading left_shared was done in different order
     __syncthreads();
 
-    int32_t firstNode = positions_local[(blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK] -
-                        max_nodes_in_level + 1;
-    int32_t lastActiveThread = (blockIdx.x + elementIdx * gridDim.x + 1) * THREADS_PER_BLOCK - 1;
-    if (lastActiveThread >= n_local_samples) lastActiveThread = n_local_samples - 1;
-    int32_t lastNode   = positions_local[lastActiveThread] - max_nodes_in_level + 1;
+    bool useAtomicAdd = false;
+    {
+      int32_t firstNode =
+        positions_local[(blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK];
+      int32_t lastActiveThread = (blockIdx.x + elementIdx * gridDim.x + 1) * THREADS_PER_BLOCK - 1;
+      if (lastActiveThread >= n_local_samples) lastActiveThread = n_local_samples - 1;
+      int32_t lastNode = positions_local[lastActiveThread];
+      useAtomicAdd     = (firstNode < lastNode);
+    }
     int32_t sampleNode = validThread ? positions_local[sampleId] - max_nodes_in_level + 1 : -1;
 
     for (int32_t output = 0; output < n_outputs; output++) {
@@ -141,28 +145,23 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
       for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (feature < n_features) {
-          for (int32_t nodeId = firstNode; nodeId <= lastNode; ++nodeId) {
-            // only add left child
-            // we assume c-order positions
-            double* addPosition = reinterpret_cast<double*>(&histogram[{nodeId, feature, output}]);
-            double input = (sampleNode == nodeId) && left_shared[featureIdx][threadIdx.x] ? G : 0.0;
+          if (useAtomicAdd) {
+            if (left_shared[featureIdx][threadIdx.x]) {
+              double* addPosition =
+                reinterpret_cast<double*>(&histogram[{sampleNode, feature, output}]);
+              atomicAdd(addPosition, G);
+              atomicAdd(addPosition + 1, H);
+            }
+          } else {
+            // reduce within block first
+            double* addPosition =
+              reinterpret_cast<double*>(&histogram[{sampleNode, feature, output}]);
+            double input = left_shared[featureIdx][threadIdx.x] ? G : 0.0;
             double sum   = BlockReduce(temp_storage1).Sum(input);
-            if (threadIdx.x == 0 && sum != 0) {
-              if (nodeId < lastNode && nodeId > firstNode) {
-                addPosition[0] = sum;
-              } else {
-                atomicAdd(addPosition, sum);
-              }
-            }
-            input = (sampleNode == nodeId) && left_shared[featureIdx][threadIdx.x] ? H : 0.0;
+            if (threadIdx.x == 0 && sum != 0) { atomicAdd(addPosition, sum); }
+            input = left_shared[featureIdx][threadIdx.x] ? H : 0.0;
             sum   = BlockReduce(temp_storage2).Sum(input);
-            if (threadIdx.x == 0 && sum != 0) {
-              if (nodeId < lastNode && nodeId > firstNode) {
-                addPosition[1] = sum;
-              } else {
-                atomicAdd(addPosition + 1, sum);
-              }
-            }
+            if (threadIdx.x == 0 && sum != 0) { atomicAdd(addPosition + 1, sum); }
           }
         }
       }
