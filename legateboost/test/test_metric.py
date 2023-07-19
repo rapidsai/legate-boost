@@ -8,18 +8,20 @@ import legateboost as lb
 def test_multiple_metrics():
     X = cn.random.random((10, 1))
     y = cn.random.randint(0, 2, size=X.shape[0])
-    model = lb.LBClassifier(verbose=1, n_estimators=2, metric=["log_loss", "mse"]).fit(
+    model = lb.LBClassifier(verbose=1, n_estimators=2, metric=["log_loss", "exp"]).fit(
         X, y
     )
     assert "log_loss" in model.train_metric_
     assert len(model.train_metric_["log_loss"]) == 2
-    assert "mse" in model.train_metric_
-    model = lb.LBClassifier(verbose=1, n_estimators=2, metric=[lb.MSEMetric()]).fit(
-        X, y
-    )
-    assert "mse" in model.train_metric_
-    model = lb.LBClassifier(verbose=1, n_estimators=2, metric=lb.MSEMetric()).fit(X, y)
-    assert "mse" in model.train_metric_
+    assert "exp" in model.train_metric_
+    model = lb.LBClassifier(
+        verbose=1, n_estimators=2, metric=[lb.ExponentialMetric()]
+    ).fit(X, y)
+    assert "exp" in model.train_metric_
+    model = lb.LBClassifier(
+        verbose=1, n_estimators=2, metric=lb.ExponentialMetric()
+    ).fit(X, y)
+    assert "exp" in model.train_metric_
 
 
 def test_mse():
