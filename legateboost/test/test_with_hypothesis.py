@@ -94,8 +94,8 @@ def test_regressor(model_params, regression_params, regression_dataset):
         X, y, sample_weight=w
     )
     model.predict(X)
-    assert utils.non_increasing(model.train_metric_)
-
+    train_loss = next(iter(model.train_metric_.values()))
+    assert utils.non_increasing(train_loss)
     utils.sanity_check_tree_stats(model.models_)
 
 
@@ -185,6 +185,7 @@ def test_classifier(model_params, classification_params, classification_dataset)
     model.predict(X)
     model.predict_proba(X)
     model.predict_raw(X)
-    assert utils.non_increasing(model.train_metric_)
+    train_loss = next(iter(model.train_metric_.values()))
+    assert utils.non_increasing(train_loss)
 
     utils.sanity_check_tree_stats(model.models_)

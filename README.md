@@ -14,11 +14,11 @@ legate example_script.py
 
 ```python
 import cunumeric as cn
-import legateboost as lbst
+import legateboost as lb
 
 X = cn.random.random((1000, 10))
 y = cn.random.random(X.shape[0])
-model = lbst.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2).fit(
+model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2).fit(
     X, y
 )
 ```
