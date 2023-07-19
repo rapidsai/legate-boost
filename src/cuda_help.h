@@ -22,6 +22,7 @@
 #include <nccl.h>
 
 #define THREADS_PER_BLOCK 128
+#define MIN_CTAS_PER_SM 4
 
 #define CHECK_NCCL(expr)                    \
   do {                                      \

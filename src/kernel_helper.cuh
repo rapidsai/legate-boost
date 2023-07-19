@@ -19,7 +19,8 @@
 namespace legateboost {
 
 template <typename L>
-__global__ void LaunchNKernel(size_t size, L lambda)
+__global__ void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+  LaunchNKernel(size_t size, L lambda)
 {
   for (auto i = blockDim.x * blockIdx.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
     lambda(i);

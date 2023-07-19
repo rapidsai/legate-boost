@@ -16,7 +16,6 @@ if(Legion_USE_CUDA)
   list(APPEND LB_CUDA_FLAGS -lineinfo )
 
   if(CMAKE_BUILD_TYPE MATCHES Debug)
-    message(VERBOSE "CUML: Building with debugging flags")
     list(APPEND LB_CUDA_FLAGS -G -Xcompiler=-rdynamic)
   endif()
 

@@ -24,6 +24,7 @@
 
 #include <cub/device/device_radix_sort.cuh>
 #include <thrust/execution_policy.h>
+#include <thrust/system/cuda/execution_policy.h>
 #include <thrust/sequence.h>
 #include <thrust/sort.h>
 #include <thrust/device_ptr.h>
@@ -32,12 +33,13 @@
 
 namespace legateboost {
 
-__global__ static void reduce_base_sums(legate::AccessorRO<double, 2> g,
-                                        legate::AccessorRO<double, 2> h,
-                                        size_t n_local_samples,
-                                        int64_t sample_offset,
-                                        legate::Buffer<double, 1> base_sums,
-                                        size_t n_outputs)
+__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+  reduce_base_sums(legate::AccessorRO<double, 2> g,
+                   legate::AccessorRO<double, 2> h,
+                   size_t n_local_samples,
+                   int64_t sample_offset,
+                   legate::Buffer<double, 1> base_sums,
+                   size_t n_outputs)
 {
   typedef cub::BlockReduce<double, THREADS_PER_BLOCK> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage_g;
@@ -59,60 +61,21 @@ __global__ static void reduce_base_sums(legate::AccessorRO<double, 2> g,
   }
 }
 
-template <typename TYPE, int FEATURES_PER_BLOCK>
-__global__ static void fill_histogram_naive(legate::AccessorRO<TYPE, 2> X,
-                                            size_t n_local_samples,
-                                            size_t n_features,
-                                            int64_t sample_offset,
-                                            legate::AccessorRO<double, 2> g,
-                                            legate::AccessorRO<double, 2> h,
-                                            size_t n_outputs,
-                                            legate::AccessorRO<TYPE, 2> split_proposal,
-                                            legate::Buffer<int32_t, 1> positions,
-                                            legate::Buffer<GPair, 3> histogram,
-                                            int32_t max_nodes_in_level,
-                                            int64_t depth)
-{
-  // x dimension (block+grid) covers all samples
-  // y dimension (grid-only) covers sets of features
-
-  for (int64_t sample_id = blockIdx.x * blockDim.x + threadIdx.x; sample_id < n_local_samples;
-       sample_id += blockDim.x * gridDim.x) {
-    int32_t sample_pos = positions[sample_id] - (max_nodes_in_level - 1);
-    if (sample_pos < 0) continue;
-    for (int32_t output = 0; output < n_outputs; ++output) {
-      double G = g[{sample_offset + sample_id, output}];
-      double H = h[{sample_offset + sample_id, output}];
-      for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; ++featureIdx) {
-        int32_t feature = blockIdx.y * FEATURES_PER_BLOCK + featureIdx;
-        if (feature < n_features) {
-          auto x_value = X[{sample_offset + sample_id, feature}];
-          if (x_value <= split_proposal[{depth, feature}]) {
-            double* addPosition =
-              reinterpret_cast<double*>(&histogram[{sample_pos, feature, output}]);
-            atomicAdd(addPosition, G);
-            atomicAdd(addPosition + 1, H);
-          }
-        }
-      }
-    }
-  }
-}
-
 template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
-__global__ static void fill_histogram_blockreduce(legate::AccessorRO<TYPE, 2> X,
-                                                  size_t n_local_samples,
-                                                  size_t n_features,
-                                                  int64_t sample_offset,
-                                                  legate::AccessorRO<double, 2> g,
-                                                  legate::AccessorRO<double, 2> h,
-                                                  size_t n_outputs,
-                                                  legate::AccessorRO<TYPE, 2> split_proposal,
-                                                  int32_t* positions_local,
-                                                  int32_t* sample_index_local,
-                                                  legate::Buffer<GPair, 3> histogram,
-                                                  int32_t max_nodes_in_level,
-                                                  int32_t depth)
+__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+  fill_histogram_blockreduce(legate::AccessorRO<TYPE, 2> X,
+                             size_t n_local_samples,
+                             size_t n_features,
+                             int64_t sample_offset,
+                             legate::AccessorRO<double, 2> g,
+                             legate::AccessorRO<double, 2> h,
+                             size_t n_outputs,
+                             legate::AccessorRO<TYPE, 2> split_proposal,
+                             int32_t* positions_local,
+                             int32_t* sample_index_local,
+                             legate::Buffer<GPair, 3> histogram,
+                             int32_t max_nodes_in_level,
+                             int32_t depth)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
   // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
@@ -129,15 +92,19 @@ __global__ static void fill_histogram_blockreduce(legate::AccessorRO<TYPE, 2> X,
 
   __shared__ bool left_shared[FEATURES_PER_BLOCK][THREADS_PER_BLOCK + 1];
 
+  // mapping from local sampleId to global sample id (also accounting for reordering)
   __shared__ int32_t index_mapping[THREADS_PER_BLOCK];
 
 #pragma unroll
-  for (int32_t sampleIdx = 0; sampleIdx < ELEMENTS_PER_THREAD; ++sampleIdx) {
+  for (int32_t elementIdx = 0; elementIdx < ELEMENTS_PER_THREAD; ++elementIdx) {
+    // within each iteration a (THREADS_PER_BLOCK, FEATURES_PER_BLOCK)-block of
+    // data from X is processed.
+
     // check if any thread of this block has work to do
-    if ((blockIdx.x + sampleIdx * gridDim.x) * THREADS_PER_BLOCK >= n_local_samples) break;
+    if ((blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK >= n_local_samples) break;
 
     // check if thread has actual work todo (besides taking part in reductions)
-    int32_t sampleId = (blockIdx.x + sampleIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
+    int32_t sampleId = (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
     bool validThread = sampleId < n_local_samples;
 
     index_mapping[threadIdx.x] = validThread ? sample_index_local[sampleId] + sample_offset : -1;
@@ -146,23 +113,24 @@ __global__ static void fill_histogram_blockreduce(legate::AccessorRO<TYPE, 2> X,
 
     // read input X and store split decision in shared memory
     for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
+      // load is done with transpose access to the (THREADS_PER_BLOCK, FEATURES_PER_BLOCK)-block
       int32_t localFeatureId = (threadIdx.x + featureIdx * THREADS_PER_BLOCK) % FEATURES_PER_BLOCK;
       int32_t localSampleId  = (threadIdx.x + featureIdx * THREADS_PER_BLOCK) / FEATURES_PER_BLOCK;
       int32_t feature        = blockIdx.y * FEATURES_PER_BLOCK + localFeatureId;
       int32_t globalSampleId =
-        (blockIdx.x + sampleIdx * gridDim.x) * THREADS_PER_BLOCK + localSampleId;
+        (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + localSampleId;
       left_shared[localFeatureId][localSampleId] =
         (globalSampleId < n_local_samples && feature < n_features)
           ? X[{index_mapping[localSampleId], feature}] <= split_proposal[{depth, feature}]
           : false;
     }
 
-    // in case loading left_shared was done in different order we need syncthreads
+    // loading left_shared was done in different order
     __syncthreads();
 
-    int32_t firstNode = positions_local[(blockIdx.x + sampleIdx * gridDim.x) * THREADS_PER_BLOCK] -
+    int32_t firstNode = positions_local[(blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK] -
                         max_nodes_in_level + 1;
-    int32_t lastActiveThread = (blockIdx.x + sampleIdx * gridDim.x + 1) * THREADS_PER_BLOCK - 1;
+    int32_t lastActiveThread = (blockIdx.x + elementIdx * gridDim.x + 1) * THREADS_PER_BLOCK - 1;
     if (lastActiveThread >= n_local_samples) lastActiveThread = n_local_samples - 1;
     int32_t lastNode   = positions_local[lastActiveThread] - max_nodes_in_level + 1;
     int32_t sampleNode = validThread ? positions_local[sampleId] - max_nodes_in_level + 1 : -1;
@@ -224,19 +192,20 @@ struct GainFeaturePair {
 };
 
 template <typename TYPE>
-__global__ static void perform_best_split(legate::Buffer<GPair, 3> histogram,
-                                          size_t n_features,
-                                          size_t n_outputs,
-                                          legate::AccessorRO<TYPE, 2> split_proposal,
-                                          double eps,
-                                          double learning_rate,
-                                          legate::Buffer<double, 2> tree_leaf_value,
-                                          legate::Buffer<double, 2> tree_gradient,
-                                          legate::Buffer<double, 2> tree_hessian,
-                                          legate::Buffer<int32_t, 1> tree_feature,
-                                          legate::Buffer<double, 1> tree_split_value,
-                                          legate::Buffer<double, 1> tree_gain,
-                                          int64_t depth)
+__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+  perform_best_split(legate::Buffer<GPair, 3> histogram,
+                     size_t n_features,
+                     size_t n_outputs,
+                     legate::AccessorRO<TYPE, 2> split_proposal,
+                     double eps,
+                     double learning_rate,
+                     legate::Buffer<double, 2> tree_leaf_value,
+                     legate::Buffer<double, 2> tree_gradient,
+                     legate::Buffer<double, 2> tree_hessian,
+                     legate::Buffer<int32_t, 1> tree_feature,
+                     legate::Buffer<double, 1> tree_split_value,
+                     legate::Buffer<double, 1> tree_gain,
+                     int64_t depth)
 {
   // using one block per (level) node to have blockwise reductions
   int node_id        = blockIdx.x;
@@ -345,7 +314,10 @@ struct Tree {
     gradient.destroy();
   }
 
-  void InitializeBase(double* base_sums, double learning_rate)
+  template <typename THRUST_POLICY>
+  void InitializeBase(double* base_sums,
+                      double learning_rate,
+                      const THRUST_POLICY& thrust_exec_policy)
   {
     std::vector<double> base_sums_host(2 * num_outputs);
     CHECK_CUDA(cudaMemcpyAsync(base_sums_host.data(),
@@ -354,15 +326,17 @@ struct Tree {
                                cudaMemcpyDeviceToHost,
                                stream));
 
-    auto alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
-    auto exec_policy = DEFAULT_POLICY(alloc).on(stream);
+    thrust::fill(thrust_exec_policy,
+                 leaf_value.ptr({0, 0}),
+                 leaf_value.ptr({0, 0}) + max_nodes * num_outputs,
+                 0.0);
+    thrust::fill(thrust_exec_policy, feature.ptr({0}), feature.ptr({0}) + max_nodes, -1);
     thrust::fill(
-      exec_policy, leaf_value.ptr({0, 0}), leaf_value.ptr({0, 0}) + max_nodes * num_outputs, 0.0);
-    thrust::fill(exec_policy, feature.ptr({0}), feature.ptr({0}) + max_nodes, -1);
-    thrust::fill(
-      exec_policy, hessian.ptr({0, 0}), hessian.ptr({0, 0}) + max_nodes * num_outputs, 0.0);
-    thrust::fill(
-      exec_policy, gradient.ptr({0, 0}), gradient.ptr({0, 0}) + max_nodes * num_outputs, 0.0);
+      thrust_exec_policy, hessian.ptr({0, 0}), hessian.ptr({0, 0}) + max_nodes * num_outputs, 0.0);
+    thrust::fill(thrust_exec_policy,
+                 gradient.ptr({0, 0}),
+                 gradient.ptr({0, 0}) + max_nodes * num_outputs,
+                 0.0);
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
 
@@ -427,6 +401,218 @@ struct Tree {
   cudaStream_t stream;
 };
 
+struct TreeLevelInfo {
+  TreeLevelInfo(int32_t num_rows, int32_t num_features, int32_t num_outputs, cudaStream_t stream)
+    : num_rows(num_rows), num_features(num_features), num_outputs(num_outputs), stream(stream)
+  {
+    positions           = legate::create_buffer<int32_t>(num_rows);
+    sequence            = legate::create_buffer<int32_t>(num_rows);
+    indices_reordered   = legate::create_buffer<int32_t>(num_rows);
+    positions_reordered = legate::create_buffer<int32_t>(num_rows);
+  }
+
+  ~TreeLevelInfo()
+  {
+    positions.destroy();
+    sequence.destroy();
+    indices_reordered.destroy();
+    positions_reordered.destroy();
+    if (cub_buffer_size > 0) cub_buffer.destroy();
+    if (current_depth >= 0) histogram_buffer.destroy();
+  }
+
+  template <typename THRUST_POLICY>
+  void InitializeHistogramForDepth(int32_t depth, const THRUST_POLICY& thrust_exec_policy)
+  {
+    if (current_depth < 0) {
+      // some initialization on first pass
+      CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
+      thrust::sequence(thrust_exec_policy, sequence.ptr(0), sequence.ptr(0) + num_rows);
+    } else {
+      histogram_buffer.destroy();
+    }
+    current_depth    = depth;
+    int max_nodes    = 1 << depth;
+    histogram_buffer = legate::create_buffer<GPair, 3>({max_nodes, num_features, num_outputs});
+    CHECK_CUDA(cudaMemsetAsync(histogram_buffer.ptr(legate::Point<3>::ZEROES()),
+                               0,
+                               max_nodes * num_features * num_outputs * sizeof(GPair),
+                               stream));
+  }
+
+  template <typename TYPE>
+  void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 2> X, legate::Rect<2> X_shape)
+  {
+    if (current_depth > 0 && skip_rows < num_rows) {
+      auto tree_split_value_ptr    = tree.split_value.ptr(0);
+      auto tree_feature_ptr        = tree.feature.ptr(0);
+      auto positions_ptr           = positions.ptr(0);
+      auto update_positions_lambda = [=] __device__(size_t idx) {
+        int32_t& pos = positions_ptr[idx];
+        if (pos < 0 || tree_feature_ptr[pos] == -1) {
+          pos = -1;
+          return;
+        }
+        double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos]}];
+        bool left      = x_value <= tree_split_value_ptr[pos];
+        pos            = left ? 2 * pos + 1 : 2 * pos + 2;
+      };
+      LaunchN(num_rows, stream, update_positions_lambda);
+      CHECK_CUDA_STREAM(stream);
+    }
+  }
+
+  template <typename THRUST_POLICY>
+  void ReorderPositions(const THRUST_POLICY& thrust_exec_policy)
+  {
+    if (current_depth > 0 && skip_rows < num_rows) {
+      size_t temp_storage_bytes = 0;
+      cub::DeviceRadixSort::SortPairs(nullptr,
+                                      temp_storage_bytes,
+                                      positions.ptr(0),
+                                      positions_reordered.ptr(0),
+                                      sequence.ptr(0),
+                                      indices_reordered.ptr(0),
+                                      num_rows,
+                                      0,
+                                      sizeof(int32_t) * 8,
+                                      stream);
+
+      // use cached cub buffer for sorting -- should remain constant
+      if (temp_storage_bytes > cub_buffer_size) {
+        if (cub_buffer_size > 0) cub_buffer.destroy();
+        cub_buffer      = legate::create_buffer<unsigned char>(temp_storage_bytes);
+        cub_buffer_size = temp_storage_bytes;
+      }
+
+      cub::DeviceRadixSort::SortPairs(cub_buffer.ptr(0),
+                                      temp_storage_bytes,
+                                      positions.ptr(0),
+                                      positions_reordered.ptr(0),
+                                      sequence.ptr(0),
+                                      indices_reordered.ptr(0),
+                                      num_rows,
+                                      0,
+                                      sizeof(int32_t) * 8,
+                                      stream);
+
+      auto res = thrust::find_if(thrust_exec_policy,
+                                 positions_reordered.ptr(0),
+                                 positions_reordered.ptr(0) + num_rows,
+                                 [=] __device__(int32_t & x) { return x >= 0; });
+
+      skip_rows = res - positions_reordered.ptr(0);
+
+      CHECK_CUDA_STREAM(stream);
+    }
+  }
+
+  int32_t* PositionsPtr()
+  {
+    if (current_depth > 0)
+      return positions_reordered.ptr(skip_rows);
+    else
+      return positions.ptr(0);
+  }
+
+  int32_t* IndicesPtr()
+  {
+    if (current_depth > 0)
+      return indices_reordered.ptr(skip_rows);
+    else
+      return sequence.ptr(0);
+  }
+
+  template <typename TYPE>
+  void FillHistogram(Tree& tree,
+                     legate::AccessorRO<TYPE, 2> X,
+                     legate::Rect<2> X_shape,
+                     legate::AccessorRO<TYPE, 2> split_proposal,
+                     legate::AccessorRO<double, 2> g,
+                     legate::AccessorRO<double, 2> h)
+  {
+    if (skip_rows < num_rows) {
+      // TODO adjust kernel parameters dynamically
+      constexpr size_t elements_per_thread = 1;
+      constexpr size_t features_per_block  = 8;
+      const size_t blocks_x = (num_rows - skip_rows + THREADS_PER_BLOCK * elements_per_thread - 1) /
+                              (THREADS_PER_BLOCK * elements_per_thread);
+      const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
+      dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
+      fill_histogram_blockreduce<TYPE, elements_per_thread, features_per_block>
+        <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
+                                                       num_rows - skip_rows,
+                                                       num_features,
+                                                       X_shape.lo[0],
+                                                       g,
+                                                       h,
+                                                       num_outputs,
+                                                       split_proposal,
+                                                       PositionsPtr(),
+                                                       IndicesPtr(),
+                                                       histogram_buffer,
+                                                       1 << current_depth,
+                                                       current_depth);
+      CHECK_CUDA_STREAM(stream);
+    }
+  }
+
+  template <typename TYPE>
+  void PerformBestSplit(Tree& tree,
+                        legate::AccessorRO<TYPE, 2> split_proposal,
+                        double eps,
+                        double learning_rate)
+  {
+    perform_best_split<<<(1 << current_depth), THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
+                                                                               num_features,
+                                                                               num_outputs,
+                                                                               split_proposal,
+                                                                               eps,
+                                                                               learning_rate,
+                                                                               tree.leaf_value,
+                                                                               tree.gradient,
+                                                                               tree.hessian,
+                                                                               tree.feature,
+                                                                               tree.split_value,
+                                                                               tree.gain,
+                                                                               current_depth);
+    CHECK_CUDA_STREAM(stream);
+  }
+
+  legate::Buffer<int32_t> positions;
+  legate::Buffer<int32_t> positions_reordered;
+  legate::Buffer<int32_t> sequence;
+  legate::Buffer<int32_t> indices_reordered;
+  const int32_t num_rows;
+  const int32_t num_features;
+  const int32_t num_outputs;
+
+  legate::Buffer<unsigned char> cub_buffer;
+  size_t cub_buffer_size = 0;
+
+  int32_t skip_rows = 0;
+  legate::Buffer<GPair, 3> histogram_buffer;
+  int32_t current_depth = -1;
+
+  cudaStream_t stream;
+};
+
+void ReduceBaseSums(legate::Buffer<double> base_sums,
+                    int32_t num_rows,
+                    int32_t num_outputs,
+                    legate::AccessorRO<double, 2> g,
+                    legate::AccessorRO<double, 2> h,
+                    legate::Rect<2> shape,
+                    cudaStream_t stream)
+{
+  CHECK_CUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
+  const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+  dim3 grid_shape     = dim3(blocks, num_outputs);
+  reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
+    g, h, num_rows, shape.lo[0], base_sums, num_outputs);
+  CHECK_CUDA_STREAM(stream);
+}
+
 struct build_tree_fn {
   template <legate::Type::Code CODE>
   void operator()(legate::TaskContext& context)
@@ -439,15 +625,16 @@ struct build_tree_fn {
     auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
     const auto& g     = context.inputs().at(1);
     const auto& h     = context.inputs().at(2);
-    EXPECT_AXIS_ALIGNED(0, X.shape<2>(), g.shape<2>());
-    EXPECT_AXIS_ALIGNED(0, g.shape<2>(), h.shape<2>());
-    EXPECT_AXIS_ALIGNED(1, g.shape<2>(), h.shape<2>());
-    auto g_shape                = context.inputs().at(1).shape<2>();
-    auto num_outputs            = g.shape<2>().hi[1] - g.shape<2>().lo[1] + 1;
+    auto g_shape      = g.shape<2>();
+    auto h_shape      = h.shape<2>();
+    EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
+    EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
+    EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
+    auto num_outputs            = g_shape.hi[1] - g_shape.lo[1] + 1;
     auto g_accessor             = g.read_accessor<double, 2>();
     auto h_accessor             = h.read_accessor<double, 2>();
     const auto& split_proposals = context.inputs().at(3);
-    EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X.shape<2>());
+    EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X_shape);
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
 
     // Scalars
@@ -463,198 +650,47 @@ struct build_tree_fn {
 
     // Initialize the root node
     {
-      // base sums contain g-sums first, h sums second [0,...,num_outputs-1, num_outputs, ...,
-      // num_outputs*2 -1]
       auto base_sums = legate::create_buffer<double, 1>(num_outputs * 2);
-      CHECK_CUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
 
-      const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-      dim3 grid_shape     = dim3(blocks, num_outputs);
-      reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
-        g_accessor, h_accessor, num_rows, X_shape.lo[0], base_sums, num_outputs);
-      CHECK_CUDA_STREAM(stream);
+      ReduceBaseSums(base_sums, num_rows, num_outputs, g_accessor, h_accessor, g_shape, stream);
 
       SumAllReduce(context, reinterpret_cast<double*>(base_sums.ptr(0)), num_outputs * 2, stream);
 
-      tree.InitializeBase(base_sums.ptr(0), learning_rate);
+      // base sums contain g-sums first, h sums second
+      tree.InitializeBase(base_sums.ptr(0), learning_rate, thrust_exec_policy);
 
       base_sums.destroy();
       CHECK_CUDA_STREAM(stream);
     }
 
     // Begin building the tree
-    auto positions = legate::create_buffer<int32_t>(num_rows);
-    CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
-
-    auto sequence            = legate::create_buffer<int32_t>(num_rows);
-    auto indices_reordered   = legate::create_buffer<int32_t>(num_rows);
-    auto positions_reordered = legate::create_buffer<int32_t>(num_rows);
-    legate::Buffer<unsigned char, 1> cub_buffer;
-    size_t cub_buffer_size = 0;
-    thrust::sequence(thrust_exec_policy, sequence.ptr(0), sequence.ptr(0) + num_rows);
-
-    int32_t skip_rows = 0;
-
-    bool use_reordering_algorithm = true;
+    TreeLevelInfo tree_state(num_rows, num_features, num_outputs, stream);
 
     for (int depth = 0; depth < max_depth; ++depth) {
       int max_nodes = 1 << depth;
 
-      // Dimensions[Node, Feature, Output]
-      auto histogram_buffer =
-        legate::create_buffer<GPair, 3>({max_nodes, num_features, num_outputs});
-      CHECK_CUDA(cudaMemsetAsync(histogram_buffer.ptr(legate::Point<3>::ZEROES()),
-                                 0,
-                                 max_nodes * num_features * num_outputs * sizeof(GPair),
-                                 stream));
+      tree_state.InitializeHistogramForDepth(depth, thrust_exec_policy);
 
-      // reorder indices to sort by nodes
-      int32_t* position_ptr = positions.ptr(0);
-      int32_t* indices_ptr  = sequence.ptr(0);
-      if (depth > 0 && skip_rows < num_rows) {
-        // update positions from previous step
-        auto tree_split_value_ptr    = tree.split_value.ptr(0);
-        auto tree_feature_ptr        = tree.feature.ptr(0);
-        auto positions_ptr           = positions.ptr(0);
-        auto update_positions_lambda = [=] __device__(size_t idx) {
-          int32_t& pos = positions_ptr[idx];
-          if (pos < 0 || tree_feature_ptr[pos] == -1) {
-            pos = -1;
-            return;
-          }
-          double x_value = X_accessor[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos]}];
-          bool left      = x_value <= tree_split_value_ptr[pos];
-          pos            = left ? 2 * pos + 1 : 2 * pos + 2;
-        };
-        LaunchN(num_rows, stream, update_positions_lambda);
-        CHECK_CUDA_STREAM(stream);
+      // update positions from previous step
+      tree_state.UpdatePositions(tree, X_accessor, X_shape);
 
-        if (use_reordering_algorithm) {
-          size_t temp_storage_bytes = 0;
-          cub::DeviceRadixSort::SortPairs(nullptr,
-                                          temp_storage_bytes,
-                                          positions.ptr(0),
-                                          positions_reordered.ptr(0),
-                                          sequence.ptr(0),
-                                          indices_reordered.ptr(0),
-                                          num_rows,
-                                          0,
-                                          sizeof(int32_t) * 8,
-                                          stream);
+      // reorder indices to sort by node id
+      tree_state.ReorderPositions(thrust_exec_policy);
 
-          // use cached cub buffer for sorting -- should remain constant
-          if (temp_storage_bytes > cub_buffer_size) {
-            if (cub_buffer_size > 0) cub_buffer.destroy();
-            cub_buffer      = legate::create_buffer<unsigned char>(temp_storage_bytes);
-            cub_buffer_size = temp_storage_bytes;
-          }
+      // actual histogram creation
+      tree_state.FillHistogram(
+        tree, X_accessor, X_shape, split_proposal_accessor, g_accessor, h_accessor);
 
-          cub::DeviceRadixSort::SortPairs(cub_buffer.ptr(0),
-                                          temp_storage_bytes,
-                                          positions.ptr(0),
-                                          positions_reordered.ptr(0),
-                                          sequence.ptr(0),
-                                          indices_reordered.ptr(0),
-                                          num_rows,
-                                          0,
-                                          sizeof(int32_t) * 8,
-                                          stream);
+      SumAllReduce(
+        context,
+        reinterpret_cast<double*>(tree_state.histogram_buffer.ptr(legate::Point<3>::ZEROES())),
+        max_nodes * num_features * num_outputs * sizeof(GPair),
+        stream);
 
-          auto res = thrust::find_if(thrust_exec_policy,
-                                     positions_reordered.ptr(0),
-                                     positions_reordered.ptr(0) + num_rows,
-                                     [=] __device__(int32_t & x) { return x >= 0; });
-
-          skip_rows = res - positions_reordered.ptr(0);
-
-          // now use reordered indices/positions beginning from skip_rows
-          position_ptr = positions_reordered.ptr(skip_rows);
-          indices_ptr  = indices_reordered.ptr(skip_rows);
-
-          CHECK_CUDA_STREAM(stream);
-        }
-      }
-
-      if (use_reordering_algorithm) {
-        if (skip_rows < num_rows) {
-          // TODO adjust kernel parameters dynamically
-          constexpr size_t elements_per_thread = 1;
-          constexpr size_t features_per_block  = 8;
-          const size_t blocks_x =
-            (num_rows - skip_rows + THREADS_PER_BLOCK * elements_per_thread - 1) /
-            (THREADS_PER_BLOCK * elements_per_thread);
-          const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
-          dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
-          fill_histogram_blockreduce<T, elements_per_thread, features_per_block>
-            <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X_accessor,
-                                                           num_rows - skip_rows,
-                                                           num_features,
-                                                           X_shape.lo[0],
-                                                           g_accessor,
-                                                           h_accessor,
-                                                           num_outputs,
-                                                           split_proposal_accessor,
-                                                           position_ptr,
-                                                           indices_ptr,
-                                                           histogram_buffer,
-                                                           max_nodes,
-                                                           depth);
-          CHECK_CUDA_STREAM(stream);
-        }
-      } else {
-        // fallback kernel
-        constexpr size_t elements_per_thread = 8;
-        constexpr size_t features_per_block  = 8;
-        const size_t blocks_x = (num_rows + THREADS_PER_BLOCK * elements_per_thread - 1) /
-                                (THREADS_PER_BLOCK * elements_per_thread);
-        const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
-        dim3 grid_shape       = dim3(blocks_x, blocks_y);
-        fill_histogram_naive<T, features_per_block>
-          <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X_accessor,
-                                                         num_rows,
-                                                         num_features,
-                                                         X_shape.lo[0],
-                                                         g_accessor,
-                                                         h_accessor,
-                                                         num_outputs,
-                                                         split_proposal_accessor,
-                                                         positions,
-                                                         histogram_buffer,
-                                                         max_nodes,
-                                                         depth);
-        CHECK_CUDA_STREAM(stream);
-      }
-
-      SumAllReduce(context,
-                   reinterpret_cast<double*>(histogram_buffer.ptr(legate::Point<3>::ZEROES())),
-                   max_nodes * num_features * num_outputs * sizeof(GPair),
-                   stream);
-
-      // Find the best split
+      // Select the best split
       double eps = 1e-5;
-      perform_best_split<<<max_nodes, THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
-                                                                      num_features,
-                                                                      num_outputs,
-                                                                      split_proposal_accessor,
-                                                                      eps,
-                                                                      learning_rate,
-                                                                      tree.leaf_value,
-                                                                      tree.gradient,
-                                                                      tree.hessian,
-                                                                      tree.feature,
-                                                                      tree.split_value,
-                                                                      tree.gain,
-                                                                      depth);
-      CHECK_CUDA_STREAM(stream);
-
-      // cleanup buffer to prevent memory fragmentation
-      histogram_buffer.destroy();
+      tree_state.PerformBestSplit(tree, split_proposal_accessor, eps, learning_rate);
     }
-
-    positions.destroy();
-    positions_reordered.destroy();
-    sequence.destroy();
-    indices_reordered.destroy();
 
     if (context.get_task_index()[0] == 0) { tree.WriteTreeOutput(context); }
 
