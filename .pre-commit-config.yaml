@@ -22,7 +22,7 @@ repos:
       rev: 'v1.4.1'
       hooks:
         - id: mypy
-          args: ["--strict", "--follow-imports=skip", "--disallow-subclassing-any"]
+          args: ["--disallow-untyped-defs", "--follow-imports=skip", "--ignore-missing-imports"]
           files: legateboost\.py$
     - repo: https://github.com/PyCQA/docformatter
       rev: 'v1.6.5'

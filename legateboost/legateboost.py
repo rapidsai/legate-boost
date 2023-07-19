@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from enum import IntEnum
-from typing import Any, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
@@ -249,7 +249,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,
-        random_state: np.random.RandomState = None,
+        random_state: Optional[np.random.RandomState] = None,
         max_depth: int = 3,
         version: str = "native",
     ) -> None:
@@ -392,7 +392,7 @@ class LBRegressor(LBBase, RegressorMixin):
         regression).
     verbose : int, default=0
         Controls the verbosity when fitting and predicting.
-    random_state : np.random.RandomState or None, default=None
+    random_state :
         Controls the randomness of the estimator. Pass an int for reproducible
         results across multiple function calls.
     max_depth : int, default=3
@@ -432,7 +432,7 @@ class LBRegressor(LBBase, RegressorMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,
-        random_state: np.random.RandomState = None,
+        random_state: Optional[np.random.RandomState] = None,
         max_depth: int = 3,
     ) -> None:
         super().__init__(
@@ -495,7 +495,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         approximation of the loss-function.
     verbose : int, default=0
         Controls the verbosity of the boosting process.
-    random_state : np.random.RandomState or None, default=None
+    random_state :
         Controls the randomness of the estimator. Pass an int for reproducible output
         across multiple function calls.
     max_depth : int, default=3
@@ -534,7 +534,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         verbose: int = 0,
-        random_state: np.random.RandomState = None,
+        random_state: Optional[np.random.RandomState] = None,
         max_depth: int = 3,
     ) -> None:
         super().__init__(
