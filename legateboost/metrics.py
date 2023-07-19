@@ -15,12 +15,12 @@ class BaseMetric(ABC):
         `pred`, weighted by `w`.
 
         Args:
-            y (cn.ndarray): True labels.
-            pred (cn.ndarray): Predicted labels.
-            w (cn.ndarray): Weights for each sample.
+            y : True labels.
+            pred : Predicted labels.
+            w : Weights for each sample.
 
         Returns:
-            float: The metric between the true labels `y` and predicted labels
+            The metric between the true labels `y` and predicted labels
             `pred`, weighted by `w`.
         """
         pass
@@ -29,7 +29,7 @@ class BaseMetric(ABC):
         """Returns whether or not the metric requires predicted probabilities.
 
         Returns:
-            bool: True if the metric requires predicted probabilities, False otherwise.
+            True if the metric requires predicted probabilities, False otherwise.
         """
         return False
 
@@ -38,7 +38,7 @@ class BaseMetric(ABC):
         """Returns the name of the metric as a string.
 
         Returns:
-            str: The name of the metric.
+            The name of the metric.
         """
         pass
 

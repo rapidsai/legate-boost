@@ -310,19 +310,19 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
         Parameters
         ----------
-        i : int
+        i :
             The current iteration of the gradient boosting algorithm.
-        pred : cn.ndarray
+        pred :
             The predicted values for the current iteration.
-        y : cn.ndarray
+        y :
             The true target values.
-        sample_weight : cn.ndarray
+        sample_weight :
             The sample weights.
-        objective : BaseObjective
+        objective :
             The objective function used to calculate the loss.
-        metrics : list[BaseMetric]
+        metrics :
             The list of metrics to compute.
-        verbose : int
+        verbose :
             The verbosity level.
 
         Returns
@@ -358,16 +358,16 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
+        X :
             The training input samples.
-        y : array-like of shape (n_samples,)
+        y :
             The target values (class labels) as integers or as floating point numbers.
-        sample_weight : array-like of shape (n_samples,), default=None
+        sample_weight :
             Sample weights. If None, then samples are equally weighted.
 
         Returns
         -------
-        self : object
+        self :
             Returns self.
         """
         sample_weight = check_sample_weight(sample_weight, len(y))
@@ -460,34 +460,34 @@ class LBRegressor(LBBase, RegressorMixin):
 
     Parameters
     ----------
-    n_estimators : int, default=100
+    n_estimators :
         The number of boosting stages to perform.
-    objective : str, default='squared_error'
+    objective :
         The loss function to optimize. Possible values are ['squared_error'].
-    metric : str or BaseMetric or list, default='default'
+    metric :
         Metric for evaluation. 'default' indicates for the objective function to choose
         the accompanying metric. Possible values: ['mse'] or instance of BaseMetric. Can
         be a list multiple metrics.
-    learning_rate : float, default=0.1
+    learning_rate :
         The learning rate shrinks the contribution of each tree.
-    init : str or None, default='average'
+    init :
         The initial prediction of the model. If `None`, the initial prediction
         is zero. If 'average', the initial prediction minimises a second order
         approximation of the loss-function (simply the mean label in the case of
         regression).
-    verbose : int, default=0
+    verbose :
         Controls the verbosity when fitting and predicting.
-    random_state : np.random.RandomState or None, default=None
+    random_state :
         Controls the randomness of the estimator. Pass an int for reproducible
         results across multiple function calls.
-    max_depth : int, default=3
+    max_depth :
         The maximum depth of the decision trees.
 
     Attributes
     ----------
-    n_features_in_ : int
+    n_features_in_ :
         The number of features when `fit` is performed.
-    is_fitted_ : bool
+    is_fitted_ :
         Whether the estimator has been fitted.
     models_ :
         list of models from each iteration.
@@ -551,7 +551,7 @@ class LBRegressor(LBBase, RegressorMixin):
 
         Parameters
         ----------
-        X : cn.ndarray
+        X :
             Input data.
 
         Returns
@@ -570,39 +570,41 @@ class LBClassifier(LBBase, ClassifierMixin):
 
     Parameters
     ----------
-    n_estimators : int, default=100
+    n_estimators :
         The number of boosting stages to perform.
-    objective : str or BaseObjective, default='log_loss'
+    objective :
         The loss function to be optimized. Possible values: ['log_loss', 'exp']
         or instance of BaseObjective.
-    metric : str or BaseMetric or list, default='default'
+    metric :
         Metric for evaluation. 'default' indicates for the objective function to
         choose the accompanying metric. Possible values: ['log_loss', 'exp'] or
         instance of BaseMetric. Can be a list multiple metrics.
-    learning_rate : float, default=0.1
+    learning_rate :
         The learning rate shrinks the contribution of each tree by `learning_rate`.
-    init : str or None, default='average'
+    init :
         The initial prediction of the model. If `None`, the initial prediction
         is zero. If 'average', the initial prediction minimises a second order
         approximation of the loss-function.
-    verbose : int, default=0
+    verbose :
         Controls the verbosity of the boosting process.
-    random_state : np.random.RandomState or None, default=None
+    random_state :
         Controls the randomness of the estimator. Pass an int for reproducible output
         across multiple function calls.
-    max_depth : int, default=3
+    max_depth :
         The maximum depth of the individual trees.
 
     Attributes
     ----------
-    classes_ : array of shape (n_classes,)
-        The classes labels.
-    n_features_ : int
+    classes_ :
+        The class labels.
+    n_features_ :
         The number of features.
-    n_classes_ : int
+    n_classes_ :
         The number of classes.
-    models_ : list of models from each iteration.
-    train_metric_ : evaluated training metrics from each iteration.
+    models_ :
+        list of models from each iteration.
+    train_metric_ :
+        evaluated training metrics from each iteration.
 
     See Also
     --------
@@ -677,13 +679,13 @@ class LBClassifier(LBBase, ClassifierMixin):
         Parameters
         ----------
 
-        X : array-like of shape (n_samples, n_features)
+        X :
             The input samples.
 
         Returns
         -------
 
-        y : ndarray of shape (n_samples,)
+        y :
             The predicted raw values for each sample in X.
         """
         return super().predict(X)
@@ -694,13 +696,13 @@ class LBClassifier(LBBase, ClassifierMixin):
         Parameters
         ----------
 
-        X : array-like of shape (n_samples, n_features)
+        X :
             The input samples.
 
         Returns
         -------
 
-        y : ndarray of shape (n_samples, n_classes)
+        y :
             The predicted class probabilities for each sample in X.
         """
         objective = objectives[self.objective]()
@@ -716,13 +718,13 @@ class LBClassifier(LBBase, ClassifierMixin):
         Parameters
         ----------
 
-        X : array-like of shape (n_samples, n_features)
+        X :
             The input samples.
 
         Returns
         -------
 
-        y : ndarray of shape (n_samples,)
+        y :
             The predicted class labels for each sample in X.
         """
         return cn.argmax(self.predict_proba(X), axis=1)

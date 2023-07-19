@@ -20,11 +20,11 @@ class BaseObjective(ABC):
         objective function.
 
         Args:
-            y (cn.ndarray): The true labels.
-            pred (cn.ndarray): The predicted labels.
+            y : The true labels.
+            pred : The predicted labels.
 
         Returns:
-            (cn.ndarray, cn.ndarray): The functional gradient and hessian of the squared error
+            The functional gradient and hessian of the squared error
             objective function.
         """  # noqa: E501
         pass
@@ -33,10 +33,10 @@ class BaseObjective(ABC):
         """Transforms the predicted labels. E.g. sigmoid for log loss.
 
         Args:
-            pred (cn.ndarray): The predicted labels.
+            pred : The predicted labels.
 
         Returns:
-            cn.ndarray: The transformed labels.
+            The transformed labels.
         """
         pass
 
@@ -45,7 +45,7 @@ class BaseObjective(ABC):
         """Returns the default error metric for the objective function.
 
         Returns:
-            Metric: The default error metric for the objective function.
+            The default error metric for the objective function.
         """
         pass
 
