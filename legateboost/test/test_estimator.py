@@ -1,32 +1,10 @@
 import numpy as np
 import pytest
+import utils
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cunumeric as cn
 import legateboost as lb
-
-
-def non_increasing(x):
-    return all(x >= y for x, y in zip(x, x[1:]))
-
-
-def non_decreasing(x):
-    return all(x <= y for x, y in zip(x, x[1:]))
-
-
-def sanity_check_tree_stats(trees):
-    for tree in trees:
-        # Check that we have no 0 hessian splits
-        split_nodes = tree.feature != -1
-        assert cn.all(tree.hessian[split_nodes] > 0.0)
-
-        # Check gain is positive
-        assert cn.all(tree.gain[split_nodes] > 0.0)
-
-        # Check that hessians of leaves add up to root.
-        leaves = (tree.feature == -1) & (tree.hessian[:, 0] > 0.0)
-        leaf_sum = tree.hessian[leaves].sum(axis=0)
-        assert np.isclose(leaf_sum, tree.hessian[0]).all()
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
@@ -40,11 +18,11 @@ def test_regressor(num_outputs):
     mse = lb.MSEMetric().metric(y, model.predict(X), cn.ones(y.shape[0]))
     loss = next(iter(model.train_metric_.values()))
     assert np.isclose(loss[-1], mse)
-    assert non_increasing(loss)
+    assert utils.non_increasing(loss)
 
     # test print
     model.dump_trees()
-    sanity_check_tree_stats(model.models_)
+    utils.sanity_check_tree_stats(model.models_)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
@@ -60,7 +38,7 @@ def test_regressor_improving_with_depth(num_outputs):
 
         loss = next(iter(model.train_metric_.values()))
         metrics.append(loss[-1])
-    assert non_increasing(metrics)
+    assert utils.non_increasing(metrics)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
@@ -151,9 +129,9 @@ def test_classifier(num_class, objective):
     loss = metric.metric(y, pred, cn.ones(y.shape[0]))
     train_loss = next(iter(model.train_metric_.values()))
     assert np.isclose(train_loss[-1], loss)
-    assert non_increasing(train_loss)
+    assert utils.non_increasing(train_loss)
     assert model.score(X, y) > 0.7
-    sanity_check_tree_stats(model.models_)
+    utils.sanity_check_tree_stats(model.models_)
 
 
 @pytest.mark.parametrize("num_class", [2, 5])
@@ -183,26 +161,4 @@ def test_classifier_improving_with_depth(num_class, objective):
         ).fit(X, y)
         train_loss = next(iter(model.train_metric_.values()))
         metrics.append(train_loss[-1])
-    assert non_increasing(metrics)
-
-
-def test_prediction():
-    tree = lb.TreeStructure(
-        cn.array(
-            [0.0, 0.0, -0.04619769, 0.01845179, -0.01151532, 0.0, 0.0, 0.0, 0.0, 0.0]
-        ).reshape(10, 1),
-        cn.array([0, 1, -1, -1, -1, -1, -1, -1, -1, -1]).astype(cn.int32),
-        cn.array([0.79172504, 0.71518937, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-        cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-        cn.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(
-            10,
-            1,
-        ),
-    )
-    """0:[f0<=0.79172504] yes=1 no=2 1:[f1<=0.71518937] yes=3 no=4
-    3:leaf=0.01845179 4:leaf=-0.01151532 2:leaf=-0.04619769."""
-    pred = tree.predict(cn.array([[1.0, 0.0], [0.5, 0.5]]))
-    assert pred[0] == -0.04619769
-    assert pred[1] == 0.01845179
-    assert tree.predict(cn.array([[0.5, 1.0]])) == -0.01151532
-    assert tree.predict(cn.array([[0.79172504, 0.71518937]])) == 0.01845179
+    assert utils.non_increasing(metrics)
