@@ -175,7 +175,7 @@ def classification_dataset_strategy(draw):
 )
 @pytest.mark.skipif(
     get_legate_runtime().machine.preferred_kind == 1,
-    "Fails with V100 GPU, see issue #14",
+    reason="Fails with V100 GPU, see issue #14",
 )
 def test_classifier(model_params, classification_params, classification_dataset):
     X, y, w, name = classification_dataset
