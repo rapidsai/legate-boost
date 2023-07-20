@@ -2,7 +2,6 @@
 legate_cpp_library_template(legateboost TEMPLATE_SOURCES)
 
 if(Legion_USE_CUDA)
-  #find_package(NCCL REQUIRED)
   rapids_find_generate_module(NCCL
     HEADER_NAMES  nccl.h
     LIBRARY_NAMES nccl
@@ -12,7 +11,14 @@ if(Legion_USE_CUDA)
   # it built and installed on the machine already
   rapids_find_package(NCCL REQUIRED)
 
-  list(APPEND CMAKE_CUDA_FLAGS --extended-lambda )
+  list(APPEND LB_CUDA_FLAGS --expt-extended-lambda )
+  list(APPEND LB_CUDA_FLAGS --expt-relaxed-constexpr )
+
+  if(CMAKE_BUILD_TYPE MATCHES Debug)
+    list(APPEND LB_CUDA_FLAGS -G -Xcompiler=-rdynamic)
+  else()
+    list(APPEND LB_CUDA_FLAGS -lineinfo )
+  endif()
 endif()
 
 set(legateboost_srcs
@@ -37,7 +43,24 @@ add_library(
   ${TEMPLATE_SOURCES}
 )
 
+target_compile_options(legateboost
+      PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${LB_CXX_FLAGS}>"
+              "$<$<COMPILE_LANGUAGE:CUDA>:${LB_CUDA_FLAGS}>"
+)
+
+
+
 if (Legion_USE_CUDA)
+
+  # CUDA_ARCH environment variable can override the CMAKE_CUDA_ARCHITECTURES
+  if(DEFINED ENV{CUDA_ARCH} )
+    message(STATUS "legateboost: CUDA_ARCH=$ENV{CUDA_ARCH}")
+    set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES $ENV{CUDA_ARCH} )
+  else()
+    message(STATUS "legateboost: CUDA_ARCH not set - defaults to 70 (volta)")
+    set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES 70 )
+  endif()
+
   target_compile_definitions(legateboost PRIVATE LEGATEBOOST_USE_CUDA)
 endif()
 

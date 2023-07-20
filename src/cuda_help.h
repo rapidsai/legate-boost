@@ -22,6 +22,7 @@
 #include <nccl.h>
 
 #define THREADS_PER_BLOCK 128
+#define MIN_CTAS_PER_SM 4
 
 #define CHECK_NCCL(expr)                    \
   do {                                      \
@@ -60,5 +61,25 @@ __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
     exit(error);
   }
 }
+
+#if THRUST_VERSION >= 101600
+#define DEFAULT_POLICY thrust::cuda::par_nosync
+#else
+#define DEFAULT_POLICY thrust::cuda::par
+#endif
+
+class ThrustAllocator : public legate::ScopedAllocator {
+ public:
+  using value_type = char;
+
+  ThrustAllocator(legate::Memory::Kind kind) : legate::ScopedAllocator(kind) {}
+
+  char* allocate(size_t num_bytes)
+  {
+    return static_cast<char*>(ScopedAllocator::allocate(num_bytes));
+  }
+
+  void deallocate(char* ptr, size_t n) { ScopedAllocator::deallocate(ptr); }
+};
 
 }  // namespace legateboost
