@@ -8,20 +8,27 @@ import legateboost as lb
 def test_multiple_metrics():
     X = cn.random.random((10, 1))
     y = cn.random.randint(0, 2, size=X.shape[0])
-    model = lb.LBClassifier(verbose=1, n_estimators=2, metric=["log_loss", "exp"]).fit(
-        X, y
+    X_eval = cn.random.random((10, 1))
+    y_eval = cn.random.randint(0, 2, size=X.shape[0])
+
+    eval_result = {}
+    lb.LBClassifier(verbose=1, n_estimators=2, metric=["log_loss", "exp"]).fit(
+        X, y, eval_set=[(X_eval, y_eval)], eval_result=eval_result
     )
-    assert "log_loss" in model.train_metric_
-    assert len(model.train_metric_["log_loss"]) == 2
-    assert "exp" in model.train_metric_
-    model = lb.LBClassifier(
-        verbose=1, n_estimators=2, metric=[lb.ExponentialMetric()]
-    ).fit(X, y)
-    assert "exp" in model.train_metric_
-    model = lb.LBClassifier(
-        verbose=1, n_estimators=2, metric=lb.ExponentialMetric()
-    ).fit(X, y)
-    assert "exp" in model.train_metric_
+    assert "log_loss" in eval_result["train"]
+    assert "log_loss" in eval_result["eval-0"]
+    assert len(eval_result["train"]["log_loss"]) == 2
+    assert "exp" in eval_result["train"]
+    assert "exp" in eval_result["eval-0"]
+
+    lb.LBClassifier(verbose=1, n_estimators=2, metric=[lb.ExponentialMetric()]).fit(
+        X, y, eval_result=eval_result
+    )
+    assert "exp" in eval_result["train"]
+    lb.LBClassifier(verbose=1, n_estimators=2, metric=lb.ExponentialMetric()).fit(
+        X, y, eval_result=eval_result
+    )
+    assert "exp" in eval_result["train"]
 
 
 def test_mse():

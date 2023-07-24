@@ -294,70 +294,93 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
     def _compute_metrics(
         self,
-        i: int,
+        iteration: int,
         pred: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray,
         metrics: list[BaseMetric],
         verbose: int,
+        eval_set: List[Tuple[cn.ndarray, cn.ndarray]],
+        eval_result: dict,
     ) -> None:
-        """Computes the metrics dict for the current iteration of the gradient
-        boosting algorithm.
+        # make sure dict is initialised
+        if not eval_result:
+            eval_result.update({"train": {metric.name(): [] for metric in metrics}})
+            for i, _ in enumerate(eval_set):
+                eval_result[f"eval-{i}"] = {metric.name(): [] for metric in metrics}
 
-        Parameters
-        ----------
-        i :
-            The current iteration of the gradient boosting algorithm.
-        pred :
-            The predicted values for the current iteration.
-        y :
-            The true target values.
-        sample_weight :
-            The sample weights.
-        metrics :
-            The list of metrics to compute.
-        verbose :
-            The verbosity level.
+        def add_metric(
+            metric_pred: cn.ndarray,
+            y: cn.ndarray,
+            sample_weight: cn.ndarray,
+            metric: BaseMetric,
+            name: str,
+        ) -> None:
+            eval_result[name][metric.name()].append(
+                metric.metric(y, metric_pred, sample_weight)
+            )
+            if verbose:
+                print(
+                    "i: {} {} {}: {}".format(
+                        iteration,
+                        name,
+                        metric.name(),
+                        eval_result[name][metric.name()][-1],
+                    )
+                )
 
-        Returns
-        -------
-        None
-        """
-        if not hasattr(self, "train_metric_"):
-            for metric in metrics:
-                self.train_metric_: dict[str, list[float]] = {
-                    metric.name(): [] for metric in metrics
-                }
         pred_prob = (
             self._objective_instance.transform(pred)
             if any(metric.requires_probability() for metric in metrics)
             else None
         )
+
+        # add the training metrics
         for metric in metrics:
             metric_pred = pred_prob if metric.requires_probability() else pred
-            self.train_metric_[metric.name()].append(
-                metric.metric(y, metric_pred, sample_weight)
-            )
-            if verbose:
-                print(
-                    "i: {} {}: {}".format(
-                        i, metric.name(), self.train_metric_[metric.name()][-1]
-                    )
+            add_metric(metric_pred, y, sample_weight, metric, "train")
+
+        # add any eval metrics, if they exist
+        for i, (X_eval, y_eval) in enumerate(eval_set):
+            eval_sample_weight = cn.ones(y_eval.shape[0])
+            for metric in metrics:
+                eval_pred = self._predict(X_eval)
+                metric_pred = (
+                    self._objective_instance.transform(eval_pred)
+                    if metric.requires_probability()
+                    else eval_pred
+                )
+                add_metric(
+                    metric_pred, y_eval, eval_sample_weight, metric, "eval-{}".format(i)
                 )
 
     def _partial_fit(
-        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, cn.ndarray]] = [],
+        eval_result: dict = {},
     ) -> "LBBase":
+
+        # check inputs
         X, y = check_X_y(X, y)
+        for X_eval, y_eval in eval_set:
+            X_eval, y_eval = check_X_y(X_eval, y_eval)
+
         sample_weight = check_sample_weight(sample_weight, len(y))
 
         if not hasattr(self, "is_fitted_"):
             return self.fit(X, y, sample_weight)
 
+        # avoid appending to an existing eval result
+        eval_result.clear()
+
         # current model prediction
         pred = self._predict(X)
         for _ in range(self.n_estimators):
             # obtain gradients
+            # check input dimensions are consistent
             assert y.ndim == pred.ndim == 2
             g, h = self._objective_instance.gradient(y, pred)
             assert g.ndim == h.ndim == 2
@@ -365,6 +388,8 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                 g.dtype, h.dtype
             )
             assert g.shape == h.shape
+
+            # apply weights
             g = g * sample_weight[:, None]
             h = h * sample_weight[:, None]
 
@@ -386,12 +411,24 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             # evaluate our progress
             model_idx = len(self.models_) - 1
             self._compute_metrics(
-                model_idx, pred, y, sample_weight, self._metrics, self.verbose
+                model_idx,
+                pred,
+                y,
+                sample_weight,
+                self._metrics,
+                self.verbose,
+                eval_set,
+                eval_result,
             )
         return self
 
     def fit(
-        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray,
+        eval_set: List[Tuple[cn.ndarray, cn.ndarray]] = [],
+        eval_result: dict = {},
     ) -> "LBBase":
         """Build a gradient boosting model from the training set (X, y).
 
@@ -403,7 +440,10 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             The target values (class labels) as integers or as floating point numbers.
         sample_weight :
             Sample weights. If None, then samples are equally weighted.
-
+        eval_set :
+            A list of (X, y) pairs. The metric will be evaluated on each pair.
+        eval_result :
+            Returns evaluation result dictionary on training completion.
         Returns
         -------
         self :
@@ -439,7 +479,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
         self.is_fitted_ = True
 
-        return self._partial_fit(X, y, sample_weight)
+        return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
 
     def _predict(self, X: cn.ndarray) -> cn.ndarray:
         X = check_X_y(X)
@@ -501,8 +541,6 @@ class LBRegressor(LBBase, RegressorMixin):
         Whether the estimator has been fitted.
     models_ :
         list of models from each iteration.
-    train_metric_ :
-        evaluated training metrics from each iteration.
 
 
     See Also
@@ -548,7 +586,12 @@ class LBRegressor(LBBase, RegressorMixin):
         }
 
     def partial_fit(
-        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, cn.ndarray]] = [],
+        eval_result: dict = {},
     ) -> LBBase:
         """This method is used for incremental (online) training of the model.
         An additional `n_estimators` models will be added to the ensemble.
@@ -562,22 +605,30 @@ class LBRegressor(LBBase, RegressorMixin):
         sample_weight :
             Individual weights for each sample. If None, then samples
             are equally weighted.
-
+        eval_set :
+            A list of (X, y) pairs. The metric will be evaluated on each pair.
+        eval_result :
+            Returns evaluation result dictionary on training completion.
         Returns
         -------
         self :
             Returns self.
         """
-        return super()._partial_fit(X, y, sample_weight)
+        return super()._partial_fit(X, y, sample_weight, eval_set, eval_result)
 
     def fit(
-        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, cn.ndarray]] = [],
+        eval_result: dict = {},
     ) -> "LBRegressor":
         self.n_margin_outputs_ = 1
         X, y = check_X_y(X, y)
         if y.ndim > 1:
             self.n_margin_outputs_ = y.shape[1]
-        return super().fit(X, y, sample_weight)
+        return super().fit(X, y, sample_weight, eval_set, eval_result)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         """Predict labels for samples in X.
@@ -636,8 +687,6 @@ class LBClassifier(LBBase, ClassifierMixin):
         The number of classes.
     models_ :
         list of models from each iteration.
-    train_metric_ :
-        evaluated training metrics from each iteration.
 
     See Also
     --------
@@ -682,6 +731,8 @@ class LBClassifier(LBBase, ClassifierMixin):
         y: cn.ndarray,
         classes: cn.ndarray,
         sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, cn.ndarray]] = [],
+        eval_result: dict = {},
     ) -> LBBase:
         """This method is used for incremental fitting on a batch of samples.
         Requires the classes to be provided up front, as they may not be
@@ -698,6 +749,10 @@ class LBClassifier(LBBase, ClassifierMixin):
         sample_weight :
             Weights applied to individual samples (1D array). If None, then
             samples are equally weighted.
+        eval_set :
+            A list of (X, y) pairs. The metric will be evaluated on each pair.
+        eval_result :
+            Returns evaluation result dictionary on training completion.
 
         Returns
         -------
@@ -726,10 +781,15 @@ class LBClassifier(LBBase, ClassifierMixin):
             assert self.is_fitted_
             assert cn.all(self.classes_ == classes), "classes must match previous fit"
 
-        return super()._partial_fit(X, y, sample_weight)
+        return super()._partial_fit(X, y, sample_weight, eval_set, eval_result)
 
     def fit(
-        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, cn.ndarray]] = [],
+        eval_result: dict = {},
     ) -> "LBClassifier":
         if hasattr(y, "ndim") and y.ndim > 1:
             warnings.warn(
@@ -754,7 +814,13 @@ class LBClassifier(LBBase, ClassifierMixin):
                 raise ValueError("Unknown label type: ", self.classes_)
 
         self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
-        super().fit(X, y, sample_weight=sample_weight)
+        super().fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            eval_result=eval_result,
+        )
         return self
 
     def predict_raw(self, X: cn.ndarray) -> cn.ndarray:

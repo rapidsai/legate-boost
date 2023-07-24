@@ -12,11 +12,12 @@ def test_regressor(num_outputs):
     np.random.seed(2)
     X = cn.random.random((100, 10))
     y = cn.random.random((X.shape[0], num_outputs))
+    eval_result = {}
     model = lb.LBRegressor(
         n_estimators=20, max_depth=3, random_state=2, learning_rate=0.5
-    ).fit(X, y)
+    ).fit(X, y, eval_result=eval_result)
     mse = lb.MSEMetric().metric(y, model.predict(X), cn.ones(y.shape[0]))
-    loss = next(iter(model.train_metric_.values()))
+    loss = next(iter(eval_result["train"].values()))
     assert np.isclose(loss[-1], mse)
     assert utils.non_increasing(loss)
 
@@ -32,11 +33,11 @@ def test_regressor_improving_with_depth(num_outputs):
     y = cn.random.random((X.shape[0], num_outputs))
     metrics = []
     for max_depth in range(0, 10):
-        model = lb.LBRegressor(n_estimators=2, random_state=0, max_depth=max_depth).fit(
-            X, y
+        eval_result = {}
+        lb.LBRegressor(n_estimators=2, random_state=0, max_depth=max_depth).fit(
+            X, y, eval_result=eval_result
         )
-
-        loss = next(iter(model.train_metric_.values()))
+        loss = next(iter(eval_result["train"].values()))
         metrics.append(loss[-1])
     assert utils.non_increasing(metrics)
 
@@ -52,10 +53,11 @@ def test_regressor_weights(num_outputs):
     X = cn.random.random((100, 10))
     y = cn.random.random((X.shape[0], num_outputs))
     w = cn.random.random(X.shape[0])
-    model = lb.LBRegressor(
-        n_estimators=5, random_state=0, max_depth=10, learning_rate=1.0
-    ).fit(X, y, sample_weight=w)
-    loss = next(iter(model.train_metric_.values()))
+    eval_result = {}
+    lb.LBRegressor(n_estimators=5, random_state=0, max_depth=10, learning_rate=1.0).fit(
+        X, y, sample_weight=w, eval_result=eval_result
+    )
+    loss = next(iter(eval_result["train"].values()))
     assert loss[-1] < 1e-5
 
 
@@ -119,7 +121,10 @@ def test_classifier(num_class, objective):
     np.random.seed(3)
     X = cn.random.random((100, 10))
     y = cn.random.randint(0, num_class, X.shape[0])
-    model = lb.LBClassifier(n_estimators=10, objective=objective).fit(X, y)
+    eval_result = {}
+    model = lb.LBClassifier(n_estimators=10, objective=objective).fit(
+        X, y, eval_result=eval_result
+    )
     metric = model._metrics[0]
     pred = (
         model.predict_proba(X)
@@ -127,7 +132,7 @@ def test_classifier(num_class, objective):
         else model.predict_raw(X)
     )
     loss = metric.metric(y, pred, cn.ones(y.shape[0]))
-    train_loss = next(iter(model.train_metric_.values()))
+    train_loss = next(iter(eval_result["train"].values()))
     assert np.isclose(train_loss[-1], loss)
     assert utils.non_increasing(train_loss)
     assert model.score(X, y) > 0.7
@@ -141,11 +146,12 @@ def test_classifier_weights(num_class, objective):
     X = cn.random.random((100, 10))
     y = cn.random.randint(0, num_class, X.shape[0])
     w = cn.random.random(X.shape[0])
-    model = lb.LBClassifier(
+    eval_result = {}
+    lb.LBClassifier(
         n_estimators=10, learning_rate=1.0, max_depth=10, objective=objective
-    ).fit(X, y, w)
-    train_loss = next(iter(model.train_metric_.values()))
-    assert np.isclose(train_loss[-1], 0.0, atol=1e-3)
+    ).fit(X, y, w, eval_result=eval_result)
+    loss = next(iter(eval_result["train"].values()))
+    assert np.isclose(loss[-1], 0.0, atol=1e-3)
 
 
 @pytest.mark.parametrize("num_class", [2, 5])
@@ -156,9 +162,10 @@ def test_classifier_improving_with_depth(num_class, objective):
     y = cn.random.randint(0, num_class, X.shape[0])
     metrics = []
     for max_depth in range(0, 5):
-        model = lb.LBClassifier(
+        eval_result = {}
+        lb.LBClassifier(
             n_estimators=2, random_state=0, max_depth=max_depth, objective=objective
-        ).fit(X, y)
-        train_loss = next(iter(model.train_metric_.values()))
-        metrics.append(train_loss[-1])
+        ).fit(X, y, eval_result=eval_result)
+        loss = next(iter(eval_result["train"].values()))
+        metrics.append(loss[-1])
     assert utils.non_increasing(metrics)
