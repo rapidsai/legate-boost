@@ -93,10 +93,22 @@ def test_regressor(model_params, regression_params, regression_dataset):
     model = lb.LBRegressor(**model_params, **regression_params).fit(
         X, y, sample_weight=w
     )
-    model.predict(X)
+    pred = model.predict(X)
     train_loss = next(iter(model.train_metric_.values()))
     assert utils.non_increasing(train_loss)
     utils.sanity_check_tree_stats(model.models_)
+
+    # test partial fit
+    n_estimators_first = model_params["n_estimators"] // 2
+    partial_model = lb.LBRegressor(**model_params, **regression_params)
+    partial_model.set_params(n_estimators=n_estimators_first)
+    partial_model.partial_fit(X, y, sample_weight=w)
+    partial_model.set_params(
+        n_estimators=model_params["n_estimators"] - n_estimators_first
+    )
+    partial_model.partial_fit(X, y, sample_weight=w)
+
+    assert cn.allclose(pred, partial_model.predict(X))
 
 
 classification_param_strategy = st.fixed_dictionaries(

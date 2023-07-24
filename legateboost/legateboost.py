@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import warnings
 from enum import IntEnum
-from typing import Any, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
@@ -275,13 +275,13 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             },
         }
 
-    def _setup_metrics(self, objective: BaseObjective) -> list[BaseMetric]:
+    def _setup_metrics(self) -> list[BaseMetric]:
         iterable = (self.metric,) if not isinstance(self.metric, list) else self.metric
         metric_instances = []
         for metric in iterable:
             if isinstance(metric, str):
                 if metric == "default":
-                    metric_instances.append(objective.metric())
+                    metric_instances.append(self._objective_instance.metric())
                 else:
                     metric_instances.append(metrics[metric]())
             elif isinstance(metric, BaseMetric):
@@ -298,7 +298,6 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         pred: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray,
-        objective: BaseObjective,
         metrics: list[BaseMetric],
         verbose: int,
     ) -> None:
@@ -315,8 +314,6 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             The true target values.
         sample_weight :
             The sample weights.
-        objective :
-            The objective function used to calculate the loss.
         metrics :
             The list of metrics to compute.
         verbose :
@@ -332,7 +329,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                     metric.name(): [] for metric in metrics
                 }
         pred_prob = (
-            objective.transform(pred)
+            self._objective_instance.transform(pred)
             if any(metric.requires_probability() for metric in metrics)
             else None
         )
@@ -348,57 +345,22 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                     )
                 )
 
-    def fit(
+    def _partial_fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
     ) -> "LBBase":
-        """Build a gradient boosting model from the training set (X, y).
-
-        Parameters
-        ----------
-        X :
-            The training input samples.
-        y :
-            The target values (class labels) as integers or as floating point numbers.
-        sample_weight :
-            Sample weights. If None, then samples are equally weighted.
-
-        Returns
-        -------
-        self :
-            Returns self.
-        """
+        X, y = check_X_y(X, y)
         sample_weight = check_sample_weight(sample_weight, len(y))
-        self.n_features_in_ = X.shape[1]
-        self.models_ = []
 
-        # setup objective
-        if isinstance(self.objective, str):
-            objective = objectives[self.objective]()
-        elif isinstance(self.objective, BaseObjective):
-            objective = self.objective
-        else:
-            raise ValueError(
-                "Expected objective to be a string or instance of BaseObjective"
-            )
-
-        self._metrics = self._setup_metrics(objective)
-
-        objective.check_labels(y)
-        self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
-        if self.init == "average":
-            # initialise the model to some good average value
-            # this is equivalent to a tree with a single leaf and learning rate 1.0
-            pred = cn.tile(self.model_init_, (y.shape[0], 1))
-            g, h = objective.gradient(y, pred)
-            H = h.sum()
-            if H > 0.0:
-                self.model_init_ = -g.sum(axis=0) / H
+        if not hasattr(self, "is_fitted_"):
+            return self.fit(X, y, sample_weight)
 
         # current model prediction
-        pred = cn.tile(self.model_init_, (y.shape[0], 1))
-        for i in range(self.n_estimators):
+        pred = self._predict(X)
+        for _ in range(self.n_estimators):
             # obtain gradients
-            g, h = objective.gradient(y, pred)
+            assert y.ndim == pred.ndim == 2
+            g, h = self._objective_instance.gradient(y, pred)
+            assert g.ndim == h.ndim == 2
             assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
                 g.dtype, h.dtype
             )
@@ -422,14 +384,64 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             pred += self.models_[-1].predict(X)
 
             # evaluate our progress
+            model_idx = len(self.models_) - 1
             self._compute_metrics(
-                i, pred, y, sample_weight, objective, self._metrics, self.verbose
+                model_idx, pred, y, sample_weight, self._metrics, self.verbose
             )
-
-        self.is_fitted_ = True
         return self
 
-    def predict(self, X: cn.ndarray) -> cn.ndarray:
+    def fit(
+        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+    ) -> "LBBase":
+        """Build a gradient boosting model from the training set (X, y).
+
+        Parameters
+        ----------
+        X :
+            The training input samples.
+        y :
+            The target values (class labels) as integers or as floating point numbers.
+        sample_weight :
+            Sample weights. If None, then samples are equally weighted.
+
+        Returns
+        -------
+        self :
+            Returns self.
+        """
+        assert not hasattr(self, "is_fitted_"), "Use partial fit to continue training"
+        sample_weight = check_sample_weight(sample_weight, len(y))
+        self.n_features_in_ = X.shape[1]
+        self.models_: List[TreeStructure] = []
+
+        # setup objective
+        if isinstance(self.objective, str):
+            self._objective_instance = objectives[self.objective]()
+        elif isinstance(self.objective, BaseObjective):
+            self._objective_instance = self.objective
+        else:
+            raise ValueError(
+                "Expected objective to be a string or instance of BaseObjective"
+            )
+
+        self._metrics = self._setup_metrics()
+
+        self._objective_instance.check_labels(y)
+        self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
+        if self.init == "average":
+            # initialise the model to some good average value
+            # this is equivalent to a tree with a single leaf and learning rate 1.0
+            pred = cn.tile(self.model_init_, (y.shape[0], 1))
+            g, h = self._objective_instance.gradient(y, pred)
+            H = h.sum()
+            if H > 0.0:
+                self.model_init_ = -g.sum(axis=0) / H
+
+        self.is_fitted_ = True
+
+        return self._partial_fit(X, y, sample_weight)
+
+    def _predict(self, X: cn.ndarray) -> cn.ndarray:
         X = check_X_y(X)
         check_is_fitted(self, "is_fitted_")
         if X.shape[1] != self.n_features_in_:
@@ -535,6 +547,29 @@ class LBRegressor(LBBase, RegressorMixin):
             "multioutput": True,
         }
 
+    def partial_fit(
+        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+    ) -> LBBase:
+        """This method is used for incremental (online) training of the model.
+        An additional `n_estimators` models will be added to the ensemble.
+
+        Parameters
+        ----------
+        X :
+            The input samples.
+        y : cn.ndarray
+            The target values.
+        sample_weight :
+            Individual weights for each sample. If None, then samples
+            are equally weighted.
+
+        Returns
+        -------
+        self :
+            Returns self.
+        """
+        return super()._partial_fit(X, y, sample_weight)
+
     def fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
     ) -> "LBRegressor":
@@ -557,7 +592,7 @@ class LBRegressor(LBBase, RegressorMixin):
         cn.ndarray
             Predicted labels for X.
         """
-        pred = super().predict(X)
+        pred = super()._predict(X)
         if pred.shape[1] == 1:
             pred = pred.squeeze(axis=1)
         return pred
@@ -641,6 +676,58 @@ class LBClassifier(LBBase, ClassifierMixin):
             max_depth=max_depth,
         )
 
+    def partial_fit(
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        classes: cn.ndarray,
+        sample_weight: cn.ndarray = None,
+    ) -> LBBase:
+        """This method is used for incremental fitting on a batch of samples.
+        Requires the classes to be provided up front, as they may not be
+        inferred from the first batch.
+
+        Parameters
+        ----------
+        X :
+            The training input samples.
+        y :
+            The target values
+        classes :
+            The unique labels of the target.
+        sample_weight :
+            Weights applied to individual samples (1D array). If None, then
+            samples are equally weighted.
+
+        Returns
+        -------
+        self :
+            Returns self.
+
+        Raises
+        ------
+        ValueError
+            If the classes provided are not whole numbers.
+        """
+        if not hasattr(self, "classes_"):
+            self.classes_ = classes
+            num_classes = int(self.classes_.max() + 1)
+            assert np.issubdtype(self.classes_.dtype, np.integer) or np.issubdtype(
+                self.classes_.dtype, np.floating
+            ), "y must be integer or floating type"
+
+            if np.issubdtype(self.classes_.dtype, np.floating):
+                whole_numbers = cn.all(self.classes_ == cn.floor(self.classes_))
+                if not whole_numbers:
+                    raise ValueError("Unknown label type: ", self.classes_)
+
+            self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
+        else:
+            assert self.is_fitted_
+            assert cn.all(self.classes_ == classes), "classes must match previous fit"
+
+        return super()._partial_fit(X, y, sample_weight)
+
     def fit(
         self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
     ) -> "LBClassifier":
@@ -686,7 +773,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         y :
             The predicted raw values for each sample in X.
         """
-        return super().predict(X)
+        return super()._predict(X)
 
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
         """Predict class probabilities for samples in X.
@@ -703,8 +790,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         y :
             The predicted class probabilities for each sample in X.
         """
-        objective = objectives[self.objective]()
-        pred = objective.transform(super().predict(X))
+        pred = self._objective_instance.transform(super()._predict(X))
         if self.n_margin_outputs_ == 1:
             pred = pred.squeeze()
             pred = cn.stack([1.0 - pred, pred], axis=1)
