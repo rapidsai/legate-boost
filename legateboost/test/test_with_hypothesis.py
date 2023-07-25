@@ -90,12 +90,13 @@ def regression_dataset_strategy(draw):
 )
 def test_regressor(model_params, regression_params, regression_dataset):
     X, y, w = regression_dataset
+    eval_result = {}
     model = lb.LBRegressor(**model_params, **regression_params).fit(
-        X, y, sample_weight=w
+        X, y, sample_weight=w, eval_result=eval_result
     )
     pred = model.predict(X)
-    train_loss = next(iter(model.train_metric_.values()))
-    assert utils.non_increasing(train_loss)
+    loss = next(iter(eval_result["train"].values()))
+    assert utils.non_increasing(loss)
     utils.sanity_check_tree_stats(model.models_)
 
     # test partial fit
@@ -191,14 +192,15 @@ def classification_dataset_strategy(draw):
 )
 def test_classifier(model_params, classification_params, classification_dataset):
     X, y, w, name = classification_dataset
+    eval_result = {}
     model = lb.LBClassifier(**model_params, **classification_params).fit(
-        X, y, sample_weight=w
+        X, y, sample_weight=w, eval_result=eval_result
     )
     pred = model.predict(X)
     pred_proba = model.predict_proba(X)
     model.predict_raw(X)
-    train_loss = next(iter(model.train_metric_.values()))
-    assert utils.non_increasing(train_loss)
+    loss = next(iter(eval_result["train"].values()))
+    assert utils.non_increasing(loss)
 
     utils.sanity_check_tree_stats(model.models_)
 
