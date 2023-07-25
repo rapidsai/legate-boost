@@ -361,12 +361,13 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         for i, tuple in enumerate(eval_set):
             assert len(tuple) in [2, 3]
             if len(tuple) == 2:
-                new_eval_set[i] = check_X_y(tuple[0], tuple[1]) + (
-                    cn.ones(tuple[1].shape[0]),
+                new_eval_set.append(
+                    check_X_y(tuple[0], tuple[1]) + (cn.ones(tuple[1].shape[0]),)
                 )
             else:
-                new_eval_set[i] = check_X_y(tuple[0], tuple[1]) + (
-                    check_sample_weight(tuple[2], tuple[1].shape[0]),
+                new_eval_set.append(
+                    check_X_y(tuple[0], tuple[1])
+                    + (check_sample_weight(tuple[2], tuple[1].shape[0]),)
                 )
 
         return new_eval_set
