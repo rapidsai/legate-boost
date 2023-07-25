@@ -12,7 +12,7 @@ def test_multiple_metrics():
     y_eval = cn.random.randint(0, 2, size=X.shape[0])
 
     eval_result = {}
-    lb.LBClassifier(verbose=1, n_estimators=2, metric=["log_loss", "exp"]).fit(
+    lb.LBClassifier(n_estimators=2, metric=["log_loss", "exp"]).fit(
         X, y, eval_set=[(X_eval, y_eval)], eval_result=eval_result
     )
     assert "log_loss" in eval_result["train"]
@@ -21,14 +21,29 @@ def test_multiple_metrics():
     assert "exp" in eval_result["train"]
     assert "exp" in eval_result["eval-0"]
 
-    lb.LBClassifier(verbose=1, n_estimators=2, metric=[lb.ExponentialMetric()]).fit(
+    lb.LBClassifier(n_estimators=2, metric=[lb.ExponentialMetric()]).fit(
         X, y, eval_result=eval_result
     )
     assert "exp" in eval_result["train"]
-    lb.LBClassifier(verbose=1, n_estimators=2, metric=lb.ExponentialMetric()).fit(
+    lb.LBClassifier(n_estimators=2, metric=lb.ExponentialMetric()).fit(
         X, y, eval_result=eval_result
     )
     assert "exp" in eval_result["train"]
+
+
+def test_eval_tuple():
+    # check weights get registered
+    X = cn.random.random((10, 1))
+    y = cn.random.randint(0, 2, size=X.shape[0])
+    X_eval = cn.random.random((10, 1))
+    y_eval = cn.random.randint(0, 2, size=X.shape[0])
+    w_eval = cn.zeros(X.shape[0])
+
+    eval_result = {}
+    lb.LBClassifier(n_estimators=2).fit(
+        X, y, eval_set=[(X_eval, y_eval, w_eval)], eval_result=eval_result
+    )
+    assert eval_result["eval-0"]["log_loss"][-1] == 0.0
 
 
 def test_mse():
