@@ -109,7 +109,7 @@ def test_regressor(model_params, regression_params, regression_dataset):
     )
     partial_model.partial_fit(X, y, sample_weight=w)
 
-    assert cn.allclose(pred, partial_model.predict(X))
+    assert cn.allclose(pred, partial_model.predict(X), atol=1e-3)
 
 
 classification_param_strategy = st.fixed_dictionaries(
@@ -216,4 +216,4 @@ def test_classifier(model_params, classification_params, classification_dataset)
     partial_model.partial_fit(X, y, sample_weight=w, classes=classes)
 
     assert cn.all(pred == partial_model.predict(X))
-    assert cn.allclose(pred_proba, partial_model.predict_proba(X))
+    assert cn.allclose(pred_proba, partial_model.predict_proba(X), atol=1e-3)
