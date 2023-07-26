@@ -49,7 +49,7 @@ jobs:
           mamba activate legate;
           mamba install -y 'gcc<=10.0.0' build scikit-learn;
           # install test dependencies
-          mamba install -y hypothesis pytest xgboost notebook;
+          mamba install -y hypothesis pytest xgboost notebook seaborn matplotlib;
 
           # workaround issue https://github.com/nv-legate/legate.core/issues/789
           mkdir -p _skbuild/linux-x86_64-3.10/cmake-build

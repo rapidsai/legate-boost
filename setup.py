@@ -47,6 +47,8 @@ extras_require = {
         "xgboost",
         "notebook",
         "nbconvert",
+        "seaborn",
+        "matplotlib",
     ]
 }
 
