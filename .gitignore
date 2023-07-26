@@ -8,3 +8,4 @@ src/legate_library.cc
 src/legate_library.h
 legate_prof*
 .hypothesis
+examples/notebook/*.py

@@ -33,6 +33,22 @@ if env_cmake_args is not None:
     cmake_flags.append(env_cmake_args)
 os.environ["CMAKE_ARGS"] = " ".join(cmake_flags)
 
+requires = [
+    "cunumeric",
+    "legate.core",
+    "scikit-learn",
+    "numpy",
+]
+
+extras_require = {
+    "test": [
+        "hypothesis",
+        "pytest",
+        "xgboost",
+        "notebook",
+        "nbconvert",
+    ]
+}
 
 setup(
     name="legateboost",
@@ -50,6 +66,8 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
     ],
+    install_requires=requires,
+    extras_require=extras_require,
     packages=find_packages(
         where=".",
         include=["legateboost", "legateboost.*"],
