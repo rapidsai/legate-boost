@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import warnings
 from enum import IntEnum
-from typing import Any, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
@@ -275,13 +275,13 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             },
         }
 
-    def _setup_metrics(self, objective: BaseObjective) -> list[BaseMetric]:
+    def _setup_metrics(self) -> list[BaseMetric]:
         iterable = (self.metric,) if not isinstance(self.metric, list) else self.metric
         metric_instances = []
         for metric in iterable:
             if isinstance(metric, str):
                 if metric == "default":
-                    metric_instances.append(objective.metric())
+                    metric_instances.append(self._objective_instance.metric())
                 else:
                     metric_instances.append(metrics[metric]())
             elif isinstance(metric, BaseMetric):
@@ -294,115 +294,126 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
     def _compute_metrics(
         self,
-        i: int,
+        iteration: int,
         pred: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray,
-        objective: BaseObjective,
         metrics: list[BaseMetric],
         verbose: int,
+        eval_set: List[Tuple[cn.ndarray, cn.ndarray, cn.ndarray]],
+        eval_result: dict,
     ) -> None:
-        """Computes the metrics dict for the current iteration of the gradient
-        boosting algorithm.
+        # make sure dict is initialised
+        if not eval_result:
+            eval_result.update({"train": {metric.name(): [] for metric in metrics}})
+            for i, _ in enumerate(eval_set):
+                eval_result[f"eval-{i}"] = {metric.name(): [] for metric in metrics}
 
-        Parameters
-        ----------
-        i :
-            The current iteration of the gradient boosting algorithm.
-        pred :
-            The predicted values for the current iteration.
-        y :
-            The true target values.
-        sample_weight :
-            The sample weights.
-        objective :
-            The objective function used to calculate the loss.
-        metrics :
-            The list of metrics to compute.
-        verbose :
-            The verbosity level.
-
-        Returns
-        -------
-        None
-        """
-        if not hasattr(self, "train_metric_"):
-            for metric in metrics:
-                self.train_metric_: dict[str, list[float]] = {
-                    metric.name(): [] for metric in metrics
-                }
-        pred_prob = (
-            objective.transform(pred)
-            if any(metric.requires_probability() for metric in metrics)
-            else None
-        )
-        for metric in metrics:
-            metric_pred = pred_prob if metric.requires_probability() else pred
-            self.train_metric_[metric.name()].append(
+        def add_metric(
+            metric_pred: cn.ndarray,
+            y: cn.ndarray,
+            sample_weight: cn.ndarray,
+            metric: BaseMetric,
+            name: str,
+        ) -> None:
+            eval_result[name][metric.name()].append(
                 metric.metric(y, metric_pred, sample_weight)
             )
             if verbose:
                 print(
-                    "i: {} {}: {}".format(
-                        i, metric.name(), self.train_metric_[metric.name()][-1]
+                    "i: {} {} {}: {}".format(
+                        iteration,
+                        name,
+                        metric.name(),
+                        eval_result[name][metric.name()][-1],
                     )
                 )
 
-    def fit(
-        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+        pred_prob = (
+            self._objective_instance.transform(pred)
+            if any(metric.requires_probability() for metric in metrics)
+            else None
+        )
+
+        # add the training metrics
+        for metric in metrics:
+            metric_pred = pred_prob if metric.requires_probability() else pred
+            add_metric(metric_pred, y, sample_weight, metric, "train")
+
+        # add any eval metrics, if they exist
+        for i, (X_eval, y_eval, sample_weight_eval) in enumerate(eval_set):
+            for metric in metrics:
+                eval_pred = self._predict(X_eval)
+                metric_pred = (
+                    self._objective_instance.transform(eval_pred)
+                    if metric.requires_probability()
+                    else eval_pred
+                )
+                add_metric(
+                    metric_pred, y_eval, sample_weight_eval, metric, "eval-{}".format(i)
+                )
+
+    # check the types of the eval set and add sample weight if none
+    def _process_eval_set(
+        self, eval_set: List[Tuple[cn.ndarray, ...]]
+    ) -> List[Tuple[cn.ndarray, cn.ndarray, cn.ndarray]]:
+        new_eval_set: List[Tuple[cn.ndarray, cn.ndarray, cn.ndarray]] = []
+        for i, tuple in enumerate(eval_set):
+            assert len(tuple) in [2, 3]
+            if len(tuple) == 2:
+                new_eval_set.append(
+                    check_X_y(tuple[0], tuple[1]) + (cn.ones(tuple[1].shape[0]),)
+                )
+            else:
+                new_eval_set.append(
+                    check_X_y(tuple[0], tuple[1])
+                    + (check_sample_weight(tuple[2], tuple[1].shape[0]),)
+                )
+
+        return new_eval_set
+
+    def _partial_fit(
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: Optional[cn.ndarray] = None,
+        eval_set: List[Tuple[cn.ndarray, ...]] = [],
+        eval_result: dict = {},
     ) -> "LBBase":
-        """Build a gradient boosting model from the training set (X, y).
 
-        Parameters
-        ----------
-        X :
-            The training input samples.
-        y :
-            The target values (class labels) as integers or as floating point numbers.
-        sample_weight :
-            Sample weights. If None, then samples are equally weighted.
+        # check inputs
+        X, y = check_X_y(X, y)
+        _eval_set = self._process_eval_set(eval_set)
 
-        Returns
-        -------
-        self :
-            Returns self.
-        """
-        sample_weight = check_sample_weight(sample_weight, len(y))
-        self.n_features_in_ = X.shape[1]
-        self.models_ = []
+        sample_weight = check_sample_weight(sample_weight, y.shape[0])
 
-        # setup objective
-        if isinstance(self.objective, str):
-            objective = objectives[self.objective]()
-        elif isinstance(self.objective, BaseObjective):
-            objective = self.objective
-        else:
+        if not hasattr(self, "is_fitted_"):
+            return self.fit(X, y, sample_weight)
+
+        if self.n_features_in_ != X.shape[1]:
             raise ValueError(
-                "Expected objective to be a string or instance of BaseObjective"
+                "X.shape[1] = {} should be equal to {}".format(
+                    X.shape[1], self.n_features_in_
+                )
             )
 
-        self._metrics = self._setup_metrics(objective)
-
-        objective.check_labels(y)
-        self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
-        if self.init == "average":
-            # initialise the model to some good average value
-            # this is equivalent to a tree with a single leaf and learning rate 1.0
-            pred = cn.tile(self.model_init_, (y.shape[0], 1))
-            g, h = objective.gradient(y, pred)
-            H = h.sum()
-            if H > 0.0:
-                self.model_init_ = -g.sum(axis=0) / H
+        # avoid appending to an existing eval result
+        eval_result.clear()
 
         # current model prediction
-        pred = cn.tile(self.model_init_, (y.shape[0], 1))
-        for i in range(self.n_estimators):
+        pred = self._predict(X)
+        for _ in range(self.n_estimators):
             # obtain gradients
-            g, h = objective.gradient(y, pred)
+            # check input dimensions are consistent
+            assert y.ndim == pred.ndim == 2
+            g, h = self._objective_instance.gradient(y, pred)
+            assert g.ndim == h.ndim == 2
             assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
                 g.dtype, h.dtype
             )
             assert g.shape == h.shape
+
+            # apply weights
             g = g * sample_weight[:, None]
             h = h * sample_weight[:, None]
 
@@ -422,14 +433,79 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             pred += self.models_[-1].predict(X)
 
             # evaluate our progress
+            model_idx = len(self.models_) - 1
             self._compute_metrics(
-                i, pred, y, sample_weight, objective, self._metrics, self.verbose
+                model_idx,
+                pred,
+                y,
+                sample_weight,
+                self._metrics,
+                self.verbose,
+                _eval_set,
+                eval_result,
             )
-
-        self.is_fitted_ = True
         return self
 
-    def predict(self, X: cn.ndarray) -> cn.ndarray:
+    def fit(
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray,
+        eval_set: List[Tuple[cn.ndarray, ...]] = [],
+        eval_result: dict = {},
+    ) -> "LBBase":
+        """Build a gradient boosting model from the training set (X, y).
+
+        Parameters
+        ----------
+        X :
+            The training input samples.
+        y :
+            The target values (class labels) as integers or as floating point numbers.
+        sample_weight :
+            Sample weights. If None, then samples are equally weighted.
+        eval_set :
+            A list of (X, y) or (X, y, w) tuples.
+            The metric will be evaluated on each tuple.
+        eval_result :
+            Returns evaluation result dictionary on training completion.
+        Returns
+        -------
+        self :
+            Returns self.
+        """
+        sample_weight = check_sample_weight(sample_weight, len(y))
+        self.n_features_in_ = X.shape[1]
+        self.models_: List[TreeStructure] = []
+
+        # setup objective
+        if isinstance(self.objective, str):
+            self._objective_instance = objectives[self.objective]()
+        elif isinstance(self.objective, BaseObjective):
+            self._objective_instance = self.objective
+        else:
+            raise ValueError(
+                "Expected objective to be a string or instance of BaseObjective"
+            )
+
+        self._metrics = self._setup_metrics()
+
+        self._objective_instance.check_labels(y)
+        self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
+        if self.init == "average":
+            # initialise the model to some good average value
+            # this is equivalent to a tree with a single leaf and learning rate 1.0
+            pred = cn.tile(self.model_init_, (y.shape[0], 1))
+            g, h = self._objective_instance.gradient(y, pred)
+            H = h.sum()
+            if H > 0.0:
+                self.model_init_ = -g.sum(axis=0) / H
+
+        self.is_fitted_ = True
+
+        return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
+
+    def _predict(self, X: cn.ndarray) -> cn.ndarray:
         X = check_X_y(X)
         check_is_fitted(self, "is_fitted_")
         if X.shape[1] != self.n_features_in_:
@@ -489,8 +565,6 @@ class LBRegressor(LBBase, RegressorMixin):
         Whether the estimator has been fitted.
     models_ :
         list of models from each iteration.
-    train_metric_ :
-        evaluated training metrics from each iteration.
 
 
     See Also
@@ -535,14 +609,51 @@ class LBRegressor(LBBase, RegressorMixin):
             "multioutput": True,
         }
 
+    def partial_fit(
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, ...]] = [],
+        eval_result: dict = {},
+    ) -> LBBase:
+        """This method is used for incremental (online) training of the model.
+        An additional `n_estimators` models will be added to the ensemble.
+
+        Parameters
+        ----------
+        X :
+            The input samples.
+        y : cn.ndarray
+            The target values.
+        sample_weight :
+            Individual weights for each sample. If None, then samples
+            are equally weighted.
+        eval_set :
+            A list of (X, y) or (X, y, w) tuples.
+            The metric will be evaluated on each tuple.
+        eval_result :
+            Returns evaluation result dictionary on training completion.
+        Returns
+        -------
+        self :
+            Returns self.
+        """
+        return super()._partial_fit(X, y, sample_weight, eval_set, eval_result)
+
     def fit(
-        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, ...]] = [],
+        eval_result: dict = {},
     ) -> "LBRegressor":
         self.n_margin_outputs_ = 1
         X, y = check_X_y(X, y)
         if y.ndim > 1:
             self.n_margin_outputs_ = y.shape[1]
-        return super().fit(X, y, sample_weight)
+        return super().fit(X, y, sample_weight, eval_set, eval_result)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         """Predict labels for samples in X.
@@ -557,7 +668,7 @@ class LBRegressor(LBBase, RegressorMixin):
         cn.ndarray
             Predicted labels for X.
         """
-        pred = super().predict(X)
+        pred = super()._predict(X)
         if pred.shape[1] == 1:
             pred = pred.squeeze(axis=1)
         return pred
@@ -601,8 +712,6 @@ class LBClassifier(LBBase, ClassifierMixin):
         The number of classes.
     models_ :
         list of models from each iteration.
-    train_metric_ :
-        evaluated training metrics from each iteration.
 
     See Also
     --------
@@ -641,8 +750,74 @@ class LBClassifier(LBBase, ClassifierMixin):
             max_depth=max_depth,
         )
 
+    def partial_fit(
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        classes: Optional[cn.ndarray] = None,
+        sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, ...]] = [],
+        eval_result: dict = {},
+    ) -> LBBase:
+        """This method is used for incremental fitting on a batch of samples.
+        Requires the classes to be provided up front, as they may not be
+        inferred from the first batch.
+
+        Parameters
+        ----------
+        X :
+            The training input samples.
+        y :
+            The target values
+        classes :
+            The unique labels of the target. Must be provided at the first call.
+        sample_weight :
+            Weights applied to individual samples (1D array). If None, then
+            samples are equally weighted.
+        eval_set :
+            A list of (X, y) or (X, y, w) tuples.
+            The metric will be evaluated on each tuple.
+        eval_result :
+            Returns evaluation result dictionary on training completion.
+
+        Returns
+        -------
+        self :
+            Returns self.
+
+        Raises
+        ------
+        ValueError
+            If the classes provided are not whole numbers, or
+            if provided classes do not match previous fit.
+        """
+        if classes is not None and not hasattr(self, "classes_"):
+            self.classes_ = classes
+            num_classes = int(self.classes_.max() + 1)
+            assert np.issubdtype(self.classes_.dtype, np.integer) or np.issubdtype(
+                self.classes_.dtype, np.floating
+            ), "y must be integer or floating type"
+
+            if np.issubdtype(self.classes_.dtype, np.floating):
+                whole_numbers = cn.all(self.classes_ == cn.floor(self.classes_))
+                if not whole_numbers:
+                    raise ValueError("Unknown label type: ", self.classes_)
+
+            self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
+        else:
+            assert self.is_fitted_
+            if classes is not None and cn.any(self.classes_ != classes):
+                raise ValueError("classes must match previous fit")
+
+        return super()._partial_fit(X, y, sample_weight, eval_set, eval_result)
+
     def fit(
-        self, X: cn.ndarray, y: cn.ndarray, sample_weight: cn.ndarray = None
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: cn.ndarray = None,
+        eval_set: List[Tuple[cn.ndarray, ...]] = [],
+        eval_result: dict = {},
     ) -> "LBClassifier":
         if hasattr(y, "ndim") and y.ndim > 1:
             warnings.warn(
@@ -667,7 +842,13 @@ class LBClassifier(LBBase, ClassifierMixin):
                 raise ValueError("Unknown label type: ", self.classes_)
 
         self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
-        super().fit(X, y, sample_weight=sample_weight)
+        super().fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            eval_result=eval_result,
+        )
         return self
 
     def predict_raw(self, X: cn.ndarray) -> cn.ndarray:
@@ -686,7 +867,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         y :
             The predicted raw values for each sample in X.
         """
-        return super().predict(X)
+        return super()._predict(X)
 
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
         """Predict class probabilities for samples in X.
@@ -703,8 +884,8 @@ class LBClassifier(LBBase, ClassifierMixin):
         y :
             The predicted class probabilities for each sample in X.
         """
-        objective = objectives[self.objective]()
-        pred = objective.transform(super().predict(X))
+        check_is_fitted(self, "is_fitted_")
+        pred = self._objective_instance.transform(super()._predict(X))
         if self.n_margin_outputs_ == 1:
             pred = pred.squeeze()
             pred = cn.stack([1.0 - pred, pred], axis=1)

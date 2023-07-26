@@ -95,17 +95,21 @@ class LogLossMetric(BaseMetric):
         eps = cn.finfo(pred.dtype).eps
         cn.clip(pred, eps, 1 - eps, out=pred)
 
+        w_sum = w.sum()
+        if w_sum == 0:
+            return 0.0
+
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
             logloss = -(y * cn.log(pred) + (1 - y) * cn.log(1 - pred))
-            return float((logloss * w).sum() / w.sum())
+            return float((logloss * w).sum() / w_sum)
 
         # multi-class case
         assert pred.ndim == 2
         label = y.astype(cn.int32)
         logloss = -cn.log(pred[cn.arange(label.size), label])
-        return float((logloss * w).sum() / w.sum())
+        return float((logloss * w).sum() / w_sum)
 
     def requires_probability(self) -> bool:
         return True
