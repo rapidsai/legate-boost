@@ -38,7 +38,7 @@ class BaseObjective(ABC):
         Returns:
             The transformed labels.
         """
-        pass
+        return pred
 
     @abstractmethod
     def metric(self) -> BaseMetric:
@@ -104,7 +104,6 @@ class LogLossObjective(BaseObjective):
         self, y: cn.ndarray, pred: cn.ndarray
     ) -> Tuple[cn.ndarray, cn.ndarray]:
         assert pred.ndim == 2
-        pred = self.transform(pred)
         eps = 1e-15
         # binary case
         if pred.shape[1] == 1:
@@ -160,15 +159,17 @@ class ExponentialObjective(BaseObjective):
         # binary case
         if pred.shape[1] == 1:
             adjusted_y = 2 * y - 1.0
-            exp = cn.exp(-pred * adjusted_y)
+            f = 0.5 * cn.log(pred / (1 - pred))  # undo sigmoid
+            exp = cn.exp(-f * adjusted_y)
             return -adjusted_y * exp, exp
 
         # multi-class case
+        f = cn.log(pred)  # undo softmax
         K = pred.shape[1]  # number of classes
         y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
         labels = y.astype(cn.int32).squeeze()
         y_k[cn.arange(y.size), labels] = 1.0
-        exp = cn.exp(-1 / K * cn.sum(y_k * pred, axis=1))
+        exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
 
         return (
             -1 / K * y_k * exp[:, cn.newaxis],
@@ -176,7 +177,9 @@ class ExponentialObjective(BaseObjective):
         )
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
-        return 1 / (1 + cn.exp(-2 * pred))
+        # equivalent to logloss sigmoid on pred*2
+        logloss = LogLossObjective()
+        return logloss.transform(2 * pred)
 
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()

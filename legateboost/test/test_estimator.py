@@ -126,12 +126,11 @@ def test_classifier(num_class, objective):
         X, y, eval_result=eval_result
     )
     metric = model._metrics[0]
-    pred = (
-        model.predict_proba(X)
-        if metric.requires_probability()
-        else model.predict_raw(X)
-    )
-    loss = metric.metric(y, pred, cn.ones(y.shape[0]))
+    proba = model.predict_proba(X)
+    assert cn.all(proba >= 0) and cn.all(proba <= 1)
+    assert cn.all(cn.argmax(proba, axis=1) == model.predict(X))
+
+    loss = metric.metric(y, proba, cn.ones(y.shape[0]))
     train_loss = next(iter(eval_result["train"].values()))
     assert np.isclose(train_loss[-1], loss)
     assert utils.non_increasing(train_loss)

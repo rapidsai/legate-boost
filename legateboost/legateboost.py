@@ -329,28 +329,16 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                     )
                 )
 
-        pred_prob = (
-            self._objective_instance.transform(pred)
-            if any(metric.requires_probability() for metric in metrics)
-            else None
-        )
-
         # add the training metrics
         for metric in metrics:
-            metric_pred = pred_prob if metric.requires_probability() else pred
-            add_metric(metric_pred, y, sample_weight, metric, "train")
+            add_metric(pred, y, sample_weight, metric, "train")
 
         # add any eval metrics, if they exist
         for i, (X_eval, y_eval, sample_weight_eval) in enumerate(eval_set):
             for metric in metrics:
-                eval_pred = self._predict(X_eval)
-                metric_pred = (
-                    self._objective_instance.transform(eval_pred)
-                    if metric.requires_probability()
-                    else eval_pred
-                )
+                eval_pred = self._objective_instance.transform(self._predict(X_eval))
                 add_metric(
-                    metric_pred, y_eval, sample_weight_eval, metric, "eval-{}".format(i)
+                    eval_pred, y_eval, sample_weight_eval, metric, "eval-{}".format(i)
                 )
 
     # check the types of the eval set and add sample weight if none
@@ -406,7 +394,9 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             # obtain gradients
             # check input dimensions are consistent
             assert y.ndim == pred.ndim == 2
-            g, h = self._objective_instance.gradient(y, pred)
+            g, h = self._objective_instance.gradient(
+                y, self._objective_instance.transform(pred)
+            )
             assert g.ndim == h.ndim == 2
             assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
                 g.dtype, h.dtype
@@ -436,7 +426,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             model_idx = len(self.models_) - 1
             self._compute_metrics(
                 model_idx,
-                pred,
+                self._objective_instance.transform(pred),
                 y,
                 sample_weight,
                 self._metrics,
@@ -496,7 +486,9 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             # initialise the model to some good average value
             # this is equivalent to a tree with a single leaf and learning rate 1.0
             pred = cn.tile(self.model_init_, (y.shape[0], 1))
-            g, h = self._objective_instance.gradient(y, pred)
+            g, h = self._objective_instance.gradient(
+                y, self._objective_instance.transform(pred)
+            )
             H = h.sum()
             if H > 0.0:
                 self.model_init_ = -g.sum(axis=0) / H

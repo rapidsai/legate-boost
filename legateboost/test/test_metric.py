@@ -8,8 +8,8 @@ import legateboost as lb
 def test_multiple_metrics():
     X = cn.random.random((10, 1))
     y = cn.random.randint(0, 2, size=X.shape[0])
-    X_eval = cn.random.random((10, 1))
-    y_eval = cn.random.randint(0, 2, size=X.shape[0])
+    X_eval = cn.random.random((5, 1))
+    y_eval = cn.random.randint(0, 2, size=X_eval.shape[0])
 
     eval_result = {}
     lb.LBClassifier(n_estimators=2, metric=["log_loss", "exp"]).fit(
