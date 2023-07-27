@@ -40,7 +40,7 @@ jobs:
         with:
             repository: nv-legate/legate.core
             path: legate.core
-            ref: v23.07.00.dev
+            ref: v23.09.00.dev
       - name: Install legate core
         working-directory: ./legate.core
         run: |
@@ -57,7 +57,7 @@ jobs:
         with:
             repository: nv-legate/cunumeric
             path: cunumeric
-            ref: v23.07.00.dev
+            ref: v23.09.00.dev
       - name: Install cunumeric
         working-directory: ./cunumeric
         run: |
@@ -120,7 +120,7 @@ jobs:
       - name: Run cpu tests
         run: |
           pip install hypothesis
-          legate --module pytest legateboost/test -sv --durations=0
+          legate --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
         run: |
           # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
