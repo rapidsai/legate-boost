@@ -164,8 +164,8 @@ class ExponentialObjective(BaseObjective):
             return -adjusted_y * exp, exp
 
         # multi-class case
-        f = cn.log(pred)  # undo softmax
         K = pred.shape[1]  # number of classes
+        f = cn.log(pred) * (K - 1)  # undo softmax
         y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
         labels = y.astype(cn.int32).squeeze()
         y_k[cn.arange(y.size), labels] = 1.0
@@ -177,9 +177,11 @@ class ExponentialObjective(BaseObjective):
         )
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
-        # equivalent to logloss sigmoid on pred*2
         logloss = LogLossObjective()
-        return logloss.transform(2 * pred)
+        if pred.shape[1] == 1:
+            return logloss.transform(2 * pred)
+        K = pred.shape[1]  # number of classes
+        return logloss.transform((1 / (K - 1)) * pred)
 
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()

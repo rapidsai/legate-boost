@@ -201,7 +201,7 @@ def test_classifier(model_params, classification_params, classification_dataset)
     model.predict_raw(X)
     loss = next(iter(eval_result["train"].values()))
     # multiclass models with higher learning rates don't always converge
-    if len(model.classes_) == 2 or model_params["learning_rate"] < 0.1:
+    if len(model.classes_) == 2 or classification_params["learning_rate"] < 0.1:
         assert utils.non_increasing(loss)
 
     utils.sanity_check_tree_stats(model.models_)

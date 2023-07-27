@@ -110,11 +110,10 @@ class LogLossMetric(BaseMetric):
 class ExponentialMetric(BaseMetric):
     """Class for computing the exponential loss metric.
 
-    :math:`exp(y, p) = \\sum_{i=1}^{n} \\exp(-\\frac{1}{K}  y_i^T p_i)`
-
+    :math:`exp(y, p) = \\sum_{i=1}^{n} \\exp(-\\frac{1}{K}  y_i^T f_i)`
     where :math:`K` is the number of classes, and
     :math:`y_{i,k} = 1` if :math:`k` is the label and :math:`y_{i,k} = -1/(K-1)` otherwise.
-    :math:`p_{i,k}` is not a probability, but the raw model output.
+    :math:`f_{i,k} = ln(p_{i, k}) * (K - 1)` with :math:`p_{i, k}` a probability.
 
     See also:
         :class:`legateboost.objectives.ExponentialObjective`
@@ -129,10 +128,9 @@ class ExponentialMetric(BaseMetric):
             return float((exp * w).sum() / w.sum())
 
         # multi-class case
-        # log to undo softmax up to a constant
         # note that exp loss is invariant to adding a constant to prediction
-        f = cn.log(pred)
         K = pred.shape[1]  # number of classes
+        f = cn.log(pred) * (K - 1)  # undo softmax
         y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
         y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
 
