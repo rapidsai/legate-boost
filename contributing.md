@@ -4,6 +4,10 @@ For editable installation
 ```
 pip install -e .
 ```
+To include test dependencies
+```
+pip install -e .[test]
+```
 
 ## Running tests
 ```
