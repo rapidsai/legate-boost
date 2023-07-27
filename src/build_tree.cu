@@ -401,8 +401,16 @@ struct Tree {
 };
 
 struct TreeLevelInfo {
-  TreeLevelInfo(int32_t num_rows, int32_t num_features, int32_t num_outputs, cudaStream_t stream)
-    : num_rows(num_rows), num_features(num_features), num_outputs(num_outputs), stream(stream)
+  TreeLevelInfo(int32_t num_rows,
+                int32_t num_features,
+                int32_t num_outputs,
+                cudaStream_t stream,
+                int32_t max_nodes)
+    : num_rows(num_rows),
+      num_features(num_features),
+      num_outputs(num_outputs),
+      stream(stream),
+      max_nodes(max_nodes)
   {
     positions           = legate::create_buffer<int32_t>(num_rows);
     sequence            = legate::create_buffer<int32_t>(num_rows);
@@ -446,9 +454,10 @@ struct TreeLevelInfo {
       auto tree_split_value_ptr    = tree.split_value.ptr(0);
       auto tree_feature_ptr        = tree.feature.ptr(0);
       auto positions_ptr           = positions.ptr(0);
+      auto max_nodes_              = this->max_nodes;
       auto update_positions_lambda = [=] __device__(size_t idx) {
         int32_t& pos = positions_ptr[idx];
-        if (pos < 0 || tree_feature_ptr[pos] == -1) {
+        if (pos < 0 || pos >= max_nodes_ || tree_feature_ptr[pos] == -1) {
           pos = -1;
           return;
         }
@@ -585,6 +594,7 @@ struct TreeLevelInfo {
   const int32_t num_rows;
   const int32_t num_features;
   const int32_t num_outputs;
+  const int32_t max_nodes;
 
   legate::Buffer<unsigned char> cub_buffer;
   size_t cub_buffer_size = 0;
@@ -663,7 +673,7 @@ struct build_tree_fn {
     }
 
     // Begin building the tree
-    TreeLevelInfo tree_state(num_rows, num_features, num_outputs, stream);
+    TreeLevelInfo tree_state(num_rows, num_features, num_outputs, stream, tree.max_nodes);
 
     for (int depth = 0; depth < max_depth; ++depth) {
       int max_nodes = 1 << depth;
