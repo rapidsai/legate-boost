@@ -8,8 +8,8 @@ import legateboost as lb
 def test_multiple_metrics():
     X = cn.random.random((10, 1))
     y = cn.random.randint(0, 2, size=X.shape[0])
-    X_eval = cn.random.random((10, 1))
-    y_eval = cn.random.randint(0, 2, size=X.shape[0])
+    X_eval = cn.random.random((5, 1))
+    y_eval = cn.random.randint(0, 2, size=X_eval.shape[0])
 
     eval_result = {}
     lb.LBClassifier(n_estimators=2, metric=["log_loss", "exp"]).fit(
@@ -108,3 +108,38 @@ def test_log_loss():
     pred = rng.uniform(size=(n, 5))
     pred = pred / pred.sum(axis=1)[:, np.newaxis]
     compare_to_sklearn(y, pred, w)
+
+
+def test_exp():
+    # standard exp metric that accepts raw function output
+    def exp_metric(y, f):
+        if f.shape[1] == 1:
+            f = f.squeeze()
+            y_adjusted = y * 2 - 1
+            return np.mean(np.exp(-y_adjusted * f))
+        K = y.max() + 1
+        y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
+        y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
+        return cn.exp(-1 / K * cn.sum(y_k * f, axis=1)).mean()
+
+    # compare against our version that accepts probabilities
+
+    # binary
+    obj = lb.ExponentialObjective()
+    y = cn.array([1.0, 0.0, 1.0, 0.0])
+    raw_pred = cn.array([[-1.5], [3.0], [10.0], [-0.3]])
+    reference = exp_metric(y, raw_pred)
+    metric = lb.ExponentialMetric()
+    assert cn.allclose(
+        reference, metric.metric(y, obj.transform(raw_pred), cn.ones(y.shape))
+    )
+
+    # multi-class
+    y = cn.array([0, 1, 2, 0])
+    raw_pred = cn.array(
+        [[10, 0.3, 0.5], [1.2, 0.05, 0.5], [0.5, 3.0, 7.0], [2.2, 0.3, 0.5]]
+    )
+    reference = exp_metric(y, raw_pred)
+    assert cn.allclose(
+        reference, metric.metric(y, obj.transform(raw_pred), cn.ones(y.shape))
+    )

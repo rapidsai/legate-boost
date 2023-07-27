@@ -25,14 +25,6 @@ class BaseMetric(ABC):
         """
         pass
 
-    def requires_probability(self) -> bool:
-        """Returns whether or not the metric requires predicted probabilities.
-
-        Returns:
-            True if the metric requires predicted probabilities, False otherwise.
-        """
-        return False
-
     @abstractmethod
     def name(self) -> str:
         """Returns the name of the metric as a string.
@@ -111,9 +103,6 @@ class LogLossMetric(BaseMetric):
         logloss = -cn.log(pred[cn.arange(label.size), label])
         return float((logloss * w).sum() / w_sum)
 
-    def requires_probability(self) -> bool:
-        return True
-
     def name(self) -> str:
         return "log_loss"
 
@@ -121,11 +110,10 @@ class LogLossMetric(BaseMetric):
 class ExponentialMetric(BaseMetric):
     """Class for computing the exponential loss metric.
 
-    :math:`exp(y, p) = \\sum_{i=1}^{n} \\exp(-\\frac{1}{K}  y_i^T p_i)`
-
+    :math:`exp(y, p) = \\sum_{i=1}^{n} \\exp(-\\frac{1}{K}  y_i^T f_i)`
     where :math:`K` is the number of classes, and
     :math:`y_{i,k} = 1` if :math:`k` is the label and :math:`y_{i,k} = -1/(K-1)` otherwise.
-    :math:`p_{i,k}` is not a probability, but the raw model output.
+    :math:`f_{i,k} = ln(p_{i, k}) * (K - 1)` with :math:`p_{i, k}` a probability.
 
     See also:
         :class:`legateboost.objectives.ExponentialObjective`
@@ -136,20 +124,18 @@ class ExponentialMetric(BaseMetric):
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
-            adjusted_y = 2 * y - 1.0
-            exp = cn.exp(-pred * adjusted_y)
+            exp = cn.power(pred / (1 - pred), 0.5 - y)
             return float((exp * w).sum() / w.sum())
 
         # multi-class case
+        # note that exp loss is invariant to adding a constant to prediction
         K = pred.shape[1]  # number of classes
+        f = cn.log(pred) * (K - 1)  # undo softmax
         y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
         y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
 
-        exp = cn.exp(-1 / K * cn.sum(y_k * pred, axis=1))
+        exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
         return float((exp * w).sum() / w.sum())
-
-    def requires_probability(self) -> bool:
-        return False
 
     def name(self) -> str:
         return "exp"
