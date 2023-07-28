@@ -49,14 +49,15 @@ class BaseObjective(ABC):
         """
         pass
 
-    def check_labels(self, y) -> None:
+    def check_labels(self, y: cn.ndarray) -> int:
         """Checks the validity of the labels for this objective function.
+        Return the number of outputs for raw prediction.
 
         Args:
-            y (cn.ndarray): The labels.
+            y : The labels.
 
         Returns:
-            None
+            The number of outputs for raw prediction.
         """
         pass
 
@@ -84,8 +85,8 @@ class SquaredErrorObjective(BaseObjective):
     def metric(self) -> MSEMetric:
         return MSEMetric()
 
-    def check_labels(self, y) -> None:
-        return
+    def check_labels(self, y: cn.ndarray) -> int:
+        return y.shape[1]
 
 
 class LogLossObjective(BaseObjective):
@@ -129,9 +130,10 @@ class LogLossObjective(BaseObjective):
     def metric(self) -> LogLossMetric:
         return LogLossMetric()
 
-    def check_labels(self, y) -> None:
+    def check_labels(self, y: cn.ndarray) -> int:
         if not cn.all((y == cn.floor(y)) & (y >= 0)):
             raise ValueError("Expected labels to be non-zero whole numbers")
+        return cn.max(y) + 1
 
 
 class ExponentialObjective(BaseObjective):
@@ -186,9 +188,10 @@ class ExponentialObjective(BaseObjective):
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()
 
-    def check_labels(self, y) -> None:
+    def check_labels(self, y: cn.ndarray) -> int:
         if not cn.all((y == cn.floor(y)) & (y >= 0)):
             raise ValueError("Expected labels to be non-zero whole numbers")
+        return cn.max(y) + 1
 
 
 objectives = {
