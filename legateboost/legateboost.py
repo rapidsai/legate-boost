@@ -88,9 +88,8 @@ class TreeStructure(_PickleCunumericMixin):
         random_state: np.random.RandomState,
     ) -> None:
         # choose possible splits
-        split_proposals = X[
-            random_state.randint(0, X.shape[0], max_depth)
-        ]  # may not be efficient, maybe write new task
+        sample_rows = random_state.randint(0, X.shape[0], max_depth)
+        split_proposals = X[sample_rows]  # may not be efficient, maybe write new task
         num_features = X.shape[1]
         num_outputs = g.shape[1]
         n_rows = X.shape[0]
@@ -415,7 +414,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                     h,
                     self.learning_rate,
                     self.max_depth,
-                    check_random_state(self.random_state),
+                    self.random_state,
                 )
             )
 
@@ -467,6 +466,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
         self.models_: List[TreeStructure] = []
+        self.random_state = check_random_state(self.random_state)
 
         # setup objective
         if isinstance(self.objective, str):
@@ -480,8 +480,8 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
         self._metrics = self._setup_metrics()
 
-        self._objective_instance.check_labels(y)
-        self.model_init_ = cn.zeros(self.n_margin_outputs_, dtype=cn.float64)
+        n_outputs = int(self._objective_instance.check_labels(y))
+        self.model_init_ = cn.zeros(n_outputs, dtype=cn.float64)
         if self.init == "average":
             # initialise the model to some good average value
             # this is equivalent to a tree with a single leaf and learning rate 1.0
@@ -489,8 +489,11 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             g, h = self._objective_instance.gradient(
                 y, self._objective_instance.transform(pred)
             )
-            H = h.sum()
-            if H > 0.0:
+            # apply weights
+            g = g * sample_weight[:, None]
+            h = h * sample_weight[:, None]
+            H = h.sum(axis=0)
+            if cn.all(H > 0.0):
                 self.model_init_ = -g.sum(axis=0) / H
 
         self.is_fitted_ = True
@@ -641,10 +644,7 @@ class LBRegressor(LBBase, RegressorMixin):
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: dict = {},
     ) -> "LBRegressor":
-        self.n_margin_outputs_ = 1
         X, y = check_X_y(X, y)
-        if y.ndim > 1:
-            self.n_margin_outputs_ = y.shape[1]
         return super().fit(X, y, sample_weight, eval_set, eval_result)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
@@ -660,7 +660,7 @@ class LBRegressor(LBBase, RegressorMixin):
         cn.ndarray
             Predicted labels for X.
         """
-        pred = super()._predict(X)
+        pred = self._objective_instance.transform(super()._predict(X))
         if pred.shape[1] == 1:
             pred = pred.squeeze(axis=1)
         return pred
@@ -785,7 +785,6 @@ class LBClassifier(LBBase, ClassifierMixin):
         """
         if classes is not None and not hasattr(self, "classes_"):
             self.classes_ = classes
-            num_classes = int(self.classes_.max() + 1)
             assert np.issubdtype(self.classes_.dtype, np.integer) or np.issubdtype(
                 self.classes_.dtype, np.floating
             ), "y must be integer or floating type"
@@ -795,7 +794,6 @@ class LBClassifier(LBBase, ClassifierMixin):
                 if not whole_numbers:
                     raise ValueError("Unknown label type: ", self.classes_)
 
-            self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
         else:
             assert self.is_fitted_
             if classes is not None and cn.any(self.classes_ != classes):
@@ -823,7 +821,6 @@ class LBClassifier(LBBase, ClassifierMixin):
             raise ValueError("y has only 1 sample in classifer training.")
 
         self.classes_ = cn.unique(y.squeeze())
-        num_classes = int(self.classes_.max() + 1)
         assert np.issubdtype(self.classes_.dtype, np.integer) or np.issubdtype(
             self.classes_.dtype, np.floating
         ), "y must be integer or floating type"
@@ -833,7 +830,6 @@ class LBClassifier(LBBase, ClassifierMixin):
             if not whole_numbers:
                 raise ValueError("Unknown label type: ", self.classes_)
 
-        self.n_margin_outputs_ = num_classes if num_classes > 2 else 1
         super().fit(
             X,
             y,
@@ -878,7 +874,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         """
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
-        if self.n_margin_outputs_ == 1:
+        if pred.shape[1] == 1:
             pred = pred.squeeze()
             pred = cn.stack([1.0 - pred, pred], axis=1)
         return pred

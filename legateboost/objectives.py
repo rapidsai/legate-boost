@@ -3,7 +3,13 @@ from typing import Tuple
 
 import cunumeric as cn
 
-from .metrics import BaseMetric, ExponentialMetric, LogLossMetric, MSEMetric
+from .metrics import (
+    BaseMetric,
+    ExponentialMetric,
+    LogLossMetric,
+    MSEMetric,
+    NormalLLMetric,
+)
 
 
 class BaseObjective(ABC):
@@ -87,6 +93,39 @@ class SquaredErrorObjective(BaseObjective):
 
     def check_labels(self, y: cn.ndarray) -> int:
         return y.shape[1]
+
+
+class NormalObjective(BaseObjective):
+    def check_labels(self, y: cn.ndarray) -> int:
+        return y.shape[1] * 2
+
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
+        grad = cn.zeros((y.shape[0], y.shape[1], 2))
+        hess = cn.ones((y.shape[0], y.shape[1], 2))
+        mean = pred[:, :, 0]
+        sd = pred[:, :, 1]
+        var = sd * sd
+
+        diff = mean - y
+        grad[:, :, 0] = diff / var
+        hess[:, :, 0] = 1 / var  # fisher information
+
+        # do not update the variance on first iteration when predictions are 0
+        if not cn.all(mean == 0.0):
+            grad[:, :, 1] = 1 / sd - (diff * diff) / (var * sd)
+            hess[:, :, 1] = 2 / var  # fisher information
+        return grad.reshape(grad.shape[0], -1), hess.reshape(hess.shape[0], -1)
+
+    def metric(self) -> NormalLLMetric:
+        return NormalLLMetric()
+
+    def transform(self, pred) -> cn.ndarray:
+        # normally predictions start at 0.0
+        # this is not allowed for variance
+        # renormalize to start at 1.0
+        copy = pred.copy().reshape(pred.shape[0], pred.shape[1] // 2, 2)
+        copy[:, :, 1] += 1.0
+        return copy
 
 
 class LogLossObjective(BaseObjective):
@@ -196,6 +235,7 @@ class ExponentialObjective(BaseObjective):
 
 objectives = {
     "squared_error": SquaredErrorObjective,
+    "normal": NormalObjective,
     "log_loss": LogLossObjective,
     "exp": ExponentialObjective,
 }

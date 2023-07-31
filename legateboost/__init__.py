@@ -1,5 +1,11 @@
 from .legateboost import LBRegressor, LBClassifier, TreeStructure
-from .metrics import MSEMetric, LogLossMetric, ExponentialMetric, BaseMetric
+from .metrics import (
+    MSEMetric,
+    NormalLLMetric,
+    LogLossMetric,
+    ExponentialMetric,
+    BaseMetric,
+)
 from .objectives import (
     LogLossObjective,
     SquaredErrorObjective,

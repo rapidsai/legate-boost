@@ -33,7 +33,7 @@ general_model_param_strategy = st.fixed_dictionaries(
 
 regression_param_strategy = st.fixed_dictionaries(
     {
-        "objective": st.sampled_from(["squared_error"]),
+        "objective": st.sampled_from(["squared_error", "normal"]),
         "learning_rate": st.floats(0.01, 1.0),
     }
 )

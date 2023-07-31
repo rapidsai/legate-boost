@@ -143,3 +143,30 @@ def test_exp():
     assert cn.allclose(
         reference, metric.metric(y, obj.transform(raw_pred), cn.ones(y.shape))
     )
+
+
+def test_normal_neg_ll():
+    metric = lb.NormalLLMetric()
+
+    def neg_ll(y, p):
+        from scipy.stats import norm
+
+        return float(-norm.logpdf(y.squeeze(), loc=p[:, 0], scale=p[:, 1]).mean())
+
+    y = cn.array([1.0, 0.0, 1.0]).reshape(-1, 1)
+    pred = cn.array([[0.0, 1.0], [0.0, 2.0], [0.0, 1.0]])
+    assert cn.allclose(metric.metric(y, pred, cn.ones(y.shape)), neg_ll(y, pred))
+
+    # multi_output
+    y_1 = cn.array([0.0, 1.0, 2.0]).reshape(-1, 1)
+    pred_1 = cn.array([[0.0, 1.0], [0.0, 2.0], [2.0, 0.5]])
+
+    our_metric = metric.metric(
+        cn.hstack((y, y_1)),
+        cn.hstack(
+            (pred.reshape(pred.shape[0], 1, -1), pred_1.reshape(pred_1.shape[0], 1, -1))
+        ),
+        cn.ones(y_1.shape),
+    )
+    ref_metric = cn.mean([neg_ll(y, pred), neg_ll(y_1, pred_1)])
+    assert cn.allclose(our_metric, ref_metric)

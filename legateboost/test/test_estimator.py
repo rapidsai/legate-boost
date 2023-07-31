@@ -7,18 +7,36 @@ import cunumeric as cn
 import legateboost as lb
 
 
+def test_init():
+    np.random.seed(2)
+    X = cn.random.random((100, 10))
+    y = cn.random.random((X.shape[0], 2))
+    model = lb.LBRegressor(n_estimators=0, init="average").fit(X, y)
+    assert cn.allclose(model.model_init_, y.mean(axis=0))
+    # weights
+    w = cn.ones(X.shape[0])
+    w[50:100] = 0.0
+    model = model.fit(X, y, sample_weight=w)
+    assert cn.allclose(model.model_init_, y[0:50].mean(axis=0))
+
+
 @pytest.mark.parametrize("num_outputs", [1, 5])
-def test_regressor(num_outputs):
+@pytest.mark.parametrize("objective", ["squared_error", "normal"])
+def test_regressor(num_outputs, objective):
     np.random.seed(2)
     X = cn.random.random((100, 10))
     y = cn.random.random((X.shape[0], num_outputs))
     eval_result = {}
     model = lb.LBRegressor(
-        n_estimators=20, max_depth=3, random_state=2, learning_rate=0.5
+        n_estimators=20,
+        objective=objective,
+        max_depth=3,
+        random_state=2,
+        learning_rate=0.5,
     ).fit(X, y, eval_result=eval_result)
-    mse = lb.MSEMetric().metric(y, model.predict(X), cn.ones(y.shape[0]))
+    loss_recomputed = model._metrics[0].metric(y, model.predict(X), cn.ones(y.shape[0]))
     loss = next(iter(eval_result["train"].values()))
-    assert np.isclose(loss[-1], mse)
+    assert np.isclose(loss[-1], loss_recomputed)
     assert utils.non_increasing(loss)
 
     # test print
