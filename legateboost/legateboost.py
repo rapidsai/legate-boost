@@ -414,7 +414,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
                     h,
                     self.learning_rate,
                     self.max_depth,
-                    self.random_state,
+                    self.random_state_,
                 )
             )
 
@@ -466,7 +466,8 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
         self.models_: List[TreeStructure] = []
-        self.random_state = check_random_state(self.random_state)
+        # initialise random state if an integer was passed
+        self.random_state_ = check_random_state(self.random_state)
 
         # setup objective
         if isinstance(self.objective, str):
