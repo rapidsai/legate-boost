@@ -66,6 +66,17 @@ class MSEMetric(BaseMetric):
 
 
 class NormalLLMetric(BaseMetric):
+    """The mean negative log likelihood of the labels, given mean and variance
+    parameters.
+
+    :math:`L(y, p) = -\\frac{1}{n} \\sum_{i=1}^{n} log(\\frac{1}{\\sqrt{2\\pi p_{i, 1}^2}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 p_{i, 1}^2}))`
+
+    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the standard deviation.
+
+    See also:
+        :class:`legateboost.objectives.NormalObjective`
+    """  # noqa: E501
+
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
         assert (
             y.size * 2 == pred.size

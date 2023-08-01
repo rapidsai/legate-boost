@@ -96,6 +96,20 @@ class SquaredErrorObjective(BaseObjective):
 
 
 class NormalObjective(BaseObjective):
+    """The normal distribution objective function for regression problems.
+
+    This objective fits both mean and standard deviation parameters, where :class:`SquaredErrorObjective` only fits the mean.
+
+    The objective minimised is the negative log likelihood of the normal distribution.
+
+    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi p_{i, 1}^2}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 p_{i, 1}^2}))`
+
+    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the standard deviation.
+
+    See also:
+        :class:`legateboost.metrics.NormalLLMetric`
+    """  # noqa: E501
+
     def check_labels(self, y: cn.ndarray) -> int:
         return y.shape[1] * 2
 

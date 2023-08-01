@@ -9,6 +9,7 @@ from .metrics import (
 from .objectives import (
     LogLossObjective,
     SquaredErrorObjective,
+    NormalObjective,
     ExponentialObjective,
     BaseObjective,
 )

@@ -7,6 +7,9 @@ Objectives
 .. autoclass:: legateboost.SquaredErrorObjective
     :members:
 
+.. autoclass:: legateboost.NormalObjective
+    :members:
+
 .. autoclass:: legateboost.LogLossObjective
     :members:
 
