@@ -661,6 +661,7 @@ class LBRegressor(LBBase, RegressorMixin):
         cn.ndarray
             Predicted labels for X.
         """
+        check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
         if pred.shape[1] == 1:
             pred = pred.squeeze(axis=1)
