@@ -1,11 +1,9 @@
 import numpy as np
-import pytest
 import utils
 from hypothesis import HealthCheck, Verbosity, given, settings, strategies as st
 
 import cunumeric as cn
 import legateboost as lb
-from legate.core import get_legate_runtime
 
 np.set_printoptions(threshold=10, edgeitems=1)
 
@@ -185,10 +183,6 @@ def classification_dataset_strategy(draw):
     general_model_param_strategy,
     classification_param_strategy,
     classification_dataset_strategy(),
-)
-@pytest.mark.skipif(
-    get_legate_runtime().machine.preferred_kind == 1,
-    reason="Fails with V100 GPU, see issue #14",
 )
 def test_classifier(model_params, classification_params, classification_dataset):
     X, y, w, name = classification_dataset
