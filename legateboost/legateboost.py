@@ -64,6 +64,16 @@ class TreeStructure(_PickleCunumericMixin):
     gain: cn.ndarray
     hessian: cn.ndarray
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TreeStructure):
+            return NotImplemented
+        eq = [cn.all(self.leaf_value == other.leaf_value)]
+        eq.append(cn.all(self.feature == other.feature))
+        eq.append(cn.all(self.split_value == other.split_value))
+        eq.append(cn.all(self.gain == other.gain))
+        eq.append(cn.all(self.hessian == other.hessian))
+        return all(eq)
+
     def is_leaf(self, id: int) -> Any:
         return self.feature[id] == -1
 
@@ -397,6 +407,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             g, h = self._objective_instance.gradient(
                 y, self._objective_instance.transform(pred)
             )
+
             assert g.ndim == h.ndim == 2
             assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
                 g.dtype, h.dtype
