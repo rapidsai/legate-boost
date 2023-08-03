@@ -6,28 +6,6 @@ import cunumeric as cn
 from .metrics import BaseMetric, ExponentialMetric, LogLossMetric, MSEMetric
 
 
-def preround(func):
-    """Apply this decorator to the gradient method of an objective to ensure
-    reproducible floating point summation.
-
-    Algorithm 5: Reproducible Sequential Sum in 'Fast Reproducible
-    Floating-Point Summation' by Demmel and Nguyen.
-    """
-
-    def round(x):
-        m = cn.max(cn.abs(x))
-        n = x.size
-        delta = cn.floor(n * m / (1 - 2 * n * cn.finfo(x.dtype).eps))
-        M = 2 ** cn.ceil(cn.log2(delta))
-        return (x + M) - M
-
-    def inner(self, y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
-        g, h = func(self, y, pred)
-        return round(g), round(h)
-
-    return inner
-
-
 class BaseObjective(ABC):
     """The base class for objective functions.
 
@@ -95,7 +73,6 @@ class SquaredErrorObjective(BaseObjective):
         :class:`legateboost.metrics.MSEMetric`
     """
 
-    @preround
     def gradient(
         self, y: cn.ndarray, pred: cn.ndarray
     ) -> Tuple[cn.ndarray, cn.ndarray]:
@@ -123,7 +100,6 @@ class LogLossObjective(BaseObjective):
         :class:`legateboost.metrics.LogLossMetric`
     """
 
-    @preround
     def gradient(
         self, y: cn.ndarray, pred: cn.ndarray
     ) -> Tuple[cn.ndarray, cn.ndarray]:
@@ -177,7 +153,6 @@ class ExponentialObjective(BaseObjective):
     [1] Hastie, Trevor, et al. "Multi-class adaboost." Statistics and its Interface 2.3 (2009): 349-360.
     """  # noqa: E501
 
-    @preround
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
         assert pred.ndim == 2
 
