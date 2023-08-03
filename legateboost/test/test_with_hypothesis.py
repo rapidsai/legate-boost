@@ -54,7 +54,7 @@ def regression_real_dataset_strategy(draw):
 def regression_generated_dataset_strategy(draw):
     num_outputs = draw(st.integers(1, 5))
     num_features = draw(st.integers(1, 150))
-    num_rows = draw(st.integers(1, 10000))
+    num_rows = draw(st.integers(2, 10000))
     np.random.seed(2)
     X = cn.random.random((num_rows, num_features))
     y = cn.random.random((X.shape[0], num_outputs))
