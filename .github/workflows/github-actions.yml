@@ -40,7 +40,7 @@ jobs:
         with:
             repository: nv-legate/legate.core
             path: legate.core
-            ref: v23.09.00.dev
+            ref: branch-23.09
       - name: Install legate core
         working-directory: ./legate.core
         run: |
@@ -60,7 +60,7 @@ jobs:
         with:
             repository: nv-legate/cunumeric
             path: cunumeric
-            ref: v23.09.00.dev
+            ref: branch-23.09
       - name: Install cunumeric
         working-directory: ./cunumeric
         run: |

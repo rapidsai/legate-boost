@@ -64,6 +64,16 @@ class TreeStructure(_PickleCunumericMixin):
     gain: cn.ndarray
     hessian: cn.ndarray
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TreeStructure):
+            return NotImplemented
+        eq = [cn.all(self.leaf_value == other.leaf_value)]
+        eq.append(cn.all(self.feature == other.feature))
+        eq.append(cn.all(self.split_value == other.split_value))
+        eq.append(cn.all(self.gain == other.gain))
+        eq.append(cn.all(self.hessian == other.hessian))
+        return all(eq)
+
     def is_leaf(self, id: int) -> Any:
         return self.feature[id] == -1
 
@@ -360,6 +370,55 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
 
         return new_eval_set
 
+    def _preround_gradients(
+        self, g: cn.ndarray, h: cn.ndarray
+    ) -> Tuple[cn.ndarray, cn.ndarray]:
+        """Apply this function to grad/hess ensure reproducible floating point
+        summation.
+
+        Algorithm 5: Reproducible Sequential Sum in 'Fast Reproducible
+        Floating-Point Summation' by Demmel and Nguyen.
+
+        Instead of using max(abs(x)) * n as an upper bound we use sum(abs(x))
+        """
+
+        def round(x: cn.ndarray) -> cn.ndarray:
+            assert x.dtype == cn.float32 or x.dtype == cn.float64
+            m = cn.sum(cn.abs(x))
+            n = x.size
+            delta = cn.floor(m / (1 - 2 * n * cn.finfo(x.dtype).eps))
+            M = 2 ** cn.ceil(cn.log2(delta))
+            return (x + M) - M
+
+        return round(g), round(h)
+
+    def _get_weighted_gradient(
+        self, y: cn.ndarray, pred: cn.ndarray, sample_weight: cn.ndarray
+    ) -> Tuple[cn.ndarray, cn.ndarray]:
+        """Computes the weighted gradient and Hessian for the given predictions
+        and labels.
+
+        Also applies a pre-rounding step to ensure reproducible floating
+        point summation.
+        """
+        # check input dimensions are consistent
+        assert y.ndim == pred.ndim == 2
+        g, h = self._objective_instance.gradient(
+            y, self._objective_instance.transform(pred)
+        )
+
+        assert g.ndim == h.ndim == 2
+        assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
+            g.dtype, h.dtype
+        )
+        assert g.shape == h.shape
+
+        # apply weights
+        g = g * sample_weight[:, None]
+        h = h * sample_weight[:, None]
+
+        return self._preround_gradients(g, h)
+
     def _partial_fit(
         self,
         X: cn.ndarray,
@@ -392,21 +451,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         pred = self._predict(X)
         for _ in range(self.n_estimators):
             # obtain gradients
-            # check input dimensions are consistent
-            assert y.ndim == pred.ndim == 2
-            g, h = self._objective_instance.gradient(
-                y, self._objective_instance.transform(pred)
-            )
-            assert g.ndim == h.ndim == 2
-            assert g.dtype == h.dtype == cn.float64, "g.dtype={}, h.dtype={}".format(
-                g.dtype, h.dtype
-            )
-            assert g.shape == h.shape
-
-            # apply weights
-            g = g * sample_weight[:, None]
-            h = h * sample_weight[:, None]
-
+            g, h = self._get_weighted_gradient(y, pred, sample_weight)
             # build new tree
             self.models_.append(
                 TreeStructure(
@@ -486,9 +531,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             # initialise the model to some good average value
             # this is equivalent to a tree with a single leaf and learning rate 1.0
             pred = cn.tile(self.model_init_, (y.shape[0], 1))
-            g, h = self._objective_instance.gradient(
-                y, self._objective_instance.transform(pred)
-            )
+            g, h = self._get_weighted_gradient(y, pred, sample_weight)
             H = h.sum()
             if H > 0.0:
                 self.model_init_ = -g.sum(axis=0) / H
