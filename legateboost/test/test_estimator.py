@@ -79,16 +79,22 @@ def test_regressor_weights(num_outputs):
     assert loss[-1] < 1e-5
 
 
-def test_regressor_determinism():
-    X = cn.random.random((100, 10))
-    y = cn.random.random(X.shape[0])
+@pytest.mark.parametrize("num_outputs", [1, 5])
+def test_regressor_determinism(num_outputs):
+    X = cn.random.random((10000, 10))
+    y = cn.random.random((X.shape[0], num_outputs))
     preds = []
+    params = {"max_depth": 12, "random_state": 84, "objective": "squared_error"}
+    preds = []
+    models = []
     for _ in range(0, 10):
-        model = lb.LBRegressor(n_estimators=2, random_state=83).fit(X, y)
+        model = lb.LBRegressor(n_estimators=10, **params).fit(X, y)
+        models.append(model)
         p = model.predict(X)
         if preds:
-            assert cn.all(p == preds[-1])
-        preds.append(model.predict(X))
+            assert cn.allclose(p, preds[-1]), cn.max(cn.abs(p - preds[-1]))
+        if models:
+            assert cn.all([a == b for a, b in zip(models[0].models_, model.models_)])
 
 
 def test_regressor_vs_sklearn():
@@ -186,3 +192,22 @@ def test_classifier_improving_with_depth(num_class, objective):
         loss = next(iter(eval_result["train"].values()))
         metrics.append(loss[-1])
     assert utils.non_increasing(metrics)
+
+
+@pytest.mark.parametrize("num_class", [2, 5])
+@pytest.mark.parametrize("objective", ["log_loss", "exp"])
+def test_classifier_determinism(num_class, objective):
+    np.random.seed(3)
+    X = cn.random.random((10000, 20))
+    y = cn.random.randint(0, num_class, X.shape[0])
+    params = {"max_depth": 12, "random_state": 84, "objective": objective}
+    preds = []
+    models = []
+    for _ in range(0, 10):
+        model = lb.LBClassifier(n_estimators=10, **params).fit(X, y)
+        models.append(model)
+        p = model.predict_proba(X)
+        if preds:
+            assert cn.allclose(p, preds[-1]), cn.max(cn.abs(p - preds[-1]))
+        if models:
+            assert cn.all([a == b for a, b in zip(models[0].models_, model.models_)])

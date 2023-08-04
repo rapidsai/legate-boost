@@ -1,11 +1,9 @@
 import numpy as np
-import pytest
 import utils
 from hypothesis import HealthCheck, Verbosity, given, settings, strategies as st
 
 import cunumeric as cn
 import legateboost as lb
-from legate.core import get_legate_runtime
 
 np.set_printoptions(threshold=10, edgeitems=1)
 
@@ -56,7 +54,7 @@ def regression_real_dataset_strategy(draw):
 def regression_generated_dataset_strategy(draw):
     num_outputs = draw(st.integers(1, 5))
     num_features = draw(st.integers(1, 150))
-    num_rows = draw(st.integers(1, 10000))
+    num_rows = draw(st.integers(2, 10000))
     np.random.seed(2)
     X = cn.random.random((num_rows, num_features))
     y = cn.random.random((X.shape[0], num_outputs))
@@ -185,10 +183,6 @@ def classification_dataset_strategy(draw):
     general_model_param_strategy,
     classification_param_strategy,
     classification_dataset_strategy(),
-)
-@pytest.mark.skipif(
-    get_legate_runtime().machine.preferred_kind == 1,
-    reason="Fails with V100 GPU, see issue #14",
 )
 def test_classifier(model_params, classification_params, classification_dataset):
     X, y, w, name = classification_dataset

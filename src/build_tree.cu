@@ -332,6 +332,8 @@ struct Tree {
     thrust::fill(thrust_exec_policy, feature.ptr({0}), feature.ptr({0}) + max_nodes, -1);
     thrust::fill(
       thrust_exec_policy, hessian.ptr({0, 0}), hessian.ptr({0, 0}) + max_nodes * num_outputs, 0.0);
+    thrust::fill(thrust_exec_policy, split_value.ptr({0}), split_value.ptr({0}) + max_nodes, -1);
+    thrust::fill(thrust_exec_policy, gain.ptr({0}), gain.ptr({0}) + max_nodes, 0.0);
     thrust::fill(thrust_exec_policy,
                  gradient.ptr({0, 0}),
                  gradient.ptr({0, 0}) + max_nodes * num_outputs,
