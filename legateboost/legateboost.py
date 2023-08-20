@@ -98,8 +98,8 @@ class TreeStructure(_PickleCunumericMixin):
         use_gpu = get_legate_runtime().machine.preferred_kind == 1
         rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.BUILD_TREE, launch_domain=Rect((num_procs, 1))
+        task = user_context.create_auto_task(
+            LegateBoostOpCode.BUILD_TREE
         )
 
         # Defining a projection function (even the identity) prevents legate
@@ -113,15 +113,9 @@ class TreeStructure(_PickleCunumericMixin):
         task.add_scalar_arg(max_depth, types.int32)
         task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
 
-        task.add_input(
-            partition_if_not_future(X, (rows_per_tile, num_features)), proj=proj
-        )
-        task.add_input(
-            partition_if_not_future(g, (rows_per_tile, num_outputs)), proj=proj
-        )
-        task.add_input(
-            partition_if_not_future(h, (rows_per_tile, num_outputs)), proj=proj
-        )
+        task.add_input(_get_store(X))
+        task.add_input(_get_store(g))
+        task.add_input(_get_store(h))
         task.add_input(_get_store(split_proposals))
 
         # outputs
@@ -134,15 +128,11 @@ class TreeStructure(_PickleCunumericMixin):
         hessian = user_context.create_store(types.float64, (max_nodes, num_outputs))
 
         # All outputs belong to a single tile on worker 0
-        task.add_output(
-            leaf_value.partition_by_tiling((max_nodes, num_outputs)), proj=proj
-        )
-        task.add_output(feature.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(split_value.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(gain.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(
-            hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj
-        )
+        task.add_output(leaf_value)
+        task.add_output(feature)
+        task.add_output(split_value)
+        task.add_output(gain)
+        task.add_output(hessian)
 
         if num_procs > 1:
             if use_gpu:
@@ -160,20 +150,13 @@ class TreeStructure(_PickleCunumericMixin):
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         n_rows = X.shape[0]
-        n_features = X.shape[1]
         n_outputs = self.leaf_value.shape[1]
-        num_procs = self.num_procs_to_use(n_rows)
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.PREDICT, Rect((num_procs, 1))
-        )
+        task = user_context.create_auto_task(LegateBoostOpCode.PREDICT)
 
         def proj(x: Tuple[int, int]) -> Tuple[int, int]:
             return (x[0], 0)
 
-        task.add_input(
-            partition_if_not_future(X, (rows_per_tile, n_features)), proj=proj
-        )
+        task.add_input(_get_store(X))
 
         # broadcast the tree structure
         task.add_input(_get_store(self.leaf_value))
@@ -181,9 +164,7 @@ class TreeStructure(_PickleCunumericMixin):
         task.add_input(_get_store(self.split_value))
 
         pred = user_context.create_store(types.float64, (n_rows, n_outputs))
-        task.add_output(
-            partition_if_not_future(pred, (rows_per_tile, n_outputs)), proj=proj
-        )
+        task.add_output(pred)
         task.execute()
         return cn.array(pred, copy=False)
 
