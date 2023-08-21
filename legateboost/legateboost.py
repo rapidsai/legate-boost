@@ -64,10 +64,9 @@ class TreeStructure(_PickleCunumericMixin):
     def right_child(self, id: int) -> int:
         return id * 2 + 2
 
-    def num_procs_to_use(self, num_rows: int) -> int:
-        min_rows_per_worker = 10
+    def num_procs_to_use(self) -> int:
         available_procs = len(get_legate_runtime().machine)
-        return min(available_procs, int(math.ceil(num_rows / min_rows_per_worker)))
+        return available_procs
 
     def __init__(
         self,
@@ -82,16 +81,11 @@ class TreeStructure(_PickleCunumericMixin):
         split_proposals = X[
             random_state.randint(0, X.shape[0], max_depth)
         ]  # may not be efficient, maybe write new task
-        num_features = X.shape[1]
         num_outputs = g.shape[1]
-        n_rows = X.shape[0]
-        num_procs = self.num_procs_to_use(n_rows)
+        num_procs = self.num_procs_to_use()
         use_gpu = get_legate_runtime().machine.preferred_kind == 1
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
-        task = user_context.create_auto_task(
-            LegateBoostOpCode.BUILD_TREE
-        )
+        task = user_context.create_auto_task(LegateBoostOpCode.BUILD_TREE)
 
         # Defining a projection function (even the identity) prevents legate
         # from trying to assign empty tiles to workers
@@ -340,7 +334,6 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: dict = {},
     ) -> "LBBase":
-
         # check inputs
         X, y = check_X_y(X, y)
         _eval_set = self._process_eval_set(eval_set)
