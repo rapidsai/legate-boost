@@ -43,15 +43,6 @@ class _PickleCunumericMixin:
         self.__dict__.update(state)
 
 
-# handle the case of 1 input row, where the store can be a future
-# calls to partition_by_tiling will fail
-def partition_if_not_future(array: cn.ndarray, shape: Tuple[int, int]) -> Any:
-    store = _get_store(array)
-    if store.kind == Future:
-        return store
-    return store.partition_by_tiling(shape)
-
-
 class TreeStructure(_PickleCunumericMixin):
     """A structure of arrays representing a decision tree.
 
