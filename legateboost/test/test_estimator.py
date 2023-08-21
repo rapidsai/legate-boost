@@ -211,3 +211,41 @@ def test_classifier_determinism(num_class, objective):
             assert cn.allclose(p, preds[-1]), cn.max(cn.abs(p - preds[-1]))
         if models:
             assert cn.all([a == b for a, b in zip(models[0].models_, model.models_)])
+
+
+def test_normal():
+    # check variance converges as expected
+    np.random.seed(2)
+    X = cn.random.random((100, 2))
+    y = cn.random.normal(5, 2, X.shape[0])
+    model = lb.LBRegressor(
+        n_estimators=50,
+        objective="normal",
+        max_depth=0,
+        random_state=2,
+        learning_rate=0.3,
+        init=None,
+        verbose=True,
+    ).fit(X, y)
+
+    pred = model.predict(X)[0]
+    assert cn.allclose(pred[0], y.mean(), atol=1e-2)
+    assert cn.allclose(pred[1], y.var(), atol=1e-2)
+
+    # check we don't get 0 variance
+    X = cn.array([[0.0], [0.0]])
+    y = cn.array([1.0, 1.0])
+    model = lb.LBRegressor(
+        n_estimators=100,
+        objective="normal",
+        max_depth=0,
+        random_state=2,
+        learning_rate=0.5,
+        init=None,
+        verbose=True,
+    ).fit(X, y)
+    pred = model.predict(X)[0]
+    assert cn.allclose(pred[0], y.mean(), atol=1e-2)
+    assert cn.allclose(pred[1], 0.0, atol=1e-1)
+    print(pred)
+    print(model.dump_trees())

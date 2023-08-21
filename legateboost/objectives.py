@@ -10,6 +10,7 @@ from .metrics import (
     MSEMetric,
     NormalLLMetric,
 )
+from .utils import preround
 
 
 class BaseObjective(ABC):
@@ -55,15 +56,20 @@ class BaseObjective(ABC):
         """
         pass
 
-    def check_labels(self, y: cn.ndarray) -> int:
-        """Checks the validity of the labels for this objective function.
-        Return the number of outputs for raw prediction.
+    @abstractmethod
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        """Initializes the base score of the model. May also validate labels.
 
         Args:
-            y : The labels.
+            y : The target values.
+            w : The sample weights.
+            boost_from_average (bool): Whether to initialize the predictions
+              from the average of the target values.
 
         Returns:
-            The number of outputs for raw prediction.
+            The initial predictions for a single example.
         """
         pass
 
@@ -91,55 +97,73 @@ class SquaredErrorObjective(BaseObjective):
     def metric(self) -> MSEMetric:
         return MSEMetric()
 
-    def check_labels(self, y: cn.ndarray) -> int:
-        return y.shape[1]
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        assert y.ndim == 2
+        if boost_from_average:
+            y = preround(y)
+            w = preround(w)
+            return cn.sum(y * w[:, None], axis=0) / cn.sum(w)
+        else:
+            return cn.zeros(y.shape[1])
 
 
 class NormalObjective(BaseObjective):
     """The normal distribution objective function for regression problems.
 
-    This objective fits both mean and standard deviation parameters, where :class:`SquaredErrorObjective` only fits the mean.
+    This objective fits both mean and variance parameters, where :class:`SquaredErrorObjective` only fits the mean.
 
     The objective minimised is the negative log likelihood of the normal distribution.
 
-    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi p_{i, 1}^2}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 p_{i, 1}^2}))`
+    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi p_{i, 1}}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 p_{i, 1}}))`
 
-    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the standard deviation.
+    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the variance.
+
+    The variance is clipped to a minimum of 1e-5 to avoid numerical instability.
 
     See also:
         :class:`legateboost.metrics.NormalLLMetric`
     """  # noqa: E501
 
-    def check_labels(self, y: cn.ndarray) -> int:
-        return y.shape[1] * 2
-
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
         grad = cn.zeros((y.shape[0], y.shape[1], 2))
         hess = cn.ones((y.shape[0], y.shape[1], 2))
         mean = pred[:, :, 0]
-        sd = pred[:, :, 1]
-        var = sd * sd
-
+        var = pred[:, :, 1]
+        assert var.ndim == 2
         diff = mean - y
         grad[:, :, 0] = diff / var
         hess[:, :, 0] = 1 / var  # fisher information
 
-        # do not update the variance on first iteration when predictions are 0
-        if not cn.all(mean == 0.0):
-            grad[:, :, 1] = 1 / sd - (diff * diff) / (var * sd)
-            hess[:, :, 1] = 2 / var  # fisher information
+        grad[:, :, 1] = (var - (diff * diff)) / (2 * var * var)
+        hess[:, :, 1] = 1 / (2 * var * var)  # fisher information
         return grad.reshape(grad.shape[0], -1), hess.reshape(hess.shape[0], -1)
 
     def metric(self) -> NormalLLMetric:
         return NormalLLMetric()
 
-    def transform(self, pred) -> cn.ndarray:
-        # normally predictions start at 0.0
-        # this is not allowed for variance
-        # renormalize to start at 1.0
-        copy = pred.copy().reshape(pred.shape[0], pred.shape[1] // 2, 2)
-        copy[:, :, 1] += 1.0
-        return copy
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        assert y.ndim == 2
+        pred = cn.zeros((y.shape[1], 2))
+        pred[:, 1] = 1.0
+        if boost_from_average:
+            y = preround(y)
+            w = preround(w)
+            mean = cn.sum(y * w[:, None], axis=0) / cn.sum(w)
+            var = cn.sum((y - mean) * (y - mean) * w[:, None], axis=0) / cn.sum(w)
+            pred[:, 0] = mean
+            pred[:, 1] = var
+        return pred.reshape(-1)
+
+    def transform(self, pred: cn.ndarray) -> cn.ndarray:
+        # internally there is no third dimension
+        # reshape this nicely for the user so mean and variance have their own dimension
+        pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
+        pred[:, :, 1] = cn.maximum(pred[:, :, 1], 1e-5)
+        return pred
 
 
 class LogLossObjective(BaseObjective):
@@ -183,10 +207,24 @@ class LogLossObjective(BaseObjective):
     def metric(self) -> LogLossMetric:
         return LogLossMetric()
 
-    def check_labels(self, y: cn.ndarray) -> int:
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
         if not cn.all((y == cn.floor(y)) & (y >= 0)):
             raise ValueError("Expected labels to be non-zero whole numbers")
-        return cn.max(y) + 1
+        num_class = int(cn.max(y) + 1)
+        if boost_from_average:
+            # take 1 newton step (we could iterate here to get a better estimate)
+            g, h = self.gradient(
+                y,
+                self.transform(
+                    cn.zeros((y.shape[0], num_class if num_class > 1 else 1))
+                ),
+            )
+            g = g * w[:, None]
+            h = h * w[:, None]
+            return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
+        return cn.zeros(num_class) if num_class > 1 else cn.zeros(1)
 
 
 class ExponentialObjective(BaseObjective):
@@ -241,10 +279,24 @@ class ExponentialObjective(BaseObjective):
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()
 
-    def check_labels(self, y: cn.ndarray) -> int:
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
         if not cn.all((y == cn.floor(y)) & (y >= 0)):
             raise ValueError("Expected labels to be non-zero whole numbers")
-        return cn.max(y) + 1
+        num_class = int(cn.max(y) + 1)
+        if boost_from_average:
+            # take 1 newton step (we could iterate here to get a better estimate)
+            g, h = self.gradient(
+                y,
+                self.transform(
+                    cn.zeros((y.shape[0], num_class if num_class > 1 else 1))
+                ),
+            )
+            g = g * w[:, None]
+            h = h * w[:, None]
+            return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
+        return cn.zeros(num_class) if num_class > 1 else cn.zeros(1)
 
 
 objectives = {

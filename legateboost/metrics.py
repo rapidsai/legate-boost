@@ -69,9 +69,9 @@ class NormalLLMetric(BaseMetric):
     """The mean negative log likelihood of the labels, given mean and variance
     parameters.
 
-    :math:`L(y, p) = -\\frac{1}{n} \\sum_{i=1}^{n} log(\\frac{1}{\\sqrt{2\\pi p_{i, 1}^2}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 p_{i, 1}^2}))`
+    :math:`L(y, p) = -\\frac{1}{n} \\sum_{i=1}^{n} log(\\frac{1}{\\sqrt{2\\pi p_{i, 1}}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 p_{i, 1}}))`
 
-    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the standard deviation.
+    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the variance.
 
     See also:
         :class:`legateboost.objectives.NormalObjective`
@@ -90,9 +90,8 @@ class NormalLLMetric(BaseMetric):
         if y.ndim == 2:
             w = w[:, cn.newaxis]
         mean = pred[:, :, 0]
-        sd = pred[:, :, 1]
         diff = y - mean
-        var = sd * sd
+        var = pred[:, :, 1]
         ll = -0.5 * cn.log(2 * cn.pi * var) - 0.5 * (diff * diff) / var
         neg_ll = -(ll * w).sum(axis=0) / w_sum
         # average over output

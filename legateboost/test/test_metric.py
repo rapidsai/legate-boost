@@ -151,7 +151,9 @@ def test_normal_neg_ll():
     def neg_ll(y, p):
         from scipy.stats import norm
 
-        return float(-norm.logpdf(y.squeeze(), loc=p[:, 0], scale=p[:, 1]).mean())
+        return float(
+            -norm.logpdf(y.squeeze(), loc=p[:, 0], scale=cn.sqrt(p[:, 1])).mean()
+        )
 
     y = cn.array([1.0, 0.0, 1.0]).reshape(-1, 1)
     pred = cn.array([[0.0, 1.0], [0.0, 2.0], [0.0, 1.0]])

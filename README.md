@@ -22,6 +22,13 @@ model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2)
     X, y
 )
 ```
+
+## Features
+
+### Probabilistic regression
+<img src="examples/images/probabilistic_regression.gif" alt="drawing" width="500"/>
+
+
 ## Installation
 
 Dependencies:
