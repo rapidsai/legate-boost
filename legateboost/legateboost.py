@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import warnings
 from enum import IntEnum
 from typing import Any, List, Optional, Tuple, Union
@@ -11,7 +10,7 @@ from sklearn.exceptions import DataConversionWarning
 from sklearn.utils.validation import check_is_fitted, check_random_state
 
 import cunumeric as cn
-from legate.core import Future, Rect, Store, get_legate_runtime, types
+from legate.core import Store, get_legate_runtime, types
 
 from .input_validation import check_sample_weight, check_X_y
 from .library import user_context, user_lib
