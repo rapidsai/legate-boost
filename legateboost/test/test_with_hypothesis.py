@@ -116,7 +116,7 @@ classification_param_strategy = st.fixed_dictionaries(
         # we can technically have up to learning rate 1.0, however
         #  some problems may not converge (e.g. multiclass classification
         #  with many classes) unless the learning rate is sufficiently small
-        "learning_rate": st.floats(0.01, 0.3),
+        "learning_rate": st.floats(0.01, 0.1),
     }
 )
 
