@@ -81,6 +81,8 @@ jobs:
 
 
   test:
+    env:
+      SEGMENT_DOWNLOAD_TIMEOUT_MINS: 20
     needs: build
     defaults:
       run:
