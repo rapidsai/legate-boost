@@ -17,6 +17,15 @@ class MyObjective(lb.BaseObjective):
     def metric(self):
         return MyMetric()
 
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        # return initial prediction for a single instance
+        if boost_from_average:
+            return y.mean().reshape(y[0].shape)
+        else:
+            return cn.zeros_like(y[0])
+
 
 X = cn.random.random((100, 10))
 y = cn.random.random(X.shape[0])
