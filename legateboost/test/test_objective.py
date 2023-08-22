@@ -4,6 +4,13 @@ import cunumeric as cn
 import legateboost as lb
 
 
+def test_normal():
+    obj = lb.NormalObjective()
+    y = cn.array([[1.0], [2.0], [3.0]])
+    init = obj.initialise_prediction(y, cn.array([1.0, 1.0, 1.0]), True)
+    assert cn.allclose(init, cn.array([y.mean(), y.var()]))
+
+
 def test_log_loss():
     obj = lb.LogLossObjective()
     # binary
@@ -26,12 +33,26 @@ def test_log_loss():
     with pytest.raises(
         ValueError, match="Expected labels to be non-zero whole numbers"
     ):
-        obj.check_labels(cn.array([[0.2], [1.0]]))
+        obj.initialise_prediction(
+            cn.array([[1], [2.5]]), cn.array([[1.0], [1.0]]), False
+        )
 
     with pytest.raises(
         ValueError, match="Expected labels to be non-zero whole numbers"
     ):
-        obj.check_labels(cn.array([[-1]]))
+        obj.initialise_prediction(
+            cn.array(
+                [
+                    [-1],
+                ]
+            ),
+            cn.array(
+                [
+                    [1.0],
+                ]
+            ),
+            False,
+        )
 
 
 def test_exp():
@@ -44,4 +65,23 @@ def test_exp():
     with pytest.raises(
         ValueError, match="Expected labels to be non-zero whole numbers"
     ):
-        obj.check_labels(cn.array([[1], [2.5]]))
+        obj.initialise_prediction(
+            cn.array([[1], [2.5]]), cn.array([[1.0], [1.0]]), False
+        )
+
+    with pytest.raises(
+        ValueError, match="Expected labels to be non-zero whole numbers"
+    ):
+        obj.initialise_prediction(
+            cn.array(
+                [
+                    [-1],
+                ]
+            ),
+            cn.array(
+                [
+                    [1.0],
+                ]
+            ),
+            False,
+        )

@@ -7,6 +7,9 @@ Metrics
 .. autoclass:: legateboost.MSEMetric
     :members:
 
+.. autoclass:: legateboost.NormalLLMetric
+    :members:
+
 .. autoclass:: legateboost.LogLossMetric
     :members:
 

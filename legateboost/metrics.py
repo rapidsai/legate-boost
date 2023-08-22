@@ -56,11 +56,49 @@ class MSEMetric(BaseMetric):
             w = w[:, cn.newaxis]
         numerator = ((y - pred) ** 2 * w).sum(axis=0)
 
-        numerator = numerator / w_sum
-        return float(numerator.mean())
+        # per output
+        mse = numerator / w_sum
+        # average over outputs
+        return float(mse.mean())
 
     def name(self) -> str:
         return "mse"
+
+
+class NormalLLMetric(BaseMetric):
+    """The mean negative log likelihood of the labels, given mean and variance
+    parameters.
+
+    :math:`L(y, p) = -\\frac{1}{n} \\sum_{i=1}^{n} log(\\frac{1}{\\sqrt{2\\pi p_{i, 1}}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 p_{i, 1}}))`
+
+    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the variance.
+
+    See also:
+        :class:`legateboost.objectives.NormalObjective`
+    """  # noqa: E501
+
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        assert (
+            y.size * 2 == pred.size
+        ), "Expected pred to contain mean and sd for each y_i"
+        if y.ndim == 1:
+            y = y.reshape((y.size, 1))
+        pred = pred.reshape((y.shape[0], y.shape[1], 2))
+        w_sum = w.sum()
+        if w_sum == 0:
+            return 0
+        if y.ndim == 2:
+            w = w[:, cn.newaxis]
+        mean = pred[:, :, 0]
+        diff = y - mean
+        var = pred[:, :, 1]
+        ll = -0.5 * cn.log(2 * cn.pi * var) - 0.5 * (diff * diff) / var
+        neg_ll = -(ll * w).sum(axis=0) / w_sum
+        # average over output
+        return float(neg_ll.mean())
+
+    def name(self) -> str:
+        return "normal_neg_ll"
 
 
 class LogLossMetric(BaseMetric):
@@ -141,4 +179,9 @@ class ExponentialMetric(BaseMetric):
         return "exp"
 
 
-metrics = {"log_loss": LogLossMetric, "mse": MSEMetric, "exp": ExponentialMetric}
+metrics = {
+    "log_loss": LogLossMetric,
+    "mse": MSEMetric,
+    "exp": ExponentialMetric,
+    "normal_neg_ll": NormalLLMetric,
+}
