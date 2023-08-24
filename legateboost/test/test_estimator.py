@@ -99,6 +99,8 @@ def test_regressor_determinism(num_outputs, objective):
         model = lb.LBRegressor(n_estimators=10, **params).fit(X, y)
         models.append(model)
         p = model.predict(X)
+        if models:
+            assert cn.all(model.model_init_ == models[0].model_init_)
         if preds:
             assert cn.allclose(p, preds[-1]), cn.max(cn.abs(p - preds[-1]))
         if models:

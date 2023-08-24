@@ -156,7 +156,8 @@ class NormalObjective(BaseObjective):
             y = preround(y)
             w = preround(w)
             mean = cn.sum(y * w[:, None], axis=0) / cn.sum(w)
-            var = cn.sum((y - mean) * (y - mean) * w[:, None], axis=0) / cn.sum(w)
+            var = (y - mean) * (y - mean) * w[:, None]
+            var = cn.sum(preround(var), axis=0) / cn.sum(w)
             pred[:, 0] = mean
             pred[:, 1] = var
         return pred.reshape(-1)
