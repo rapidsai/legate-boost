@@ -1,6 +1,6 @@
 import numpy as np
 import utils
-from hypothesis import HealthCheck, Verbosity, given, settings, strategies as st
+from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 
 import cunumeric as cn
 import legateboost as lb
@@ -31,7 +31,7 @@ general_model_param_strategy = st.fixed_dictionaries(
 
 regression_param_strategy = st.fixed_dictionaries(
     {
-        "objective": st.sampled_from(["squared_error", "normal"]),
+        "objective": st.sampled_from(["squared_error", "normal", "quantile"]),
         "learning_rate": st.floats(0.01, 0.1),
     }
 )
@@ -89,6 +89,7 @@ def regression_dataset_strategy(draw):
 def test_regressor(model_params, regression_params, regression_dataset):
     X, y, w = regression_dataset
     eval_result = {}
+    assume(regression_params["objective"] != "quantile" or y.ndim == 1)
     model = lb.LBRegressor(**model_params, **regression_params).fit(
         X, y, sample_weight=w, eval_result=eval_result
     )

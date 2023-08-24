@@ -10,6 +10,9 @@ Objectives
 .. autoclass:: legateboost.NormalObjective
     :members:
 
+.. autoclass:: legateboost.QuantileObjective
+    :members:
+
 .. autoclass:: legateboost.LogLossObjective
     :members:
 

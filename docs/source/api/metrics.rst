@@ -10,6 +10,9 @@ Metrics
 .. autoclass:: legateboost.NormalLLMetric
     :members:
 
+.. autoclass:: legateboost.QuantileMetric
+    :members:
+
 .. autoclass:: legateboost.LogLossMetric
     :members:
 

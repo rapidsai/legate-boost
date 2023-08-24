@@ -21,8 +21,10 @@ def test_init():
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
-@pytest.mark.parametrize("objective", ["squared_error", "normal"])
+@pytest.mark.parametrize("objective", ["squared_error", "normal", "quantile"])
 def test_regressor(num_outputs, objective):
+    if objective == "quantile" and num_outputs > 1:
+        pytest.skip("Quantile objective not implemented for multi-output")
     np.random.seed(2)
     X = cn.random.random((100, 10))
     y = cn.random.random((X.shape[0], num_outputs))
@@ -32,7 +34,7 @@ def test_regressor(num_outputs, objective):
         objective=objective,
         max_depth=3,
         random_state=2,
-        learning_rate=0.5,
+        learning_rate=0.1,
     ).fit(X, y, eval_result=eval_result)
     loss_recomputed = model._metrics[0].metric(y, model.predict(X), cn.ones(y.shape[0]))
     loss = next(iter(eval_result["train"].values()))
@@ -45,16 +47,19 @@ def test_regressor(num_outputs, objective):
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
-def test_regressor_improving_with_depth(num_outputs):
+@pytest.mark.parametrize("objective", ["squared_error", "normal", "quantile"])
+def test_regressor_improving_with_depth(num_outputs, objective):
+    if objective == "quantile" and num_outputs > 1:
+        pytest.skip("Quantile objective not implemented for multi-output")
     np.random.seed(3)
     X = cn.random.random((100, 10))
     y = cn.random.random((X.shape[0], num_outputs))
     metrics = []
     for max_depth in range(0, 10):
         eval_result = {}
-        lb.LBRegressor(n_estimators=2, random_state=0, max_depth=max_depth).fit(
-            X, y, eval_result=eval_result
-        )
+        lb.LBRegressor(
+            n_estimators=2, random_state=0, max_depth=max_depth, objective=objective
+        ).fit(X, y, eval_result=eval_result)
         loss = next(iter(eval_result["train"].values()))
         metrics.append(loss[-1])
     assert utils.non_increasing(metrics)
@@ -80,17 +85,22 @@ def test_regressor_weights(num_outputs):
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
-def test_regressor_determinism(num_outputs):
+@pytest.mark.parametrize("objective", ["squared_error", "normal", "quantile"])
+def test_regressor_determinism(num_outputs, objective):
+    if objective == "quantile" and num_outputs > 1:
+        pytest.skip("Quantile objective not implemented for multi-output")
     X = cn.random.random((10000, 10))
     y = cn.random.random((X.shape[0], num_outputs))
     preds = []
-    params = {"max_depth": 12, "random_state": 84, "objective": "squared_error"}
+    params = {"max_depth": 12, "random_state": 84, "objective": objective}
     preds = []
     models = []
     for _ in range(0, 10):
         model = lb.LBRegressor(n_estimators=10, **params).fit(X, y)
         models.append(model)
         p = model.predict(X)
+        if models:
+            assert cn.all(model.model_init_ == models[0].model_init_)
         if preds:
             assert cn.allclose(p, preds[-1]), cn.max(cn.abs(p - preds[-1]))
         if models:
