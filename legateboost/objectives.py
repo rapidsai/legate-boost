@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
+from scipy.stats import norm
+
 import cunumeric as cn
 
 from .metrics import (
@@ -9,6 +11,7 @@ from .metrics import (
     LogLossMetric,
     MSEMetric,
     NormalLLMetric,
+    QuantileMetric,
 )
 from .utils import preround
 
@@ -166,6 +169,65 @@ class NormalObjective(BaseObjective):
         return pred
 
 
+class QuantileObjective(BaseObjective):
+    """Minimises the quantile loss, otherwise known as check loss or pinball
+    loss.
+
+    :math:`L(y_i, p_i) = \\frac{1}{k}\\sum_{j=1}^{k} (q_j - \\mathbb{1})(y_i - p_{i, j})`
+
+    where
+
+    :math:`\\mathbb{1} = 1` if :math:`y_i - p_{i, j} \\leq 0` and :math:`\\mathbb{1} = 0` otherwise.
+
+    This objective function is non-smooth and therefore can converge significantly slower than other objectives.
+
+    See also:
+        :class:`legateboost.metrics.QuantileMetric`
+    """  # noqa
+
+    def __init__(self, quantiles=cn.array([0.25, 0.5, 0.75])) -> None:
+        super().__init__()
+        assert cn.all(0.0 < quantiles) and cn.all(quantiles < 1.0)
+        self.quantiles = quantiles
+
+    def gradient(self, y, pred):
+        diff = y - pred
+        indicator = diff <= 0
+        # Apply the polyak step size rule for subgradient descent.
+        # Notice that this scales the gradient magnitude relative to the loss
+        # function. If we don't do this, the gradient sizes are constant with
+        # respect to the size of the input labels. E.g. if the labels are very
+        # large and we take 0.5 size steps, convergence takes forever.
+        polyak_step_size = (
+            (self.quantiles[cn.newaxis, :] - indicator) * diff
+        ).sum() / pred.size
+        return (indicator - self.quantiles[cn.newaxis, :]) * polyak_step_size, cn.ones(
+            pred.shape
+        ) * polyak_step_size
+
+    def metric(self):
+        return QuantileMetric(self.quantiles)
+
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        assert y.shape[1] == 1, "Quantile loss does not support multi-output"
+        # We don't have a way to calculate weighted quantiles easily in cunumeric.
+        # In any case, it would require slow global sort.
+        # Instead fit a normal distribution to the data and use that
+        # to estimate quantiles.
+        if boost_from_average:
+            y = preround(y)
+            w = preround(w)
+            mean = cn.sum(y * w[:, None], axis=0) / cn.sum(w)
+            var = cn.sum((y - mean) * (y - mean) * w[:, None], axis=0) / cn.sum(w)
+            init = cn.array(
+                norm.ppf(self.quantiles, loc=mean[0], scale=cn.sqrt(var[0]))
+            )
+            return init
+        return cn.zeros_like(self.quantiles)
+
+
 class LogLossObjective(BaseObjective):
     """The Log Loss objective function for binary and multi-class
     classification problems.
@@ -304,4 +366,5 @@ objectives = {
     "normal": NormalObjective,
     "log_loss": LogLossObjective,
     "exp": ExponentialObjective,
+    "quantile": QuantileObjective,
 }

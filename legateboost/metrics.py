@@ -101,6 +101,37 @@ class NormalLLMetric(BaseMetric):
         return "normal_neg_ll"
 
 
+class QuantileMetric(BaseMetric):
+    """The quantile loss, otherwise known as check loss or pinball loss.
+
+    :math:`L(y, p) = \\frac{1}{n}\\sum_{i=1}^{n} \\frac{1}{k}\\sum_{j=1}^{k} (q_j - \\mathbb{1})(y_i - p_{i, j})`
+
+    where
+
+    :math:`\\mathbb{1} = 1` if :math:`y_i - p_{i, j} \\leq 0` and :math:`\\mathbb{1} = 0` otherwise.
+
+    See also:
+        :class:`legateboost.objectives.QuantileObjective`
+    """  # noqa
+
+    def __init__(self, quantiles=cn.array([0.25, 0.5, 0.75])) -> None:
+        super().__init__()
+        assert cn.all(0.0 <= quantiles) and cn.all(quantiles <= 1.0)
+        self.quantiles = quantiles
+
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        assert w.ndim == 1
+        assert y.shape[1] == 1
+        assert pred.shape[1] == self.quantiles.size
+        diff = y - pred
+        indicator = diff <= 0
+        loss = (self.quantiles[cn.newaxis, :] - indicator) * diff
+        return ((loss * w[:, cn.newaxis]).sum() / self.quantiles.size) / w.sum()
+
+    def name(self):
+        return "quantile"
+
+
 class LogLossMetric(BaseMetric):
     """Class for computing the logarithmic loss (logloss) metric between the
     true labels and predicted labels.
