@@ -77,7 +77,13 @@ def animate(i):
             "var": normal_preds[i][:, 1],
         }
     ).sort_values(by=feature_name)
-    sns.lineplot(x=feature_name, y="Predicted house value", data=data, ax=ax[0])
+    sns.lineplot(
+        x=feature_name,
+        y="Predicted house value",
+        data=data[[feature_name, "Predicted house value"]],
+        ax=ax[0],
+        errorbar=("sd", 0),
+    )
     interval = norm.interval(
         0.95, loc=data["Predicted house value"], scale=data["var"] ** 0.5
     )
@@ -110,6 +116,7 @@ def animate(i):
         style="quantile",
         ax=ax[1],
         dashes=dashes,
+        errorbar=("sd", 0),
     )
     ax[1].set_ylim(-0.5, 5.5)
 
@@ -118,10 +125,11 @@ def animate(i):
     )
 
     plt.tight_layout()
+    print("Drawing frame {}".format(i + 1))
     return (fig,)
 
 
-anim = animation.FuncAnimation(fig, animate, frames=n_frames, interval=500, blit=True)
+anim = animation.FuncAnimation(fig, animate, frames=n_frames, interval=500)
 
 image_dir = Path(__file__).parent
 anim.save(image_dir / "probabilistic_regression.gif", dpi=80)
