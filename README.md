@@ -28,9 +28,9 @@ model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2)
 ### Probabilistic regression
 Legateboost can learn distributions for continuous data. This is useful in cases where simply predicting the mean does not carry enough information about the training data:
 
-<img src="examples/probabilistic_regression/probabilistic_regression.gif" alt="drawing" width="800"/>
+<img src="examples/probabalistic_regression/probabilistic_regression.gif" alt="drawing" width="800"/>
 
-The above example can be found here. [examples/probabilistic_regression](examples/probabilistic_regression)
+The above example can be found here: [examples/probabilistic_regression](examples/probabalistic_regression/README.md).
 
 ## Installation
 
