@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.metrics import log_loss, mean_squared_error
+from sklearn.metrics import log_loss, mean_pinball_loss, mean_squared_error
 
 import cunumeric as cn
 import legateboost as lb
@@ -172,3 +172,25 @@ def test_normal_neg_ll():
     )
     ref_metric = cn.mean([neg_ll(y, pred), neg_ll(y_1, pred_1)])
     assert cn.allclose(our_metric, ref_metric)
+
+
+def test_quantile_metric():
+    quantiles = cn.array([0.1, 0.5, 0.9])
+    metric = lb.QuantileMetric(quantiles)
+
+    def sklearn_loss(y, p, w=None):
+        return cn.mean(
+            [
+                mean_pinball_loss(y, p[:, i], sample_weight=w, alpha=q)
+                for i, q in enumerate(quantiles)
+            ]
+        )
+
+    y = np.random.normal(size=(100, 1))
+    pred = np.random.normal(size=(100, 3))
+    assert cn.allclose(
+        metric.metric(y, pred, cn.ones(y.shape[0])), sklearn_loss(y, pred)
+    )
+
+    w = np.random.normal(size=(100))
+    assert cn.allclose(metric.metric(y, pred, w), sklearn_loss(y, pred, w))
