@@ -200,11 +200,11 @@ class QuantileObjective(BaseObjective):
         # respect to the size of the input labels. E.g. if the labels are very
         # large and we take 0.5 size steps, convergence takes forever.
         polyak_step_size = (
-            (self.quantiles[cn.newaxis, :] - indicator) * diff
-        ).sum() / pred.size
+            ((self.quantiles[cn.newaxis, :] - indicator) * diff).sum() * 2 / pred.size
+        )
         return (indicator - self.quantiles[cn.newaxis, :]) * polyak_step_size, cn.ones(
             pred.shape
-        ) * polyak_step_size
+        )
 
     def metric(self):
         return QuantileMetric(self.quantiles)
