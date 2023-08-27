@@ -9,3 +9,4 @@ src/legate_library.h
 legate_prof*
 .hypothesis
 examples/notebook/*.py
+legion_prof

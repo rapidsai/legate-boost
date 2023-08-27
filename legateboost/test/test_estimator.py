@@ -257,5 +257,3 @@ def test_normal():
     pred = model.predict(X)[0]
     assert cn.allclose(pred[0], y.mean(), atol=1e-2)
     assert cn.allclose(pred[1], 0.0, atol=1e-1)
-    print(pred)
-    print(model.dump_trees())

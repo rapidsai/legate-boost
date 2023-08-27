@@ -51,6 +51,8 @@ struct Tree {
     gain.resize(max_nodes);
     hessian = legate::create_buffer<double, 2>({max_nodes, num_outputs});
     std::fill(hessian.ptr({0, 0}), hessian.ptr({max_nodes, num_outputs}), 0.0);
+    gradient = legate::create_buffer<double, 2>({max_nodes, num_outputs});
+    std::fill(gradient.ptr({0, 0}), gradient.ptr({max_nodes, num_outputs}), 0.0);
   }
   void AddSplit(int node_id,
                 int feature_id,
@@ -58,6 +60,8 @@ struct Tree {
                 const std::vector<double>& left_leaf_value,
                 const std::vector<double>& right_leaf_value,
                 double gain,
+                const std::vector<double>& gradient_left,
+                const std::vector<double>& gradient_right,
                 const std::vector<double>& hessian_left,
                 const std::vector<double>& hessian_right)
   {
@@ -66,6 +70,8 @@ struct Tree {
     this->split_value[node_id] = split_value;
     this->gain[node_id]        = gain;
     for (int output = 0; output < num_outputs; output++) {
+      this->gradient[{LeftChild(node_id), output}]    = gradient_left[output];
+      this->gradient[{RightChild(node_id), output}]   = gradient_right[output];
       this->hessian[{LeftChild(node_id), output}]     = hessian_left[output];
       this->hessian[{RightChild(node_id), output}]    = hessian_right[output];
       this->leaf_value[{LeftChild(node_id), output}]  = left_leaf_value[output];
@@ -74,6 +80,7 @@ struct Tree {
   }
   static int LeftChild(int id) { return id * 2 + 1; }
   static int RightChild(int id) { return id * 2 + 2; }
+  static int Parent(int id) { return (id - 1) / 2; }
 
   bool IsLeaf(int node_id) const { return feature[node_id] == -1; }
 
@@ -82,6 +89,8 @@ struct Tree {
   std::vector<double> split_value;
   std::vector<double> gain;
   legate::Buffer<double, 2> hessian;
+  legate::Buffer<double, 2>
+    gradient;  // This is not used in the output tree but we use it during training
   const int num_outputs;
 };
 
@@ -112,8 +121,7 @@ struct GradientHistogram {
   // 0. Depth
   // 1. Feature
   // 2. Output
-  // 3. Left/Right child
-  legate::Buffer<GPair, 4> gradient_sums;
+  legate::Buffer<GPair, 3> gradient_sums;
   int size;
   int num_features;
   int depth;
@@ -123,22 +131,20 @@ struct GradientHistogram {
     : num_features(num_features),
       depth(depth),
       num_outputs(num_outputs),
-      size((1 << depth) * num_features * num_outputs * 2),
-      gradient_sums(legate::create_buffer<GPair, 4>({1 << depth, num_features, num_outputs, 2}))
+      size((1 << depth) * num_features * num_outputs),
+      gradient_sums(legate::create_buffer<GPair, 3>({1 << depth, num_features, num_outputs}))
   {
-    auto ptr = gradient_sums.ptr({0, 0, 0, 0});
+    auto ptr = gradient_sums.ptr({0, 0, 0});
     std::fill(ptr, ptr + size, GPair{0.0, 0.0});
   }
-  void Add(int feature, int position, int output, GPair g, bool left)
+  void Add(int feature, int position_in_level, int output, GPair g)
   {
-    if (position < 0) return;
-    int position_in_level = position - ((1 << depth) - 1);
-    gradient_sums[{position_in_level, feature, output, left}] += g;
+    gradient_sums[{position_in_level, feature, output}] += g;
   }
-  GPair Get(int feature, int position, int output, bool left)
+  GPair Get(int feature, int position, int output)
   {
     int position_in_level = position - ((1 << depth) - 1);
-    return gradient_sums[{position_in_level, feature, output, left}];
+    return gradient_sums[{position_in_level, feature, output}];
   }
 };
 
@@ -183,6 +189,7 @@ struct build_tree_fn {
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = base_sums[i];
       tree.leaf_value[{0, i}] = (-G / H) * learning_rate;
+      tree.gradient[{0, i}]   = G;
       tree.hessian[{0, i}]    = H;
     }
 
@@ -192,17 +199,19 @@ struct build_tree_fn {
       GradientHistogram histogram(num_features, depth, num_outputs);
       for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
         auto index_local = i - X_shape.lo[0];
+        auto position    = positions[index_local];
+        if (position < 0) continue;
+        auto position_in_level = position - ((1 << depth) - 1);
         for (int64_t j = 0; j < num_features; j++) {
-          for (int64_t k = 0; k < num_outputs; ++k) {
-            auto x    = X_accessor[{i, j}];
-            bool left = x <= split_proposal_accessor[{depth, j}];
-            histogram.Add(
-              j, positions[index_local], k, GPair{g_accessor[{i, k}], h_accessor[{i, k}]}, left);
+          if (X_accessor[{i, j}] <= split_proposal_accessor[{depth, j}]) {
+            for (int64_t k = 0; k < num_outputs; ++k) {
+              histogram.Add(j, position_in_level, k, GPair{g_accessor[{i, k}], h_accessor[{i, k}]});
+            }
           }
         }
       }
       SumAllReduce(context,
-                   reinterpret_cast<double*>(histogram.gradient_sums.ptr({0, 0, 0, 0})),
+                   reinterpret_cast<double*>(histogram.gradient_sums.ptr({0, 0, 0})),
                    histogram.size * 2);
       // Find the best split
       double eps = 1e-5;
@@ -212,10 +221,11 @@ struct build_tree_fn {
         for (int feature = 0; feature < num_features; feature++) {
           double gain = 0;
           for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L] = histogram.Get(feature, node_id, output, true);
-            auto [G_R, H_R] = histogram.Get(feature, node_id, output, false);
-            auto G          = G_L + G_R;
-            auto H          = H_L + H_R;
+            auto [G_L, H_L] = histogram.Get(feature, node_id, output);
+            auto G          = tree.gradient[{node_id, output}];
+            auto H          = tree.hessian[{node_id, output}];
+            auto G_R        = G - G_L;
+            auto H_R        = H - H_L;
             gain +=
               0.5 * ((G_L * G_L) / (H_L + eps) + (G_R * G_R) / (H_R + eps) - (G * G) / (H + eps));
           }
@@ -227,15 +237,22 @@ struct build_tree_fn {
         if (best_gain > eps) {
           std::vector<double> left_leaf(num_outputs);
           std::vector<double> right_leaf(num_outputs);
+          std::vector<double> gradient_left(num_outputs);
+          std::vector<double> gradient_right(num_outputs);
           std::vector<double> hessian_left(num_outputs);
           std::vector<double> hessian_right(num_outputs);
           for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L]       = histogram.Get(best_feature, node_id, output, true);
-            auto [G_R, H_R]       = histogram.Get(best_feature, node_id, output, false);
-            left_leaf[output]     = -(G_L / (H_L + eps)) * learning_rate;
-            right_leaf[output]    = -(G_R / (H_R + eps)) * learning_rate;
-            hessian_left[output]  = H_L;
-            hessian_right[output] = H_R;
+            auto [G_L, H_L]        = histogram.Get(best_feature, node_id, output);
+            auto G                 = tree.gradient[{node_id, output}];
+            auto H                 = tree.hessian[{node_id, output}];
+            auto G_R               = G - G_L;
+            auto H_R               = H - H_L;
+            left_leaf[output]      = -(G_L / (H_L + eps)) * learning_rate;
+            right_leaf[output]     = -(G_R / (H_R + eps)) * learning_rate;
+            gradient_left[output]  = G_L;
+            gradient_right[output] = G_R;
+            hessian_left[output]   = H_L;
+            hessian_right[output]  = H_R;
           }
           if (hessian_left[0] <= 0.0 || hessian_right[0] <= 0.0) continue;
           tree.AddSplit(node_id,
@@ -244,6 +261,8 @@ struct build_tree_fn {
                         left_leaf,
                         right_leaf,
                         best_gain,
+                        gradient_left,
+                        gradient_right,
                         hessian_left,
                         hessian_right);
         }
