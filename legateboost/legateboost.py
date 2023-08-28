@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import math
 import warnings
-from enum import IntEnum
 from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
@@ -11,245 +9,15 @@ from sklearn.exceptions import DataConversionWarning
 from sklearn.utils.validation import check_is_fitted, check_random_state
 
 import cunumeric as cn
-from legate.core import Future, Rect, Store, get_legate_runtime, types
 
 from .input_validation import check_sample_weight, check_X_y
-from .library import user_context, user_lib
 from .metrics import BaseMetric, metrics
+from .models import Tree
 from .objectives import BaseObjective, objectives
-from .utils import preround
+from .utils import PickleCunumericMixin, preround
 
 
-class LegateBoostOpCode(IntEnum):
-    BUILD_TREE = user_lib.cffi.BUILD_TREE
-    PREDICT = user_lib.cffi.PREDICT
-
-
-class _PickleCunumericMixin:
-    """When reading back from pickle, convert numpy arrays to cunumeric
-    arrays."""
-
-    def __getstate__(self) -> dict[str, Any]:
-        return self.__dict__.copy()
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        def replace(data: Any) -> None:
-            if isinstance(data, (dict, list)):
-                for k, v in data.items() if isinstance(data, dict) else enumerate(data):
-                    if isinstance(v, np.ndarray):
-                        data[k] = cn.asarray(v)
-                    replace(v)
-
-        replace(state)
-        self.__dict__.update(state)
-
-
-# handle the case of 1 input row, where the store can be a future
-# calls to partition_by_tiling will fail
-def partition_if_not_future(array: cn.ndarray, shape: Tuple[int, int]) -> Any:
-    store = _get_store(array)
-    if store.kind == Future:
-        return store
-    return store.partition_by_tiling(shape)
-
-
-class TreeStructure(_PickleCunumericMixin):
-    """A structure of arrays representing a decision tree.
-
-    A leaf node has value -1 at feature[node_idx]
-    """
-
-    leaf_value: cn.ndarray
-    feature: cn.ndarray
-    split_value: cn.ndarray
-    gain: cn.ndarray
-    hessian: cn.ndarray
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, TreeStructure):
-            return NotImplemented
-        eq = [cn.all(self.leaf_value == other.leaf_value)]
-        eq.append(cn.all(self.feature == other.feature))
-        eq.append(cn.all(self.split_value == other.split_value))
-        eq.append(cn.all(self.gain == other.gain))
-        eq.append(cn.all(self.hessian == other.hessian))
-        return all(eq)
-
-    def is_leaf(self, id: int) -> Any:
-        return self.feature[id] == -1
-
-    def left_child(self, id: int) -> int:
-        return id * 2 + 1
-
-    def right_child(self, id: int) -> int:
-        return id * 2 + 2
-
-    def num_procs_to_use(self, num_rows: int) -> int:
-        min_rows_per_worker = 10
-        available_procs = len(get_legate_runtime().machine)
-        return min(available_procs, int(math.ceil(num_rows / min_rows_per_worker)))
-
-    def __init__(
-        self,
-        X: cn.ndarray,
-        g: cn.ndarray,
-        h: cn.ndarray,
-        learning_rate: float,
-        max_depth: int,
-        random_state: np.random.RandomState,
-    ) -> None:
-        # choose possible splits
-        sample_rows = random_state.randint(0, X.shape[0], max_depth)
-        split_proposals = X[sample_rows]  # may not be efficient, maybe write new task
-        num_features = X.shape[1]
-        num_outputs = g.shape[1]
-        n_rows = X.shape[0]
-        num_procs = self.num_procs_to_use(n_rows)
-        use_gpu = get_legate_runtime().machine.preferred_kind == 1
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
-
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.BUILD_TREE, launch_domain=Rect((num_procs, 1))
-        )
-
-        # Defining a projection function (even the identity) prevents legate
-        # from trying to assign empty tiles to workers
-        # in the case where the number of tiles is less than the launch grid
-        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
-            return (x[0], 0)  # everything crashes if this is lambda x: x ????
-
-        # inputs
-        task.add_scalar_arg(learning_rate, types.float64)
-        task.add_scalar_arg(max_depth, types.int32)
-        task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
-
-        task.add_input(
-            partition_if_not_future(X, (rows_per_tile, num_features)), proj=proj
-        )
-        task.add_input(
-            partition_if_not_future(g, (rows_per_tile, num_outputs)), proj=proj
-        )
-        task.add_input(
-            partition_if_not_future(h, (rows_per_tile, num_outputs)), proj=proj
-        )
-        task.add_input(_get_store(split_proposals))
-
-        # outputs
-        # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
-        max_nodes = 2 ** (max_depth + 1)
-        leaf_value = user_context.create_store(types.float64, (max_nodes, num_outputs))
-        feature = user_context.create_store(types.int32, (max_nodes, 1))
-        split_value = user_context.create_store(types.float64, (max_nodes, 1))
-        gain = user_context.create_store(types.float64, (max_nodes, 1))
-        hessian = user_context.create_store(types.float64, (max_nodes, num_outputs))
-
-        # All outputs belong to a single tile on worker 0
-        task.add_output(
-            leaf_value.partition_by_tiling((max_nodes, num_outputs)), proj=proj
-        )
-        task.add_output(feature.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(split_value.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(gain.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(
-            hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj
-        )
-
-        if num_procs > 1:
-            if use_gpu:
-                task.add_nccl_communicator()
-            else:
-                task.add_cpu_communicator()
-
-        task.execute()
-
-        self.leaf_value = cn.array(leaf_value, copy=False)
-        self.feature = cn.array(feature, copy=False).squeeze()
-        self.split_value = cn.array(split_value, copy=False).squeeze()
-        self.gain = cn.array(gain, copy=False).squeeze()
-        self.hessian = cn.array(hessian, copy=False)
-
-    def predict(self, X: cn.ndarray) -> cn.ndarray:
-        n_rows = X.shape[0]
-        n_features = X.shape[1]
-        n_outputs = self.leaf_value.shape[1]
-        num_procs = self.num_procs_to_use(n_rows)
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.PREDICT, Rect((num_procs, 1))
-        )
-
-        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
-            return (x[0], 0)
-
-        task.add_input(
-            partition_if_not_future(X, (rows_per_tile, n_features)), proj=proj
-        )
-
-        # broadcast the tree structure
-        task.add_input(_get_store(self.leaf_value))
-        task.add_input(_get_store(self.feature))
-        task.add_input(_get_store(self.split_value))
-
-        pred = user_context.create_store(types.float64, (n_rows, n_outputs))
-        task.add_output(
-            partition_if_not_future(pred, (rows_per_tile, n_outputs)), proj=proj
-        )
-        task.execute()
-        return cn.array(pred, copy=False)
-
-    def __str__(self) -> str:
-        def format_vector(v: cn.ndarray) -> str:
-            if cn.isscalar(v):
-                return "{:0.4f}".format(v)
-            return "[" + ",".join(["{:0.4f}".format(x) for x in v]) + "]"
-
-        def recurse_print(id: int, depth: int) -> str:
-            if self.is_leaf(id):
-                text = "\t" * depth + "{}:leaf={},hess={}\n".format(
-                    id,
-                    format_vector(self.leaf_value[id]),
-                    format_vector(self.hessian[id]),
-                )
-            else:
-                text = (
-                    "\t" * depth
-                    + "{}:[f{}<={:0.4f}] yes={},no={},gain={:0.4f},hess={}\n".format(
-                        id,
-                        self.feature[id],
-                        self.split_value[id],
-                        self.left_child(id),
-                        self.right_child(id),
-                        self.gain[id],
-                        self.hessian[id],
-                    )
-                )
-                text += recurse_print(self.left_child(id), depth + 1)
-                text += recurse_print(self.right_child(id), depth + 1)
-            return text
-
-        return recurse_print(0, 0)
-
-
-def _get_store(input: Any) -> Store:
-    """Extracts a Legate store from any object implementing the legete data
-    interface.
-
-    Args:
-        input (Any): The input object
-
-    Returns:
-        Store: The extracted Legate store
-    """
-    if isinstance(input, Store):
-        return input
-    data = input.__legate_data_interface__["data"]
-    field = next(iter(data))
-    array = data[field]
-    _, store = array.stores()
-    return store
-
-
-class LBBase(BaseEstimator, _PickleCunumericMixin):
+class LBBase(BaseEstimator, PickleCunumericMixin):
     def __init__(
         self,
         n_estimators: int = 100,
@@ -431,7 +199,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             g, h = self._get_weighted_gradient(y, pred, sample_weight)
             # build new tree
             self.models_.append(
-                TreeStructure(
+                Tree(
                     X,
                     g,
                     h,
@@ -488,7 +256,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         """
         sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
-        self.models_: List[TreeStructure] = []
+        self.models_: List[Tree] = []
         # initialise random state if an integer was passed
         self.random_state_ = check_random_state(self.random_state)
 

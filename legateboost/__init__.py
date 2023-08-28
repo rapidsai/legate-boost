@@ -1,4 +1,4 @@
-from .legateboost import LBRegressor, LBClassifier, TreeStructure
+from .legateboost import LBRegressor, LBClassifier
 from .metrics import (
     MSEMetric,
     NormalLLMetric,
