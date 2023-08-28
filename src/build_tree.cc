@@ -172,9 +172,8 @@ struct build_tree_fn {
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
 
     // Scalars
-    auto learning_rate = context.scalars().at(0).value<double>();
-    auto max_depth     = context.scalars().at(1).value<int>();
-    auto random_seed   = context.scalars().at(2).value<uint64_t>();
+    auto max_depth   = context.scalars().at(0).value<int>();
+    auto random_seed = context.scalars().at(1).value<uint64_t>();
 
     Tree tree(max_depth, num_outputs);
 
@@ -188,7 +187,7 @@ struct build_tree_fn {
     SumAllReduce(context, reinterpret_cast<double*>(base_sums.data()), num_outputs * 2);
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = base_sums[i];
-      tree.leaf_value[{0, i}] = (-G / H) * learning_rate;
+      tree.leaf_value[{0, i}] = (-G / H);
       tree.gradient[{0, i}]   = G;
       tree.hessian[{0, i}]    = H;
     }
@@ -247,8 +246,8 @@ struct build_tree_fn {
             auto H                 = tree.hessian[{node_id, output}];
             auto G_R               = G - G_L;
             auto H_R               = H - H_L;
-            left_leaf[output]      = -(G_L / (H_L + eps)) * learning_rate;
-            right_leaf[output]     = -(G_R / (H_R + eps)) * learning_rate;
+            left_leaf[output]      = -(G_L / (H_L + eps));
+            right_leaf[output]     = -(G_R / (H_R + eps));
             gradient_left[output]  = G_L;
             gradient_right[output] = G_R;
             hessian_left[output]   = H_L;

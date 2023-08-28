@@ -139,7 +139,11 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         return new_eval_set
 
     def _get_weighted_gradient(
-        self, y: cn.ndarray, pred: cn.ndarray, sample_weight: cn.ndarray
+        self,
+        y: cn.ndarray,
+        pred: cn.ndarray,
+        sample_weight: cn.ndarray,
+        learning_rate: float,
     ) -> Tuple[cn.ndarray, cn.ndarray]:
         """Computes the weighted gradient and Hessian for the given predictions
         and labels.
@@ -159,8 +163,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         )
         assert g.shape == h.shape
 
-        # apply weights
-        g = g * sample_weight[:, None]
+        # apply weights and learning rate
+        g = g * sample_weight[:, None] * learning_rate
         h = h * sample_weight[:, None]
         return preround(g), preround(h)
 
@@ -196,14 +200,15 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         pred = self._predict(X)
         for _ in range(self.n_estimators):
             # obtain gradients
-            g, h = self._get_weighted_gradient(y, pred, sample_weight)
+            g, h = self._get_weighted_gradient(
+                y, pred, sample_weight, self.learning_rate
+            )
             # build new tree
             self.models_.append(
                 Tree(
                     X,
                     g,
                     h,
-                    self.learning_rate,
                     self.max_depth,
                     self.random_state_,
                 )

@@ -57,7 +57,6 @@ class Tree(PickleCunumericMixin):
         X: cn.ndarray,
         g: cn.ndarray,
         h: cn.ndarray,
-        learning_rate: float,
         max_depth: int,
         random_state: np.random.RandomState,
     ) -> None:
@@ -82,7 +81,6 @@ class Tree(PickleCunumericMixin):
             return (x[0], 0)  # everything crashes if this is lambda x: x ????
 
         # inputs
-        task.add_scalar_arg(learning_rate, types.float64)
         task.add_scalar_arg(max_depth, types.int32)
         task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
 
