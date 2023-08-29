@@ -39,6 +39,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.random_state = random_state
         self.max_depth = max_depth
         self.version = version
+        self.model_init_: cn.ndarray
 
     def _more_tags(self) -> Any:
         return {
@@ -231,6 +232,70 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             )
         return self
 
+    def update(
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: Optional[cn.ndarray] = None,
+        eval_set: List[Tuple[cn.ndarray, ...]] = [],
+        eval_result: dict = {},
+    ) -> "LBBase":
+
+        # check inputs
+        X, y = check_X_y(X, y)
+        _eval_set = self._process_eval_set(eval_set)
+
+        sample_weight = check_sample_weight(sample_weight, y.shape[0])
+
+        assert hasattr(self, "is_fitted_") and self.is_fitted_
+
+        if self.n_features_in_ != X.shape[1]:
+            raise ValueError(
+                "X.shape[1] = {} should be equal to {}".format(
+                    X.shape[1], self.n_features_in_
+                )
+            )
+
+        # avoid appending to an existing eval result
+        eval_result.clear()
+
+        # update the model initialisation
+        # as a weighted average
+        new_model_init = self._objective_instance.initialise_prediction(
+            y, sample_weight, self.init == "average"
+        )
+        sum_new_weights = sample_weight.sum()
+        self.model_init_ = (
+            self.model_init_ * self.sum_model_weights_
+            + new_model_init * sum_new_weights
+        ) / (self.sum_model_weights_ + sum_new_weights)
+
+        # current model prediction
+        pred = cn.repeat(new_model_init[cn.newaxis, :], X.shape[0], axis=0)
+
+        for i, m in enumerate(self.models_):
+            # obtain gradients
+            g, h = self._get_weighted_gradient(
+                y, pred, sample_weight, self.learning_rate
+            )
+
+            # Update existing model with new data
+            # Return predictions only for the new data
+            pred += m.update(X, g, h)
+
+            # evaluate our progress
+            self._compute_metrics(
+                i,
+                self._objective_instance.transform(pred),
+                y,
+                sample_weight,
+                self._metrics,
+                self.verbose,
+                _eval_set,
+                eval_result,
+            )
+        return self
+
     def fit(
         self,
         X: cn.ndarray,
@@ -280,6 +345,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.model_init_ = self._objective_instance.initialise_prediction(
             y, sample_weight, self.init == "average"
         )
+        self.sum_model_weights_ = sample_weight.sum()
 
         self.is_fitted_ = True
 

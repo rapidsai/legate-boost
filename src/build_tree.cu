@@ -258,8 +258,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
       int left_child                         = global_node_id * 2 + 1;
       int right_child                        = left_child + 1;
-      tree_leaf_value[{left_child, output}]  = -(G_L / (H_L + eps));
-      tree_leaf_value[{right_child, output}] = -(G_R / (H_R + eps));
+      tree_leaf_value[{left_child, output}]  = -G_L / H_L;
+      tree_leaf_value[{right_child, output}] = -G_R / H_R;
       tree_hessian[{left_child, output}]     = H_L;
       tree_hessian[{right_child, output}]    = H_R;
       tree_gradient[{left_child, output}]    = G_L;

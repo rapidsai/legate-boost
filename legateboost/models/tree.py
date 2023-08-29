@@ -14,6 +14,7 @@ from ..utils import PickleCunumericMixin, get_store
 class LegateBoostOpCode(IntEnum):
     BUILD_TREE = user_lib.cffi.BUILD_TREE
     PREDICT = user_lib.cffi.PREDICT
+    UPDATE_TREE = user_lib.cffi.UPDATE_TREE
 
 
 # handle the case of 1 input row, where the store can be a future
@@ -128,6 +129,71 @@ class Tree(PickleCunumericMixin):
         self.split_value = cn.array(split_value, copy=False).squeeze()
         self.gain = cn.array(gain, copy=False).squeeze()
         self.hessian = cn.array(hessian, copy=False)
+
+    def update(
+        self,
+        X: cn.ndarray,
+        g: cn.ndarray,
+        h: cn.ndarray,
+    ) -> None:
+        num_features = X.shape[1]
+        num_outputs = g.shape[1]
+        n_rows = X.shape[0]
+        num_procs = self.num_procs_to_use(n_rows)
+        use_gpu = get_legate_runtime().machine.preferred_kind == 1
+        rows_per_tile = int(cn.ceil(n_rows / num_procs))
+
+        task = user_context.create_manual_task(
+            LegateBoostOpCode.UPDATE_TREE, launch_domain=Rect((num_procs, 1))
+        )
+
+        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
+            return (x[0], 0)
+
+        task.add_input(
+            partition_if_not_future(X, (rows_per_tile, num_features)), proj=proj
+        )
+        task.add_input(
+            partition_if_not_future(g, (rows_per_tile, num_outputs)), proj=proj
+        )
+        task.add_input(
+            partition_if_not_future(h, (rows_per_tile, num_outputs)), proj=proj
+        )
+
+        # broadcast the tree structure
+        task.add_input(get_store(self.leaf_value))
+        task.add_input(get_store(self.feature))
+        task.add_input(get_store(self.split_value))
+        task.add_input(get_store(self.gain))
+        task.add_input(get_store(self.hessian))
+
+        # create new arrays for these 3 - they are being replaced
+        new_leaf_value = user_context.create_store(types.float64, self.leaf_value.shape)
+        new_hessian = user_context.create_store(types.float64, self.hessian.shape)
+
+        pred = user_context.create_store(types.float64, (n_rows, num_outputs))
+
+        # All tree outputs belong to a single tile on worker 0
+        task.add_output(
+            new_leaf_value.partition_by_tiling(self.leaf_value.shape), proj=proj
+        )
+        task.add_output(new_hessian.partition_by_tiling(self.hessian.shape), proj=proj)
+
+        task.add_output(
+            partition_if_not_future(pred, (rows_per_tile, num_outputs)), proj=proj
+        )
+
+        if num_procs > 1:
+            if use_gpu:
+                task.add_nccl_communicator()
+            else:
+                task.add_cpu_communicator()
+
+        task.execute()
+
+        self.leaf_value = cn.array(new_leaf_value, copy=False)
+        self.hessian = cn.array(new_hessian, copy=False)
+        return cn.array(pred, copy=False)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         n_rows = X.shape[0]

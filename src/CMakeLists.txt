@@ -25,6 +25,7 @@ set(legateboost_srcs
   legateboost
   legateboost.h
   build_tree.cc
+  update_tree.cc
   predict.cc
   utils.h
   utils.cc
