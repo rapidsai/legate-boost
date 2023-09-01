@@ -121,7 +121,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         if verbose:
 
             def format(set_name: str, metric_name: str, value: float) -> str:
-                return "\t{0}-{1}:{2:1.5g}".format(set_name, metric_name, value)
+                return "\t{}-{}:".format(set_name, metric_name) + f"{value:8.4f}"
 
             str = "[{}]".format(iteration)
             for k, v in eval_result.items():
