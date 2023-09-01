@@ -259,6 +259,28 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: dict = {},
     ) -> "LBBase":
+        """Update a gradient boosting model from the training set (X, y). This
+        method does not add any new models to the ensemble, only updates
+        existing models to fit the new data.
+
+        Parameters
+        ----------
+        X :
+            The training input samples.
+        y :
+            The target values (class labels) as integers or as floating point numbers.
+        sample_weight :
+            Sample weights. If None, then samples are equally weighted.
+        eval_set :
+            A list of (X, y) or (X, y, w) tuples.
+            The metric will be evaluated on each tuple.
+        eval_result :
+            Returns evaluation result dictionary on training completion.
+        Returns
+        -------
+        self :
+            Returns self.
+        """
 
         # check inputs
         X, y = check_X_y(X, y)
