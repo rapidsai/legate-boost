@@ -75,6 +75,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self,
         iteration: int,
         pred: cn.ndarray,
+        eval_preds: List[cn.ndarray],
         y: cn.ndarray,
         sample_weight: cn.ndarray,
         metrics: list[BaseMetric],
@@ -85,7 +86,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         # make sure dict is initialised
         if not eval_result:
             eval_result.update({"train": {metric.name(): [] for metric in metrics}})
-            for i, _ in enumerate(eval_set):
+            for i, _ in enumerate(eval_preds):
                 eval_result[f"eval-{i}"] = {metric.name(): [] for metric in metrics}
 
         def add_metric(
@@ -96,7 +97,9 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             name: str,
         ) -> None:
             eval_result[name][metric.name()].append(
-                metric.metric(y, metric_pred, sample_weight)
+                metric.metric(
+                    y, self._objective_instance.transform(metric_pred), sample_weight
+                )
             )
             if verbose:
                 print(
@@ -115,9 +118,12 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         # add any eval metrics, if they exist
         for i, (X_eval, y_eval, sample_weight_eval) in enumerate(eval_set):
             for metric in metrics:
-                eval_pred = self._objective_instance.transform(self._predict(X_eval))
                 add_metric(
-                    eval_pred, y_eval, sample_weight_eval, metric, "eval-{}".format(i)
+                    eval_preds[i],
+                    y_eval,
+                    sample_weight_eval,
+                    metric,
+                    "eval-{}".format(i),
                 )
 
     # check the types of the eval set and add sample weight if none
@@ -204,11 +210,12 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         eval_result.clear()
 
         # current model prediction
-        pred = self._predict(X)
+        train_pred = self._predict(X)
+        eval_preds = [self._predict(X_eval) for X_eval, _, _ in _eval_set]
         for _ in range(self.n_estimators):
             # obtain gradients
             g, h = self._get_weighted_gradient(
-                y, pred, sample_weight, self.learning_rate
+                y, train_pred, sample_weight, self.learning_rate
             )
             # build new tree
             self.models_.append(
@@ -222,13 +229,16 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             )
 
             # update current predictions
-            pred += self.models_[-1].predict(X)
+            train_pred += self.models_[-1].predict(X)
+            for i, (X_eval, _, _) in enumerate(_eval_set):
+                eval_preds[i] += self.models_[-1].predict(X_eval)
 
             # evaluate our progress
             model_idx = len(self.models_) - 1
             self._compute_metrics(
                 model_idx,
-                self._objective_instance.transform(pred),
+                train_pred,
+                eval_preds,
                 y,
                 sample_weight,
                 self._metrics,
@@ -274,23 +284,26 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             m.clear()
 
         # current model prediction
-        pred = self._predict(X)
+        train_pred = self._predict(X)
+        eval_preds = [self._predict(X_eval) for X_eval, _, _ in _eval_set]
 
         for i, m in enumerate(self.models_):
             # obtain gradients
             g, h = self._get_weighted_gradient(
-                y, pred, sample_weight, self.learning_rate
+                y, train_pred, sample_weight, self.learning_rate
             )
 
-            # Update existing model with new data
-            # Return predictions only for the new data
             m.update(X, g, h)
-            pred += m.predict(X)
+
+            train_pred += m.predict(X)
+            for i, (X_eval, _, _) in enumerate(_eval_set):
+                eval_preds[i] += self.models_[-1].predict(X_eval)
 
             # evaluate our progress
             self._compute_metrics(
                 i,
-                self._objective_instance.transform(pred),
+                train_pred,
+                eval_preds,
                 y,
                 sample_weight,
                 self._metrics,
