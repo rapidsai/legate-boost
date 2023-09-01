@@ -32,6 +32,24 @@ Legateboost can learn distributions for continuous data. This is useful in cases
 
 The above example can be found here: [examples/probabilistic_regression](examples/probabalistic_regression/README.md).
 
+### Batch training
+Legateboost can train on datasets that do not fit into memory by splitting the dataset into batches and training the model with `partial_fit`.
+```python
+total_estimators = 100
+model = lb.LBRegressor(n_estimators=estimators_per_batch)
+for i in range(total_estimators // estimators_per_batch):
+    X_batch, y_batch = train_batches[i % n_batches]
+    model.partial_fit(
+        X_batch,
+        y_batch,
+    )
+```
+
+<img src="examples/batch_training/batch_training.png" alt="drawing" width="600"/>
+
+The above example can be found here: [examples/batch_training](examples/batch_training/README.md).
+
+
 ## Installation
 
 Dependencies:
