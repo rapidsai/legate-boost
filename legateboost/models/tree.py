@@ -130,6 +130,10 @@ class Tree(PickleCunumericMixin):
         self.gain = cn.array(gain, copy=False).squeeze()
         self.hessian = cn.array(hessian, copy=False)
 
+    def clear(self) -> None:
+        self.leaf_value.fill(0)
+        self.hessian.fill(0)
+
     def update(
         self,
         X: cn.ndarray,
@@ -161,27 +165,17 @@ class Tree(PickleCunumericMixin):
         )
 
         # broadcast the tree structure
-        task.add_input(get_store(self.leaf_value))
         task.add_input(get_store(self.feature))
         task.add_input(get_store(self.split_value))
-        task.add_input(get_store(self.gain))
-        task.add_input(get_store(self.hessian))
 
-        # create new arrays for these 3 - they are being replaced
-        new_leaf_value = user_context.create_store(types.float64, self.leaf_value.shape)
-        new_hessian = user_context.create_store(types.float64, self.hessian.shape)
-
-        pred = user_context.create_store(types.float64, (n_rows, num_outputs))
+        leaf_value = user_context.create_store(types.float64, self.leaf_value.shape)
+        hessian = user_context.create_store(types.float64, self.hessian.shape)
 
         # All tree outputs belong to a single tile on worker 0
         task.add_output(
-            new_leaf_value.partition_by_tiling(self.leaf_value.shape), proj=proj
+            leaf_value.partition_by_tiling(self.leaf_value.shape), proj=proj
         )
-        task.add_output(new_hessian.partition_by_tiling(self.hessian.shape), proj=proj)
-
-        task.add_output(
-            partition_if_not_future(pred, (rows_per_tile, num_outputs)), proj=proj
-        )
+        task.add_output(hessian.partition_by_tiling(self.hessian.shape), proj=proj)
 
         if num_procs > 1:
             if use_gpu:
@@ -190,10 +184,8 @@ class Tree(PickleCunumericMixin):
                 task.add_cpu_communicator()
 
         task.execute()
-
-        self.leaf_value = cn.array(new_leaf_value, copy=False)
-        self.hessian = cn.array(new_hessian, copy=False)
-        return cn.array(pred, copy=False)
+        self.leaf_value = cn.array(leaf_value, copy=False)
+        self.hessian = cn.array(hessian, copy=False)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         n_rows = X.shape[0]

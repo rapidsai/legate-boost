@@ -125,7 +125,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self, eval_set: List[Tuple[cn.ndarray, ...]]
     ) -> List[Tuple[cn.ndarray, cn.ndarray, cn.ndarray]]:
         new_eval_set: List[Tuple[cn.ndarray, cn.ndarray, cn.ndarray]] = []
-        for i, tuple in enumerate(eval_set):
+        for tuple in eval_set:
             assert len(tuple) in [2, 3]
             if len(tuple) == 2:
                 new_eval_set.append(
@@ -185,7 +185,13 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         sample_weight = check_sample_weight(sample_weight, y.shape[0])
 
         if not hasattr(self, "is_fitted_"):
-            return self.fit(X, y, sample_weight)
+            return self.fit(
+                X,
+                y,
+                sample_weight=sample_weight,
+                eval_set=eval_set,
+                eval_result=eval_result,
+            )
 
         if self.n_features_in_ != X.shape[1]:
             raise ValueError(
@@ -260,18 +266,15 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         eval_result.clear()
 
         # update the model initialisation
-        # as a weighted average
-        new_model_init = self._objective_instance.initialise_prediction(
+        self.model_init_ = self._objective_instance.initialise_prediction(
             y, sample_weight, self.init == "average"
         )
-        sum_new_weights = sample_weight.sum()
-        self.model_init_ = (
-            self.model_init_ * self.sum_model_weights_
-            + new_model_init * sum_new_weights
-        ) / (self.sum_model_weights_ + sum_new_weights)
+
+        for m in self.models_:
+            m.clear()
 
         # current model prediction
-        pred = cn.repeat(new_model_init[cn.newaxis, :], X.shape[0], axis=0)
+        pred = self._predict(X)
 
         for i, m in enumerate(self.models_):
             # obtain gradients
@@ -281,7 +284,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
 
             # Update existing model with new data
             # Return predictions only for the new data
-            pred += m.update(X, g, h)
+            m.update(X, g, h)
+            pred += m.predict(X)
 
             # evaluate our progress
             self._compute_metrics(
@@ -485,7 +489,13 @@ class LBRegressor(LBBase, RegressorMixin):
         self :
             Returns self.
         """
-        return super()._partial_fit(X, y, sample_weight, eval_set, eval_result)
+        return super()._partial_fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            eval_result=eval_result,
+        )
 
     def fit(
         self,
@@ -651,7 +661,13 @@ class LBClassifier(LBBase, ClassifierMixin):
             if classes is not None and cn.any(self.classes_ != classes):
                 raise ValueError("classes must match previous fit")
 
-        return super()._partial_fit(X, y, sample_weight, eval_set, eval_result)
+        return super()._partial_fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            eval_result=eval_result,
+        )
 
     def fit(
         self,
