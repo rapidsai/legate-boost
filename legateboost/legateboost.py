@@ -101,15 +101,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
                     y, self._objective_instance.transform(metric_pred), sample_weight
                 )
             )
-            if verbose:
-                print(
-                    "i: {} {} {}: {}".format(
-                        iteration,
-                        name,
-                        metric.name(),
-                        eval_result[name][metric.name()][-1],
-                    )
-                )
 
         # add the training metrics
         for metric in metrics:
@@ -125,6 +116,18 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
                     metric,
                     "eval-{}".format(i),
                 )
+
+        # print the metrics
+        if verbose:
+
+            def format(set_name: str, metric_name: str, value: float) -> str:
+                return "\t{0}-{1}:{2:1.5g}".format(set_name, metric_name, value)
+
+            str = "[{}]".format(iteration)
+            for k, v in eval_result.items():
+                for metric, values in v.items():
+                    str += format(k, metric, values[-1])
+            print(str)
 
     # check the types of the eval set and add sample weight if none
     def _process_eval_set(
