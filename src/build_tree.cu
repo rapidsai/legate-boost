@@ -146,7 +146,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (feature < n_features) {
           if (useAtomicAdd) {
-            if (left_shared[featureIdx][threadIdx.x]) {
+            if (left_shared[featureIdx][threadIdx.x] && sampleNode >= 0) {
               double* addPosition =
                 reinterpret_cast<double*>(&histogram[{sampleNode, feature, output}]);
               atomicAdd(addPosition, G);
