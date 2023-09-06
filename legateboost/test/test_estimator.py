@@ -46,6 +46,37 @@ def test_regressor(num_outputs, objective):
     utils.sanity_check_tree_stats(model.models_)
 
 
+def test_update():
+    np.random.seed(2)
+    X = cn.random.random((1000, 10))
+    y = cn.random.random((X.shape[0], 2))
+    # shift the distribution of the first dataset half
+    y[0 : X.shape[0] // 2] += 3.0
+
+    eval_result = {}
+    model = lb.LBRegressor(
+        n_estimators=20,
+        max_depth=3,
+        random_state=2,
+        learning_rate=0.1,
+    )
+    # fit the model on a half dataset
+    metric = lb.MSEMetric()
+    model.fit(X[0 : X.shape[0] // 2], y[0 : X.shape[0] // 2], eval_result=eval_result)
+    half_data_train_loss = metric.metric(y, model.predict(X), cn.ones(y.shape[0]))
+    # update the model on the full dataset
+    model.update(X, y, eval_result=eval_result)
+    update_train_loss = metric.metric(y, model.predict(X), cn.ones(y.shape[0]))
+    assert update_train_loss < half_data_train_loss
+
+    # check that updating with same dataset results in exact same model
+    model.fit(X, y)
+    pred = model.predict(X)
+    model.update(X, y)
+    updated_pred = model.predict(X)
+    assert (pred == updated_pred).all()
+
+
 @pytest.mark.parametrize("num_outputs", [1, 5])
 @pytest.mark.parametrize("objective", ["squared_error", "normal", "quantile"])
 def test_regressor_improving_with_depth(num_outputs, objective):

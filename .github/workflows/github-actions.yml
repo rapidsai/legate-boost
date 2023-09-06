@@ -53,7 +53,7 @@ jobs:
 
           # workaround issue https://github.com/nv-legate/legate.core/issues/789
           mkdir -p _skbuild/linux-x86_64-3.10/cmake-build
-          ./install.py --network ucx --cuda --arch RAPIDS --verbose;
+          ./install.py --network ucx --cuda --verbose;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v3

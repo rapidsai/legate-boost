@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import math
 import warnings
-from enum import IntEnum
 from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
@@ -11,245 +9,15 @@ from sklearn.exceptions import DataConversionWarning
 from sklearn.utils.validation import check_is_fitted, check_random_state
 
 import cunumeric as cn
-from legate.core import Future, Rect, Store, get_legate_runtime, types
 
 from .input_validation import check_sample_weight, check_X_y
-from .library import user_context, user_lib
 from .metrics import BaseMetric, metrics
+from .models import Tree
 from .objectives import BaseObjective, objectives
-from .utils import preround
+from .utils import PickleCunumericMixin, preround
 
 
-class LegateBoostOpCode(IntEnum):
-    BUILD_TREE = user_lib.cffi.BUILD_TREE
-    PREDICT = user_lib.cffi.PREDICT
-
-
-class _PickleCunumericMixin:
-    """When reading back from pickle, convert numpy arrays to cunumeric
-    arrays."""
-
-    def __getstate__(self) -> dict[str, Any]:
-        return self.__dict__.copy()
-
-    def __setstate__(self, state: dict[str, Any]) -> None:
-        def replace(data: Any) -> None:
-            if isinstance(data, (dict, list)):
-                for k, v in data.items() if isinstance(data, dict) else enumerate(data):
-                    if isinstance(v, np.ndarray):
-                        data[k] = cn.asarray(v)
-                    replace(v)
-
-        replace(state)
-        self.__dict__.update(state)
-
-
-# handle the case of 1 input row, where the store can be a future
-# calls to partition_by_tiling will fail
-def partition_if_not_future(array: cn.ndarray, shape: Tuple[int, int]) -> Any:
-    store = _get_store(array)
-    if store.kind == Future:
-        return store
-    return store.partition_by_tiling(shape)
-
-
-class TreeStructure(_PickleCunumericMixin):
-    """A structure of arrays representing a decision tree.
-
-    A leaf node has value -1 at feature[node_idx]
-    """
-
-    leaf_value: cn.ndarray
-    feature: cn.ndarray
-    split_value: cn.ndarray
-    gain: cn.ndarray
-    hessian: cn.ndarray
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, TreeStructure):
-            return NotImplemented
-        eq = [cn.all(self.leaf_value == other.leaf_value)]
-        eq.append(cn.all(self.feature == other.feature))
-        eq.append(cn.all(self.split_value == other.split_value))
-        eq.append(cn.all(self.gain == other.gain))
-        eq.append(cn.all(self.hessian == other.hessian))
-        return all(eq)
-
-    def is_leaf(self, id: int) -> Any:
-        return self.feature[id] == -1
-
-    def left_child(self, id: int) -> int:
-        return id * 2 + 1
-
-    def right_child(self, id: int) -> int:
-        return id * 2 + 2
-
-    def num_procs_to_use(self, num_rows: int) -> int:
-        min_rows_per_worker = 10
-        available_procs = len(get_legate_runtime().machine)
-        return min(available_procs, int(math.ceil(num_rows / min_rows_per_worker)))
-
-    def __init__(
-        self,
-        X: cn.ndarray,
-        g: cn.ndarray,
-        h: cn.ndarray,
-        learning_rate: float,
-        max_depth: int,
-        random_state: np.random.RandomState,
-    ) -> None:
-        # choose possible splits
-        sample_rows = random_state.randint(0, X.shape[0], max_depth)
-        split_proposals = X[sample_rows]  # may not be efficient, maybe write new task
-        num_features = X.shape[1]
-        num_outputs = g.shape[1]
-        n_rows = X.shape[0]
-        num_procs = self.num_procs_to_use(n_rows)
-        use_gpu = get_legate_runtime().machine.preferred_kind == 1
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
-
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.BUILD_TREE, launch_domain=Rect((num_procs, 1))
-        )
-
-        # Defining a projection function (even the identity) prevents legate
-        # from trying to assign empty tiles to workers
-        # in the case where the number of tiles is less than the launch grid
-        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
-            return (x[0], 0)  # everything crashes if this is lambda x: x ????
-
-        # inputs
-        task.add_scalar_arg(learning_rate, types.float64)
-        task.add_scalar_arg(max_depth, types.int32)
-        task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
-
-        task.add_input(
-            partition_if_not_future(X, (rows_per_tile, num_features)), proj=proj
-        )
-        task.add_input(
-            partition_if_not_future(g, (rows_per_tile, num_outputs)), proj=proj
-        )
-        task.add_input(
-            partition_if_not_future(h, (rows_per_tile, num_outputs)), proj=proj
-        )
-        task.add_input(_get_store(split_proposals))
-
-        # outputs
-        # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
-        max_nodes = 2 ** (max_depth + 1)
-        leaf_value = user_context.create_store(types.float64, (max_nodes, num_outputs))
-        feature = user_context.create_store(types.int32, (max_nodes, 1))
-        split_value = user_context.create_store(types.float64, (max_nodes, 1))
-        gain = user_context.create_store(types.float64, (max_nodes, 1))
-        hessian = user_context.create_store(types.float64, (max_nodes, num_outputs))
-
-        # All outputs belong to a single tile on worker 0
-        task.add_output(
-            leaf_value.partition_by_tiling((max_nodes, num_outputs)), proj=proj
-        )
-        task.add_output(feature.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(split_value.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(gain.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(
-            hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj
-        )
-
-        if num_procs > 1:
-            if use_gpu:
-                task.add_nccl_communicator()
-            else:
-                task.add_cpu_communicator()
-
-        task.execute()
-
-        self.leaf_value = cn.array(leaf_value, copy=False)
-        self.feature = cn.array(feature, copy=False).squeeze()
-        self.split_value = cn.array(split_value, copy=False).squeeze()
-        self.gain = cn.array(gain, copy=False).squeeze()
-        self.hessian = cn.array(hessian, copy=False)
-
-    def predict(self, X: cn.ndarray) -> cn.ndarray:
-        n_rows = X.shape[0]
-        n_features = X.shape[1]
-        n_outputs = self.leaf_value.shape[1]
-        num_procs = self.num_procs_to_use(n_rows)
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.PREDICT, Rect((num_procs, 1))
-        )
-
-        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
-            return (x[0], 0)
-
-        task.add_input(
-            partition_if_not_future(X, (rows_per_tile, n_features)), proj=proj
-        )
-
-        # broadcast the tree structure
-        task.add_input(_get_store(self.leaf_value))
-        task.add_input(_get_store(self.feature))
-        task.add_input(_get_store(self.split_value))
-
-        pred = user_context.create_store(types.float64, (n_rows, n_outputs))
-        task.add_output(
-            partition_if_not_future(pred, (rows_per_tile, n_outputs)), proj=proj
-        )
-        task.execute()
-        return cn.array(pred, copy=False)
-
-    def __str__(self) -> str:
-        def format_vector(v: cn.ndarray) -> str:
-            if cn.isscalar(v):
-                return "{:0.4f}".format(v)
-            return "[" + ",".join(["{:0.4f}".format(x) for x in v]) + "]"
-
-        def recurse_print(id: int, depth: int) -> str:
-            if self.is_leaf(id):
-                text = "\t" * depth + "{}:leaf={},hess={}\n".format(
-                    id,
-                    format_vector(self.leaf_value[id]),
-                    format_vector(self.hessian[id]),
-                )
-            else:
-                text = (
-                    "\t" * depth
-                    + "{}:[f{}<={:0.4f}] yes={},no={},gain={:0.4f},hess={}\n".format(
-                        id,
-                        self.feature[id],
-                        self.split_value[id],
-                        self.left_child(id),
-                        self.right_child(id),
-                        self.gain[id],
-                        self.hessian[id],
-                    )
-                )
-                text += recurse_print(self.left_child(id), depth + 1)
-                text += recurse_print(self.right_child(id), depth + 1)
-            return text
-
-        return recurse_print(0, 0)
-
-
-def _get_store(input: Any) -> Store:
-    """Extracts a Legate store from any object implementing the legete data
-    interface.
-
-    Args:
-        input (Any): The input object
-
-    Returns:
-        Store: The extracted Legate store
-    """
-    if isinstance(input, Store):
-        return input
-    data = input.__legate_data_interface__["data"]
-    field = next(iter(data))
-    array = data[field]
-    _, store = array.stores()
-    return store
-
-
-class LBBase(BaseEstimator, _PickleCunumericMixin):
+class LBBase(BaseEstimator, PickleCunumericMixin):
     def __init__(
         self,
         n_estimators: int = 100,
@@ -271,6 +39,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         self.random_state = random_state
         self.max_depth = max_depth
         self.version = version
+        self.model_init_: cn.ndarray
 
     def _more_tags(self) -> Any:
         return {
@@ -306,6 +75,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         self,
         iteration: int,
         pred: cn.ndarray,
+        eval_preds: List[cn.ndarray],
         y: cn.ndarray,
         sample_weight: cn.ndarray,
         metrics: list[BaseMetric],
@@ -316,7 +86,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         # make sure dict is initialised
         if not eval_result:
             eval_result.update({"train": {metric.name(): [] for metric in metrics}})
-            for i, _ in enumerate(eval_set):
+            for i, _ in enumerate(eval_preds):
                 eval_result[f"eval-{i}"] = {metric.name(): [] for metric in metrics}
 
         def add_metric(
@@ -327,17 +97,10 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
             name: str,
         ) -> None:
             eval_result[name][metric.name()].append(
-                metric.metric(y, metric_pred, sample_weight)
-            )
-            if verbose:
-                print(
-                    "i: {} {} {}: {}".format(
-                        iteration,
-                        name,
-                        metric.name(),
-                        eval_result[name][metric.name()][-1],
-                    )
+                metric.metric(
+                    y, self._objective_instance.transform(metric_pred), sample_weight
                 )
+            )
 
         # add the training metrics
         for metric in metrics:
@@ -346,17 +109,32 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         # add any eval metrics, if they exist
         for i, (X_eval, y_eval, sample_weight_eval) in enumerate(eval_set):
             for metric in metrics:
-                eval_pred = self._objective_instance.transform(self._predict(X_eval))
                 add_metric(
-                    eval_pred, y_eval, sample_weight_eval, metric, "eval-{}".format(i)
+                    eval_preds[i],
+                    y_eval,
+                    sample_weight_eval,
+                    metric,
+                    "eval-{}".format(i),
                 )
+
+        # print the metrics
+        if verbose:
+
+            def format(set_name: str, metric_name: str, value: float) -> str:
+                return "\t{}-{}:".format(set_name, metric_name) + f"{value:8.4f}"
+
+            str = "[{}]".format(iteration)
+            for k, v in eval_result.items():
+                for metric, values in v.items():
+                    str += format(k, metric, values[-1])
+            print(str)
 
     # check the types of the eval set and add sample weight if none
     def _process_eval_set(
         self, eval_set: List[Tuple[cn.ndarray, ...]]
     ) -> List[Tuple[cn.ndarray, cn.ndarray, cn.ndarray]]:
         new_eval_set: List[Tuple[cn.ndarray, cn.ndarray, cn.ndarray]] = []
-        for i, tuple in enumerate(eval_set):
+        for tuple in eval_set:
             assert len(tuple) in [2, 3]
             if len(tuple) == 2:
                 new_eval_set.append(
@@ -371,7 +149,11 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         return new_eval_set
 
     def _get_weighted_gradient(
-        self, y: cn.ndarray, pred: cn.ndarray, sample_weight: cn.ndarray
+        self,
+        y: cn.ndarray,
+        pred: cn.ndarray,
+        sample_weight: cn.ndarray,
+        learning_rate: float,
     ) -> Tuple[cn.ndarray, cn.ndarray]:
         """Computes the weighted gradient and Hessian for the given predictions
         and labels.
@@ -391,8 +173,8 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         )
         assert g.shape == h.shape
 
-        # apply weights
-        g = g * sample_weight[:, None]
+        # apply weights and learning rate
+        g = g * sample_weight[:, None] * learning_rate
         h = h * sample_weight[:, None]
         return preround(g), preround(h)
 
@@ -412,7 +194,13 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         sample_weight = check_sample_weight(sample_weight, y.shape[0])
 
         if not hasattr(self, "is_fitted_"):
-            return self.fit(X, y, sample_weight)
+            return self.fit(
+                X,
+                y,
+                sample_weight=sample_weight,
+                eval_set=eval_set,
+                eval_result=eval_result,
+            )
 
         if self.n_features_in_ != X.shape[1]:
             raise ValueError(
@@ -425,30 +213,122 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         eval_result.clear()
 
         # current model prediction
-        pred = self._predict(X)
+        train_pred = self._predict(X)
+        eval_preds = [self._predict(X_eval) for X_eval, _, _ in _eval_set]
         for _ in range(self.n_estimators):
             # obtain gradients
-            g, h = self._get_weighted_gradient(y, pred, sample_weight)
+            g, h = self._get_weighted_gradient(
+                y, train_pred, sample_weight, self.learning_rate
+            )
             # build new tree
             self.models_.append(
-                TreeStructure(
+                Tree(
                     X,
                     g,
                     h,
-                    self.learning_rate,
                     self.max_depth,
                     self.random_state_,
                 )
             )
 
             # update current predictions
-            pred += self.models_[-1].predict(X)
+            train_pred += self.models_[-1].predict(X)
+            for i, (X_eval, _, _) in enumerate(_eval_set):
+                eval_preds[i] += self.models_[-1].predict(X_eval)
 
             # evaluate our progress
             model_idx = len(self.models_) - 1
             self._compute_metrics(
                 model_idx,
-                self._objective_instance.transform(pred),
+                train_pred,
+                eval_preds,
+                y,
+                sample_weight,
+                self._metrics,
+                self.verbose,
+                _eval_set,
+                eval_result,
+            )
+        return self
+
+    def update(
+        self,
+        X: cn.ndarray,
+        y: cn.ndarray,
+        sample_weight: Optional[cn.ndarray] = None,
+        eval_set: List[Tuple[cn.ndarray, ...]] = [],
+        eval_result: dict = {},
+    ) -> "LBBase":
+        """Update a gradient boosting model from the training set (X, y). This
+        method does not add any new models to the ensemble, only updates
+        existing models to fit the new data.
+
+        Parameters
+        ----------
+        X :
+            The training input samples.
+        y :
+            The target values (class labels) as integers or as floating point numbers.
+        sample_weight :
+            Sample weights. If None, then samples are equally weighted.
+        eval_set :
+            A list of (X, y) or (X, y, w) tuples.
+            The metric will be evaluated on each tuple.
+        eval_result :
+            Returns evaluation result dictionary on training completion.
+        Returns
+        -------
+        self :
+            Returns self.
+        """
+
+        # check inputs
+        X, y = check_X_y(X, y)
+        _eval_set = self._process_eval_set(eval_set)
+
+        sample_weight = check_sample_weight(sample_weight, y.shape[0])
+
+        assert hasattr(self, "is_fitted_") and self.is_fitted_
+
+        if self.n_features_in_ != X.shape[1]:
+            raise ValueError(
+                "X.shape[1] = {} should be equal to {}".format(
+                    X.shape[1], self.n_features_in_
+                )
+            )
+
+        # avoid appending to an existing eval result
+        eval_result.clear()
+
+        # update the model initialisation
+        self.model_init_ = self._objective_instance.initialise_prediction(
+            y, sample_weight, self.init == "average"
+        )
+
+        for m in self.models_:
+            m.clear()
+
+        # current model prediction
+        train_pred = self._predict(X)
+        eval_preds = [self._predict(X_eval) for X_eval, _, _ in _eval_set]
+
+        for i, m in enumerate(self.models_):
+            # obtain gradients
+            g, h = self._get_weighted_gradient(
+                y, train_pred, sample_weight, self.learning_rate
+            )
+
+            m.update(X, g, h)
+
+            train_pred += m.predict(X)
+            for i, (X_eval, _, _) in enumerate(_eval_set):
+                eval_preds[i] += self.models_[-1].predict(X_eval)
+
+            # evaluate our progress
+            self._compute_metrics(
+                i,
+                train_pred,
+                eval_preds,
                 y,
                 sample_weight,
                 self._metrics,
@@ -488,7 +368,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         """
         sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
-        self.models_: List[TreeStructure] = []
+        self.models_: List[Tree] = []
         # initialise random state if an integer was passed
         self.random_state_ = check_random_state(self.random_state)
 
@@ -507,6 +387,7 @@ class LBBase(BaseEstimator, _PickleCunumericMixin):
         self.model_init_ = self._objective_instance.initialise_prediction(
             y, sample_weight, self.init == "average"
         )
+        self.sum_model_weights_ = sample_weight.sum()
 
         self.is_fitted_ = True
 
@@ -646,7 +527,13 @@ class LBRegressor(LBBase, RegressorMixin):
         self :
             Returns self.
         """
-        return super()._partial_fit(X, y, sample_weight, eval_set, eval_result)
+        return super()._partial_fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            eval_result=eval_result,
+        )
 
     def fit(
         self,
@@ -812,7 +699,13 @@ class LBClassifier(LBBase, ClassifierMixin):
             if classes is not None and cn.any(self.classes_ != classes):
                 raise ValueError("classes must match previous fit")
 
-        return super()._partial_fit(X, y, sample_weight, eval_set, eval_result)
+        return super()._partial_fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            eval_result=eval_result,
+        )
 
     def fit(
         self,

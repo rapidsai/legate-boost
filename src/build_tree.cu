@@ -146,7 +146,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (feature < n_features) {
           if (useAtomicAdd) {
-            if (left_shared[featureIdx][threadIdx.x]) {
+            if (left_shared[featureIdx][threadIdx.x] && sampleNode >= 0) {
               double* addPosition =
                 reinterpret_cast<double*>(&histogram[{sampleNode, feature, output}]);
               atomicAdd(addPosition, G);
@@ -197,7 +197,6 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                      size_t n_outputs,
                      legate::AccessorRO<TYPE, 2> split_proposal,
                      double eps,
-                     double learning_rate,
                      legate::Buffer<double, 2> tree_leaf_value,
                      legate::Buffer<double, 2> tree_gradient,
                      legate::Buffer<double, 2> tree_hessian,
@@ -259,8 +258,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
       int left_child                         = global_node_id * 2 + 1;
       int right_child                        = left_child + 1;
-      tree_leaf_value[{left_child, output}]  = -(G_L / (H_L + eps)) * learning_rate;
-      tree_leaf_value[{right_child, output}] = -(G_R / (H_R + eps)) * learning_rate;
+      tree_leaf_value[{left_child, output}]  = -G_L / H_L;
+      tree_leaf_value[{right_child, output}] = -G_R / H_R;
       tree_hessian[{left_child, output}]     = H_L;
       tree_hessian[{right_child, output}]    = H_R;
       tree_gradient[{left_child, output}]    = G_L;
@@ -314,9 +313,7 @@ struct Tree {
   }
 
   template <typename THRUST_POLICY>
-  void InitializeBase(double* base_sums,
-                      double learning_rate,
-                      const THRUST_POLICY& thrust_exec_policy)
+  void InitializeBase(double* base_sums, const THRUST_POLICY& thrust_exec_policy)
   {
     std::vector<double> base_sums_host(2 * num_outputs);
     CHECK_CUDA(cudaMemcpyAsync(base_sums_host.data(),
@@ -343,7 +340,7 @@ struct Tree {
 
     std::vector<double> leaf_value_init(num_outputs);
     for (auto i = 0; i < num_outputs; ++i) {
-      leaf_value_init[i] = (-base_sums_host[i] / base_sums_host[i + num_outputs]) * learning_rate;
+      leaf_value_init[i] = (-base_sums_host[i] / base_sums_host[i + num_outputs]);
     }
     CHECK_CUDA(cudaMemcpyAsync(leaf_value.ptr({0, 0}),
                                leaf_value_init.data(),
@@ -568,17 +565,13 @@ struct TreeLevelInfo {
   }
 
   template <typename TYPE>
-  void PerformBestSplit(Tree& tree,
-                        legate::AccessorRO<TYPE, 2> split_proposal,
-                        double eps,
-                        double learning_rate)
+  void PerformBestSplit(Tree& tree, legate::AccessorRO<TYPE, 2> split_proposal, double eps)
   {
     perform_best_split<<<(1 << current_depth), THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
                                                                                num_features,
                                                                                num_outputs,
                                                                                split_proposal,
                                                                                eps,
-                                                                               learning_rate,
                                                                                tree.leaf_value,
                                                                                tree.gradient,
                                                                                tree.hessian,
@@ -649,9 +642,8 @@ struct build_tree_fn {
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
 
     // Scalars
-    auto learning_rate = context.scalars().at(0).value<double>();
-    auto max_depth     = context.scalars().at(1).value<int>();
-    auto random_seed   = context.scalars().at(2).value<uint64_t>();
+    auto max_depth   = context.scalars().at(0).value<int>();
+    auto random_seed = context.scalars().at(1).value<uint64_t>();
 
     auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
@@ -668,7 +660,7 @@ struct build_tree_fn {
       SumAllReduce(context, reinterpret_cast<double*>(base_sums.ptr(0)), num_outputs * 2, stream);
 
       // base sums contain g-sums first, h sums second
-      tree.InitializeBase(base_sums.ptr(0), learning_rate, thrust_exec_policy);
+      tree.InitializeBase(base_sums.ptr(0), thrust_exec_policy);
 
       base_sums.destroy();
       CHECK_CUDA_STREAM(stream);
@@ -700,7 +692,7 @@ struct build_tree_fn {
 
       // Select the best split
       double eps = 1e-5;
-      tree_state.PerformBestSplit(tree, split_proposal_accessor, eps, learning_rate);
+      tree_state.PerformBestSplit(tree, split_proposal_accessor, eps);
     }
 
     if (context.get_task_index()[0] == 0) { tree.WriteTreeOutput(context); }

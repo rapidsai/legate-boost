@@ -69,4 +69,6 @@ constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f,
   return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
 }
 
+void SumAllReduce(legate::TaskContext& context, double* x, int count);
+
 }  // namespace legateboost

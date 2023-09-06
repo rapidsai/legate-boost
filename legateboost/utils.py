@@ -1,4 +1,28 @@
+from typing import Any
+
+import numpy as np
+
 import cunumeric as cn
+from legate.core import Store
+
+
+class PickleCunumericMixin:
+    """When reading back from pickle, convert numpy arrays to cunumeric
+    arrays."""
+
+    def __getstate__(self) -> dict[str, Any]:
+        return self.__dict__.copy()
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        def replace(data: Any) -> None:
+            if isinstance(data, (dict, list)):
+                for k, v in data.items() if isinstance(data, dict) else enumerate(data):
+                    if isinstance(v, np.ndarray):
+                        data[k] = cn.asarray(v)
+                    replace(v)
+
+        replace(state)
+        self.__dict__.update(state)
 
 
 def preround(x: cn.ndarray) -> cn.ndarray:
@@ -16,3 +40,22 @@ def preround(x: cn.ndarray) -> cn.ndarray:
     delta = cn.floor(m / (1 - 2 * n * cn.finfo(x.dtype).eps))
     M = 2 ** cn.ceil(cn.log2(delta))
     return (x + M) - M
+
+
+def get_store(input: Any) -> Store:
+    """Extracts a Legate store from any object implementing the legete data
+    interface.
+
+    Args:
+        input (Any): The input object
+
+    Returns:
+        Store: The extracted Legate store
+    """
+    if isinstance(input, Store):
+        return input
+    data = input.__legate_data_interface__["data"]
+    field = next(iter(data))
+    array = data[field]
+    _, store = array.stores()
+    return store

@@ -16,30 +16,11 @@
 #include "legate_library.h"
 #include "legateboost.h"
 #include "utils.h"
-#include "core/comm/coll.h"
 #include "build_tree.h"
 
 namespace legateboost {
 
 namespace {
-void SumAllReduce(legate::TaskContext& context, double* x, int count)
-{
-  if (context.communicators().size() == 0) return;
-  auto& comm       = context.communicators().at(0);
-  auto domain      = context.get_launch_domain();
-  size_t num_ranks = domain.get_volume();
-  std::vector<double> gather_result(num_ranks * count);
-  legate::comm::coll::collAllgather(x,
-                                    gather_result.data(),
-                                    count,
-                                    legate::comm::coll::CollDataType::CollDouble,
-                                    comm.get<legate::comm::coll::CollComm>());
-  for (std::size_t j = 0; j < count; j++) { x[j] = 0.0; }
-  for (std::size_t i = 0; i < num_ranks; i++) {
-    for (std::size_t j = 0; j < count; j++) { x[j] += gather_result[i * count + j]; }
-  }
-}
-
 struct Tree {
   Tree(int max_depth, int num_outputs) : num_outputs(num_outputs)
   {
@@ -172,9 +153,8 @@ struct build_tree_fn {
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
 
     // Scalars
-    auto learning_rate = context.scalars().at(0).value<double>();
-    auto max_depth     = context.scalars().at(1).value<int>();
-    auto random_seed   = context.scalars().at(2).value<uint64_t>();
+    auto max_depth   = context.scalars().at(0).value<int>();
+    auto random_seed = context.scalars().at(1).value<uint64_t>();
 
     Tree tree(max_depth, num_outputs);
 
@@ -188,7 +168,7 @@ struct build_tree_fn {
     SumAllReduce(context, reinterpret_cast<double*>(base_sums.data()), num_outputs * 2);
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = base_sums[i];
-      tree.leaf_value[{0, i}] = (-G / H) * learning_rate;
+      tree.leaf_value[{0, i}] = -G / H;
       tree.gradient[{0, i}]   = G;
       tree.hessian[{0, i}]    = H;
     }
@@ -247,8 +227,8 @@ struct build_tree_fn {
             auto H                 = tree.hessian[{node_id, output}];
             auto G_R               = G - G_L;
             auto H_R               = H - H_L;
-            left_leaf[output]      = -(G_L / (H_L + eps)) * learning_rate;
-            right_leaf[output]     = -(G_R / (H_R + eps)) * learning_rate;
+            left_leaf[output]      = -G_L / H_L;
+            right_leaf[output]     = -G_R / H_R;
             gradient_left[output]  = G_L;
             gradient_right[output] = G_R;
             hessian_left[output]   = H_L;

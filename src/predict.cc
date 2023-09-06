@@ -28,8 +28,6 @@ struct predict_fn {
     auto X_shape    = context.inputs().at(0).shape<2>();
     auto X_accessor = context.inputs().at(0).read_accessor<T, 2>();
 
-    // The tree structure stores all have 1 extra 'dummy' dimension
-    // due to broadcasting
     auto leaf_value  = context.inputs().at(1).read_accessor<double, 2>();
     auto feature     = context.inputs().at(2).read_accessor<int32_t, 1>();
     auto split_value = context.inputs().at(3).read_accessor<double, 1>();
