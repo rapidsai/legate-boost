@@ -85,6 +85,8 @@ sns.lineplot(
     label="{}-batch".format(n_batches),
 )
 ax[0].set_title("Train Error")
+ax[0].set_xlabel("Iterations")
+ax[0].set_ylabel("RMSE")
 sns.lineplot(
     x=range(total_estimators),
     y=cn.sqrt(single_batch_test_error),
@@ -100,6 +102,8 @@ sns.lineplot(
     label="{}-batch".format(n_batches),
 )
 ax[1].set_title("Test Error")
+ax[1].set_xlabel("Iterations")
+ax[1].set_ylabel("RMSE")
 
 plt.suptitle("Year Prediction MSD Dataset - Batch Training")
 plt.tight_layout()
