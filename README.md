@@ -49,6 +49,16 @@ for i in range(total_estimators // estimators_per_batch):
 
 The above example can be found here: [examples/batch_training](examples/batch_training/README.md).
 
+### Different model types
+Legateboost supports tree models, linear models, kernel ridge regression models, custom user models and any combinations of these models.
+
+The following example shows a model combining linear and decision tree base learners.
+
+```python
+model = lb.LBRegressor(base_models=(lb.models.Linear(),)*5 + (lb.models.Tree(max_depth=1),)*15, **params).fit(X, y)
+```
+
+<img src="examples/linear_model/linear_model.png" alt="drawing" width="800"/>
 
 ## Installation
 

@@ -2,13 +2,12 @@ import math
 from enum import IntEnum
 from typing import Any, Tuple
 
-import numpy as np
-
 import cunumeric as cn
 from legate.core import Future, Rect, get_legate_runtime, types
 
 from ..library import user_context, user_lib
-from ..utils import PickleCunumericMixin, get_store
+from ..utils import get_store
+from .base_model import BaseModel
 
 
 class LegateBoostOpCode(IntEnum):
@@ -26,7 +25,7 @@ def partition_if_not_future(array: cn.ndarray, shape: Tuple[int, int]) -> Any:
     return store.partition_by_tiling(shape)
 
 
-class Tree(PickleCunumericMixin):
+class Tree(BaseModel):
     """A structure of arrays representing a decision tree.
 
     A leaf node has value -1 at feature[node_idx]
@@ -55,14 +54,18 @@ class Tree(PickleCunumericMixin):
 
     def __init__(
         self,
+        max_depth: int,
+    ) -> None:
+        self.max_depth = max_depth
+
+    def fit(
+        self,
         X: cn.ndarray,
         g: cn.ndarray,
         h: cn.ndarray,
-        max_depth: int,
-        random_state: np.random.RandomState,
-    ) -> None:
+    ) -> "Tree":
         # choose possible splits
-        sample_rows = random_state.randint(0, X.shape[0], max_depth)
+        sample_rows = self.random_state.randint(0, X.shape[0], self.max_depth)
         split_proposals = X[sample_rows]  # may not be efficient, maybe write new task
         num_features = X.shape[1]
         num_outputs = g.shape[1]
@@ -82,8 +85,7 @@ class Tree(PickleCunumericMixin):
             return (x[0], 0)  # everything crashes if this is lambda x: x ????
 
         # inputs
-        task.add_scalar_arg(max_depth, types.int32)
-        task.add_scalar_arg(random_state.randint(0, 2**32), types.uint64)
+        task.add_scalar_arg(self.max_depth, types.int32)
 
         task.add_input(
             partition_if_not_future(X, (rows_per_tile, num_features)), proj=proj
@@ -98,7 +100,7 @@ class Tree(PickleCunumericMixin):
 
         # outputs
         # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
-        max_nodes = 2 ** (max_depth + 1)
+        max_nodes = 2 ** (self.max_depth + 1)
         leaf_value = user_context.create_store(types.float64, (max_nodes, num_outputs))
         feature = user_context.create_store(types.int32, (max_nodes, 1))
         split_value = user_context.create_store(types.float64, (max_nodes, 1))
@@ -130,6 +132,8 @@ class Tree(PickleCunumericMixin):
         self.gain = cn.array(gain, copy=False).squeeze()
         self.hessian = cn.array(hessian, copy=False)
 
+        return self
+
     def clear(self) -> None:
         self.leaf_value.fill(0)
         self.hessian.fill(0)
@@ -139,7 +143,7 @@ class Tree(PickleCunumericMixin):
         X: cn.ndarray,
         g: cn.ndarray,
         h: cn.ndarray,
-    ) -> None:
+    ) -> "Tree":
         num_features = X.shape[1]
         num_outputs = g.shape[1]
         n_rows = X.shape[0]
@@ -186,6 +190,7 @@ class Tree(PickleCunumericMixin):
         task.execute()
         self.leaf_value = cn.array(leaf_value, copy=False)
         self.hessian = cn.array(hessian, copy=False)
+        return self
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         n_rows = X.shape[0]

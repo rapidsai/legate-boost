@@ -32,7 +32,6 @@ def test_regressor(num_outputs, objective):
     model = lb.LBRegressor(
         n_estimators=20,
         objective=objective,
-        max_depth=3,
         random_state=2,
         learning_rate=0.1,
     ).fit(X, y, eval_result=eval_result)
@@ -42,7 +41,7 @@ def test_regressor(num_outputs, objective):
     assert utils.non_increasing(loss)
 
     # test print
-    model.dump_trees()
+    model.dump_models()
     utils.sanity_check_tree_stats(model.models_)
 
 
@@ -56,7 +55,6 @@ def test_update():
     eval_result = {}
     model = lb.LBRegressor(
         n_estimators=20,
-        max_depth=3,
         random_state=2,
         learning_rate=0.1,
     )
@@ -89,7 +87,10 @@ def test_regressor_improving_with_depth(num_outputs, objective):
     for max_depth in range(0, 10):
         eval_result = {}
         lb.LBRegressor(
-            n_estimators=2, random_state=0, max_depth=max_depth, objective=objective
+            n_estimators=2,
+            random_state=0,
+            base_models=[lb.models.Tree(max_depth=max_depth)],
+            objective=objective,
         ).fit(X, y, eval_result=eval_result)
         loss = next(iter(eval_result["train"].values()))
         metrics.append(loss[-1])
@@ -108,9 +109,12 @@ def test_regressor_weights(num_outputs):
     y = cn.random.random((X.shape[0], num_outputs))
     w = cn.random.random(X.shape[0])
     eval_result = {}
-    lb.LBRegressor(n_estimators=5, random_state=0, max_depth=10, learning_rate=1.0).fit(
-        X, y, sample_weight=w, eval_result=eval_result
-    )
+    lb.LBRegressor(
+        n_estimators=5,
+        random_state=0,
+        base_models=[lb.models.Tree(max_depth=10)],
+        learning_rate=1.0,
+    ).fit(X, y, sample_weight=w, eval_result=eval_result)
     loss = next(iter(eval_result["train"].values()))
     assert loss[-1] < 1e-5
 
@@ -123,7 +127,11 @@ def test_regressor_determinism(num_outputs, objective):
     X = cn.random.random((10000, 10))
     y = cn.random.random((X.shape[0], num_outputs))
     preds = []
-    params = {"max_depth": 12, "random_state": 84, "objective": objective}
+    params = {
+        "base_models": [lb.models.Tree(max_depth=12)],
+        "random_state": 84,
+        "objective": objective,
+    }
     preds = []
     models = []
     for _ in range(0, 10):
@@ -154,7 +162,7 @@ def test_regressor_vs_sklearn():
             n_estimators=1,
             random_state=i,
             learning_rate=1.0,
-            max_depth=max_depth,
+            base_models=[lb.models.Tree(max_depth=12)],
             init=None,
         ).fit(X, y)
         skl_model = ExtraTreesRegressor(
@@ -212,7 +220,10 @@ def test_classifier_weights(num_class, objective):
     w = cn.random.random(X.shape[0])
     eval_result = {}
     lb.LBClassifier(
-        n_estimators=10, learning_rate=1.0, max_depth=10, objective=objective
+        n_estimators=10,
+        learning_rate=1.0,
+        base_models=(lb.models.Tree(max_depth=10),),
+        objective=objective,
     ).fit(X, y, w, eval_result=eval_result)
     loss = next(iter(eval_result["train"].values()))
     assert np.isclose(loss[-1], 0.0, atol=1e-3)
@@ -228,7 +239,10 @@ def test_classifier_improving_with_depth(num_class, objective):
     for max_depth in range(0, 5):
         eval_result = {}
         lb.LBClassifier(
-            n_estimators=2, random_state=0, max_depth=max_depth, objective=objective
+            n_estimators=2,
+            random_state=0,
+            base_models=(lb.models.Tree(max_depth=10),),
+            objective=objective,
         ).fit(X, y, eval_result=eval_result)
         loss = next(iter(eval_result["train"].values()))
         metrics.append(loss[-1])
@@ -241,7 +255,11 @@ def test_classifier_determinism(num_class, objective):
     np.random.seed(3)
     X = cn.random.random((10000, 20))
     y = cn.random.randint(0, num_class, X.shape[0])
-    params = {"max_depth": 12, "random_state": 84, "objective": objective}
+    params = {
+        "base_models": (lb.models.Tree(max_depth=12),),
+        "random_state": 84,
+        "objective": objective,
+    }
     preds = []
     models = []
     for _ in range(0, 10):
@@ -262,7 +280,7 @@ def test_normal():
     model = lb.LBRegressor(
         n_estimators=50,
         objective="normal",
-        max_depth=0,
+        base_models=(lb.models.Tree(max_depth=0),),
         random_state=2,
         learning_rate=0.3,
         init=None,
@@ -279,7 +297,7 @@ def test_normal():
     model = lb.LBRegressor(
         n_estimators=100,
         objective="normal",
-        max_depth=0,
+        base_models=(lb.models.Tree(max_depth=0),),
         random_state=2,
         learning_rate=0.5,
         init=None,
