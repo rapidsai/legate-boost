@@ -220,7 +220,7 @@ class Tree(BaseModel):
         )
 
         task.execute()
-        return cn.array(pred, copy=False)
+        return cn.array(pred)
 
     def is_leaf(self, id: int) -> Any:
         return self.feature[id] == -1

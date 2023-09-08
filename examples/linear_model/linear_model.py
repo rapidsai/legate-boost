@@ -15,7 +15,7 @@ X = cn.linspace(0, 10, 200)[:, cn.newaxis]
 y_true = X[:, 0].copy()
 y_true[X.shape[0] // 2 :] += 3.0
 y = y_true + rs.normal(0, 0.25, X.shape[0])
-params = {"n_estimators": 20, "learning_rate": 0.5, "verbose": True, "random_state": 20}
+params = {"n_estimators": 10, "learning_rate": 0.5, "verbose": True, "random_state": 20}
 eval_result = {}
 linear_model = lb.LBRegressor(base_models=(lb.models.Linear(),), **params).fit(
     X, y, eval_set=[(X, y_true)], eval_result=eval_result
@@ -26,8 +26,7 @@ tree_model = lb.LBRegressor(base_models=(lb.models.Tree(max_depth=1),), **params
 )
 tree_test_error = cn.sqrt(eval_result["eval-0"]["mse"])
 model = lb.LBRegressor(
-    base_models=(lb.models.Linear(),) * 5 + (lb.models.Tree(max_depth=1),) * 15,
-    **params
+    base_models=(lb.models.Linear(),) + (lb.models.Tree(max_depth=1),), **params
 ).fit(X, y, eval_set=[(X, y_true)], eval_result=eval_result)
 mixed_test_error = cn.sqrt(eval_result["eval-0"]["mse"])
 
