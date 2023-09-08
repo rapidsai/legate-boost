@@ -55,7 +55,7 @@ Legateboost supports tree models, linear models, kernel ridge regression models,
 The following example shows a model combining linear and decision tree base learners.
 
 ```python
-model = lb.LBRegressor(base_models=(lb.models.Linear(),)*5 + (lb.models.Tree(max_depth=1),)*15, **params).fit(X, y)
+model = lb.LBRegressor(base_models=(lb.models.Linear(), lb.models.Tree(max_depth=1),), **params).fit(X, y)
 ```
 
 <img src="examples/linear_model/linear_model.png" alt="drawing" width="800"/>
