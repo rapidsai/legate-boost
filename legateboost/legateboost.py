@@ -102,6 +102,11 @@ class TreeStructure(_PickleCunumericMixin):
         task.add_input(_get_store(h))
         task.add_input(_get_store(split_proposals))
 
+        Xp = task._get_unique_partition(_get_store(X))
+        gp = task._get_unique_partition(_get_store(g))
+        hp = task._get_unique_partition(_get_store(h))
+        task.add_constraint(Xp == gp == hp)
+
         # outputs
         # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
         max_nodes = 2 ** (max_depth + 1)
