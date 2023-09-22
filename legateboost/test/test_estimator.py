@@ -1,10 +1,11 @@
 import numpy as np
 import pytest
-import utils
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cunumeric as cn
 import legateboost as lb
+
+from . import utils
 
 
 def test_init():
