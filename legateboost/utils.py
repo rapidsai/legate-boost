@@ -25,6 +25,46 @@ class PickleCunumericMixin:
         self.__dict__.update(state)
 
 
+def pick_col_by_idx(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
+    """Alternative implementation for a[cn.arange(b.size), b]"""
+
+    assert a.ndim == 2
+    assert b.ndim == 1
+    assert a.shape[0] == b.shape[0]
+
+    range = cn.arange(a.shape[1])
+    bools = b[:, cn.newaxis] == range[cn.newaxis, :]
+    result = a * bools
+    return result.sum(axis=1)
+
+
+def set_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
+    """Alternative implementation for a[cn.arange(b.size), b] = delta"""
+
+    assert a.ndim == 2
+    assert b.ndim == 1
+    assert a.shape[0] == b.shape[0]
+
+    range = cn.arange(a.shape[1])
+    bools = b[:, cn.newaxis] == range[cn.newaxis, :]
+    a -= a * bools
+    a += delta * bools
+    return
+
+
+def mod_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
+    """Alternative implementation for a[cn.arange(b.size), b] += delta."""
+
+    assert a.ndim == 2
+    assert b.ndim == 1
+    assert a.shape[0] == b.shape[0]
+
+    range = cn.arange(a.shape[1])
+    bools = b[:, cn.newaxis] == range[cn.newaxis, :]
+    a += delta * bools
+    return
+
+
 def preround(x: cn.ndarray) -> cn.ndarray:
     """Apply this function to grad/hess ensure reproducible floating point
     summation.

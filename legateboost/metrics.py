@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 
 import cunumeric as cn
 
+from .utils import pick_col_by_idx, set_col_by_idx
+
 
 class BaseMetric(ABC):
     """The base class for metrics.
@@ -169,7 +171,10 @@ class LogLossMetric(BaseMetric):
         # multi-class case
         assert pred.ndim == 2
         label = y.astype(cn.int32)
-        logloss = -cn.log(pred[cn.arange(label.size), label])
+
+        logloss = -cn.log(pick_col_by_idx(pred, label))
+        # logloss = -cn.log(pred[cn.arange(label.size), label])
+
         return float((logloss * w).sum() / w_sum)
 
     def name(self) -> str:
@@ -201,7 +206,9 @@ class ExponentialMetric(BaseMetric):
         K = pred.shape[1]  # number of classes
         f = cn.log(pred) * (K - 1)  # undo softmax
         y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
-        y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
+
+        set_col_by_idx(y_k, y.astype(cn.int32), 1.0)
+        # y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
 
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
         return float((exp * w).sum() / w.sum())
