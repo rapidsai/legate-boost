@@ -4,6 +4,9 @@ from .base_model import BaseModel
 
 
 class Linear(BaseModel):
+    def __init__(self, alpha: float = 0.0) -> None:
+        self.alpha = alpha
+
     def fit(
         self,
         X: cn.ndarray,
@@ -16,10 +19,14 @@ class Linear(BaseModel):
         self.betas_ = cn.zeros((X.shape[1], num_outputs))
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k])
-            Xw = cn.concatenate((cn.ones((X.shape[0], 1)), X), axis=1)
+            Xw = cn.ones((X.shape[0], X.shape[1] + 1))
+            Xw[:, 1:] = X
             Xw = Xw * W[:, cn.newaxis]
+            diag = cn.eye(Xw.shape[1]) * self.alpha
+            diag[0, 0] = 0
+            XtX = cn.dot(Xw.T, Xw) + diag
             yw = W * (-g[:, k] / h[:, k])
-            result = cn.linalg.lstsq(Xw, yw)[0]
+            result = cn.linalg.solve(XtX, cn.dot(Xw.T, yw))
             self.bias_[k] = result[0]
             self.betas_[:, k] = result[1:]
         return self

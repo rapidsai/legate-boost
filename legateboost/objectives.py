@@ -281,13 +281,13 @@ class LogLossObjective(BaseObjective):
             g, h = self.gradient(
                 y,
                 self.transform(
-                    cn.zeros((y.shape[0], num_class if num_class > 1 else 1))
+                    cn.zeros((y.shape[0], num_class if num_class > 2 else 1))
                 ),
             )
             g = g * w[:, None]
             h = h * w[:, None]
             return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
-        return cn.zeros(num_class) if num_class > 1 else cn.zeros(1)
+        return cn.zeros(num_class) if num_class > 2 else cn.zeros(1)
 
 
 class ExponentialObjective(BaseObjective):
@@ -353,13 +353,13 @@ class ExponentialObjective(BaseObjective):
             g, h = self.gradient(
                 y,
                 self.transform(
-                    cn.zeros((y.shape[0], num_class if num_class > 1 else 1))
+                    cn.zeros((y.shape[0], num_class if num_class > 2 else 1))
                 ),
             )
             g = g * w[:, None]
             h = h * w[:, None]
             return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
-        return cn.zeros(num_class) if num_class > 1 else cn.zeros(1)
+        return cn.zeros(num_class) if num_class > 2 else cn.zeros(1)
 
 
 objectives = {
