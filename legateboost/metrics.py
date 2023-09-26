@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 
 import cunumeric as cn
-import legate.core.types as types
 
 from .library import user_context
 from .utils import LegateBoostOpCode, get_store
