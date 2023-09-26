@@ -180,7 +180,7 @@ def test_erf() -> None:
 
     rng = cn.random.default_rng(0)
     for t in [cn.float32, cn.float64]:
-        for s in [(100, ), (100, 10), (100, 10, 10)]:
+        for s in [(100,), (100, 10), (100, 10, 10)]:
             x = rng.normal(size=s)
             y0 = erf(x)
             y1 = scipy_erf(x)

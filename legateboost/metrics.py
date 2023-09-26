@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
-from .utils import LegateBoostOpCode, get_store
-from .library import user_context
-import legate.core.types as types
+
 import cunumeric as cn
+import legate.core.types as types
+
+from .library import user_context
+from .utils import LegateBoostOpCode, get_store
 
 
 class BaseMetric(ABC):
@@ -142,7 +144,7 @@ def norm_pdf(x: cn.ndarray) -> cn.ndarray:
 
 class NormalCRPSMetric(BaseMetric):
     """Continuous Ranked Probability Score for normal distribution. Can be used with
-    `NormalObjective`.
+    :py:class:`~legateboost.objectives.NormalObjective`.
 
     References
     ----------
@@ -158,11 +160,7 @@ class NormalCRPSMetric(BaseMetric):
         scale = cn.sqrt(pred[:, :, 1])
         z = (y - loc) / scale
         # This is negating the definition in [1] to make it a loss.
-        v = scale * (
-            z * (2 * norm_cdf(z) - 1)
-            + 2 * norm_pdf(z)
-            - 1 / cn.sqrt(cn.pi)
-        )
+        v = scale * (z * (2 * norm_cdf(z) - 1) + 2 * norm_pdf(z) - 1 / cn.sqrt(cn.pi))
 
         v = cn.average(v, weights=w[:, cn.newaxis])
         return float(v)
