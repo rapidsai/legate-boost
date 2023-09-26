@@ -132,12 +132,12 @@ def erf(x: cn.ndarray) -> cn.ndarray:
 
 def norm_cdf(x: cn.ndarray) -> cn.ndarray:
     """CDF function for standard normal distribution."""
-    return 0.5 * (1.0 + erf(x / cn.sqrt(2)))
+    return 0.5 * (1.0 + erf(x / cn.sqrt(2.0)))
 
 
 def norm_pdf(x: cn.ndarray) -> cn.ndarray:
     """PDF function for standard normal distribution."""
-    return cn.exp(-0.5 * (x) ** 2) / (cn.sqrt(2 * cn.pi))
+    return cn.exp(-0.5 * (x) ** 2) / (cn.sqrt(2.0 * cn.pi))
 
 
 class NormalCRPSMetric(BaseMetric):
@@ -151,12 +151,13 @@ class NormalCRPSMetric(BaseMetric):
 
     """
 
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
         y, pred = check_normal(y, pred)
         loc = pred[:, :, 0]
         # `NormalObjective` outputs variance instead of scale.
         scale = cn.sqrt(pred[:, :, 1])
         z = (y - loc) / scale
+        # This is negating the definition in [1] to make it a loss.
         v = scale * (
             z * (2 * norm_cdf(z) - 1)
             + 2 * norm_pdf(z)
