@@ -17,6 +17,7 @@
 #pragma once
 #include "legate_library.h"
 #include <core/type/type_info.h>
+#include <core/utilities/dispatch.h>
 
 namespace legateboost {
 
@@ -69,6 +70,73 @@ constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f,
   return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
 }
 
-void SumAllReduce(legate::TaskContext& context, double* x, int count);
+template <typename Fn>
+constexpr decltype(auto) dispatch_dtype(legate::Type::Code code, Fn&& f)
+{
+  switch (code) {
+    case legate::Type::Code::FLOAT16: {
+#if LEGATEBOOST_USE_CUDA
+      return f(float2{});
+#else
+      throw legate::TaskException{"half type is not supported."};
+#endif
+    }
+    case legate::Type::Code::FLOAT32: {
+      return f(float{});
+    }
+    case legate::Type::Code::FLOAT64: {
+      return f(double{});
+    }
+    case legate::Type::Code::INT8: {
+      return f(std::int8_t{});
+    }
+    case legate::Type::Code::INT16: {
+      return f(std::int16_t{});
+    }
+    case legate::Type::Code::INT32: {
+      return f(std::int32_t{});
+    }
+    case legate::Type::Code::INT64: {
+      return f(std::int64_t{});
+    }
+    case legate::Type::Code::UINT8: {
+      return f(std::uint8_t{});
+    }
+    case legate::Type::Code::UINT16: {
+      return f(std::uint16_t{});
+    }
+    case legate::Type::Code::UINT32: {
+      return f(std::uint32_t{});
+    }
+    case legate::Type::Code::UINT64: {
+      return f(std::uint64_t{});
+    }
+    default: logger.error("Invalid dtype."); break;
+  }
+  return f(float{});
+}
 
+template <typename Fn>
+constexpr decltype(auto) dispatch_dtype_float(legate::Type::Code code, Fn&& f)
+{
+  switch (code) {
+    case legate::Type::Code::FLOAT16: {
+#if LEGATEBOOST_USE_CUDA
+      return f(float2{});
+#else
+      throw legate::TaskException{"half type is not supported."};
+#endif
+    }
+    case legate::Type::Code::FLOAT32: {
+      return f(float{});
+    }
+    case legate::Type::Code::FLOAT64: {
+      return f(double{});
+    }
+    default: logger.error("Invalid dtype."); break;
+  }
+  return f(float{});
+}
+
+void SumAllReduce(legate::TaskContext& context, double* x, int count);
 }  // namespace legateboost

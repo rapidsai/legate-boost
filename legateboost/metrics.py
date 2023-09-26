@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
-
+from typing import Tuple
+from .utils import LegateBoostOpCode, get_store
+from .library import user_context
+import legate.core.types as types
 import cunumeric as cn
 
 
@@ -65,6 +68,16 @@ class MSEMetric(BaseMetric):
         return "mse"
 
 
+def check_normal(y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
+    """Checks for normal distribution inputs."""
+    if y.size * 2 != pred.size:
+        raise ValueError("Expected pred to contain mean and sd for each y_i")
+    if y.ndim == 1:
+        y = y.reshape((y.size, 1))
+    pred = pred.reshape((y.shape[0], y.shape[1], 2))
+    return y, pred
+
+
 class NormalLLMetric(BaseMetric):
     """The mean negative log likelihood of the labels, given mean and variance
     parameters.
@@ -78,12 +91,7 @@ class NormalLLMetric(BaseMetric):
     """  # noqa: E501
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        assert (
-            y.size * 2 == pred.size
-        ), "Expected pred to contain mean and sd for each y_i"
-        if y.ndim == 1:
-            y = y.reshape((y.size, 1))
-        pred = pred.reshape((y.shape[0], y.shape[1], 2))
+        y, pred = check_normal(y, pred)
         w_sum = w.sum()
         if w_sum == 0:
             return 0
@@ -99,6 +107,65 @@ class NormalLLMetric(BaseMetric):
 
     def name(self) -> str:
         return "normal_neg_ll"
+
+
+def erf(x: cn.ndarray) -> cn.ndarray:
+    """Element-wise error function.
+
+    Args:
+        x: Input array.
+
+    Returns:
+        The error function applied element-wise to the input array.
+    """
+    xs = get_store(x)
+    output = user_context.create_store(dtype=xs.type, shape=x.shape)
+    task = user_context.create_auto_task(LegateBoostOpCode.ERF)
+    task.add_input(xs)
+    task.add_output(output)
+    task.add_alignment(xs, output)
+    task.execute()
+    return cn.array(output)
+
+
+def norm_cdf(x: cn.ndarray) -> cn.ndarray:
+    """CDF function for standard normal distribution."""
+    return 0.5 * (1.0 + erf(x / cn.sqrt(2)))
+
+
+def norm_pdf(x: cn.ndarray) -> cn.ndarray:
+    """PDF function for standard normal distribution."""
+    return cn.exp(-0.5 * (x) ** 2) / (cn.sqrt(2 * cn.pi))
+
+
+class NormalCRPSMetric(BaseMetric):
+    """Continuous Ranked Probability Score for normal distribution. Can be used with
+    `NormalObjective`.
+
+    References
+    ----------
+    [1] Tilmann Gneiting, Adrian E. Raftery (2007)
+        `Strictly Proper Scoring Rules, Prediction, and Estimation`
+
+    """
+
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
+        y, pred = check_normal(y, pred)
+        loc = pred[:, :, 0]
+        # `NormalObjective` outputs variance instead of scale.
+        scale = cn.sqrt(pred[:, :, 1])
+        z = (y - loc) / scale
+        v = scale * (
+            z * (2 * norm_cdf(z) - 1)
+            + 2 * norm_pdf(z)
+            - 1 / cn.sqrt(cn.pi)
+        )
+
+        v = cn.average(v, weights=w[:, cn.newaxis])
+        return float(v)
+
+    def name(self) -> str:
+        return "normal_crps"
 
 
 class QuantileMetric(BaseMetric):
@@ -215,4 +282,5 @@ metrics = {
     "mse": MSEMetric,
     "exp": ExponentialMetric,
     "normal_neg_ll": NormalLLMetric,
+    "normal_crps": NormalCRPSMetric,
 }

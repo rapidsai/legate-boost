@@ -3,6 +3,7 @@ from sklearn.metrics import log_loss, mean_pinball_loss, mean_squared_error
 
 import cunumeric as cn
 import legateboost as lb
+from legateboost.metrics import erf
 
 
 def test_multiple_metrics():
@@ -172,6 +173,33 @@ def test_normal_neg_ll():
     )
     ref_metric = cn.mean([neg_ll(y, pred), neg_ll(y_1, pred_1)])
     assert cn.allclose(our_metric, ref_metric)
+
+
+def test_erf() -> None:
+    from scipy.special import erf as scipy_erf
+
+    rng = cn.random.default_rng(0)
+    for t in [cn.float32, cn.float64]:
+        for s in [(100, ), (100, 10), (100, 10, 10)]:
+            x = rng.normal(size=s)
+            y0 = erf(x)
+            y1 = scipy_erf(x)
+            assert y0.shape == x.shape
+            assert cn.allclose(y0, y1)
+
+
+def test_normal_crps() -> None:
+    """Tests for the `NormalCRPSMetric`."""
+    cprs = lb.NormalCRPSMetric()
+    y = cn.array([1.0, 0.0, 1.0]).T
+    p = cn.array([[1.0, 1.0], [0.0, 1.0], [1.0, 1.0]])
+    score = cprs.metric(y, p, cn.ones(y.shape))
+    assert np.isclose(score, 0.233695)
+
+    y = cn.array([12.0, 13.0, 14.0]).T
+    p = cn.array([[4.0, 8.0], [5.0, 9.0], [6.0, 10.0]])
+    score = cprs.metric(y, p, cn.ones(y.shape))
+    assert np.isclose(score, 6.316697)
 
 
 def test_quantile_metric():

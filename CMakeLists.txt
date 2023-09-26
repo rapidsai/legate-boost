@@ -10,9 +10,9 @@ if (NOT legateboost_ROOT)
   set(legateboost_ROOT ${CMAKE_SOURCE_DIR}/build)
 endif()
 
-if (NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 17)
-endif()
+# if (NOT CMAKE_CXX_STANDARD)
+#   set(CMAKE_CXX_STANDARD 17)
+# endif()
 
 set(BUILD_SHARED_LIBS ON)
 
@@ -26,6 +26,11 @@ legate_add_cpp_subdirectory(src TARGET legateboost EXPORT legateboost-export)
 legate_add_cffi(${CMAKE_SOURCE_DIR}/src/legateboost.h TARGET legateboost)
 legate_python_library_template(legateboost)
 legate_default_python_install(legateboost EXPORT legateboost-export)
+set_target_properties(legateboost
+  PROPERTIES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED ON
+  POSITION_INDEPENDENT_CODE ON)
 
 if (SANITIZE)
   message(STATUS "Adding sanitizer flags")

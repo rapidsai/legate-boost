@@ -2,6 +2,7 @@ from .legateboost import LBRegressor, LBClassifier
 from .metrics import (
     MSEMetric,
     NormalLLMetric,
+    NormalCRPSMetric,
     QuantileMetric,
     LogLossMetric,
     ExponentialMetric,

@@ -27,6 +27,8 @@ set(legateboost_srcs
   build_tree.cc
   update_tree.cc
   predict.cc
+  metrics.cc
+  metrics.cu
   utils.h
   utils.cc
 )
@@ -59,7 +61,7 @@ if (Legion_USE_CUDA)
     set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES $ENV{CUDA_ARCH} )
   else()
     message(STATUS "legateboost: CUDA_ARCH not set - defaults to 70 (volta)")
-    set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES 70 )
+    set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES 61)
   endif()
 
   target_compile_definitions(legateboost PRIVATE LEGATEBOOST_USE_CUDA)
