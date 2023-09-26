@@ -7,7 +7,6 @@ import seaborn as sns
 from matplotlib import animation
 from scipy.stats import norm
 from sklearn.datasets import fetch_california_housing
-from legateboost.metrics import NormalCRPSMetric
 
 import legateboost as lb
 
@@ -35,7 +34,6 @@ def fit_normal_distribution():
         learning_rate=0.1,
         random_state=rs,
         objective="normal",
-        metric=NormalCRPSMetric(),
     )
     return model, [model.partial_fit(X, y).predict(X_test) for _ in range(n_frames)]
 
