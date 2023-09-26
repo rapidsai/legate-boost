@@ -50,7 +50,7 @@ jobs:
           mamba install -y build scikit-learn;
           # install test dependencies
           mamba install -y hypothesis pytest xgboost notebook seaborn matplotlib;
-          ./install.py --network ucx --cuda --verbose;
+          ./install.py --network ucx --cuda;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v3
