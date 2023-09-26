@@ -55,7 +55,7 @@ inline __host__ __device__ std::int32_t Popc(std::uint64_t v)
 #endif  // compiler
 }
 
-template <class T, std::int32_t N, std::int64_t... Idx>
+template <class T, std::size_t N, std::size_t... Idx>
 constexpr auto ArrToTuple(T (&arr)[N], std::index_sequence<Idx...>)
 {
   return std::make_tuple(arr[Idx]...);
@@ -64,7 +64,7 @@ constexpr auto ArrToTuple(T (&arr)[N], std::index_sequence<Idx...>)
 /**
  * \brief Convert C-styple array to std::tuple.
  */
-template <class T, std::int64_t N>
+template <class T, std::size_t N>
 constexpr auto ArrToTuple(T (&arr)[N])
 {
   return ArrToTuple(arr, std::make_index_sequence<N>{});

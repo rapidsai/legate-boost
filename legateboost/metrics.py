@@ -112,10 +112,12 @@ class NormalLLMetric(BaseMetric):
 def erf(x: cn.ndarray) -> cn.ndarray:
     """Element-wise error function.
 
-    Args:
-        x: Input array.
+    Parameters
+    ----------
+    x :
+        Input array.
 
-    Returns:
+    Returns :
         The error function applied element-wise to the input array.
     """
     xs = get_store(x)

@@ -51,78 +51,13 @@ void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
 }
 #define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
 
-template <typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f, Fnargs&&... args)
-{
-  switch (code) {
-    case legate::Type::Code::FLOAT16: {
-      return f.template operator()<legate::Type::Code::FLOAT16>(std::forward<Fnargs>(args)...);
-    }
-    case legate::Type::Code::FLOAT32: {
-      return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
-    }
-    case legate::Type::Code::FLOAT64: {
-      return f.template operator()<legate::Type::Code::FLOAT64>(std::forward<Fnargs>(args)...);
-    }
-    default: break;
-  }
-  EXPECT(false, "Expected floating point data.");
-  return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
-}
-
-template <typename Fn>
-constexpr decltype(auto) dispatch_dtype(legate::Type::Code code, Fn&& f)
-{
-  switch (code) {
-    case legate::Type::Code::FLOAT16: {
-#if LEGATEBOOST_USE_CUDA
-      return f(float2{});
-#else
-      throw legate::TaskException{"half type is not supported."};
-#endif
-    }
-    case legate::Type::Code::FLOAT32: {
-      return f(float{});
-    }
-    case legate::Type::Code::FLOAT64: {
-      return f(double{});
-    }
-    case legate::Type::Code::INT8: {
-      return f(std::int8_t{});
-    }
-    case legate::Type::Code::INT16: {
-      return f(std::int16_t{});
-    }
-    case legate::Type::Code::INT32: {
-      return f(std::int32_t{});
-    }
-    case legate::Type::Code::INT64: {
-      return f(std::int64_t{});
-    }
-    case legate::Type::Code::UINT8: {
-      return f(std::uint8_t{});
-    }
-    case legate::Type::Code::UINT16: {
-      return f(std::uint16_t{});
-    }
-    case legate::Type::Code::UINT32: {
-      return f(std::uint32_t{});
-    }
-    case legate::Type::Code::UINT64: {
-      return f(std::uint64_t{});
-    }
-    default: logger.error("Invalid dtype."); break;
-  }
-  return f(float{});
-}
-
 template <typename Fn>
 constexpr decltype(auto) dispatch_dtype_float(legate::Type::Code code, Fn&& f)
 {
   switch (code) {
     case legate::Type::Code::FLOAT16: {
 #if LEGATEBOOST_USE_CUDA
-      return f(float2{});
+      return f(__half{});
 #else
       throw legate::TaskException{"half type is not supported."};
 #endif

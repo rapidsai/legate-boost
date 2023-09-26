@@ -77,7 +77,7 @@ class ErfTask : public Task<ErfTask, ERF> {
   {
     dispatch_dtype_float(in.code(), [&](auto t) {
       using T = decltype(t);
-      if constexpr (std::is_same_v<T, float2>) {
+      if constexpr (std::is_same_v<T, __half>) {
         throw legate::TaskException{"half is not supported."};
       } else {
         DispatchDType<Policy, kDim, T>(context, in, policy);

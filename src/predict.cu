@@ -23,11 +23,10 @@
 namespace legateboost {
 
 namespace {
+template <typename T>
 struct predict_fn {
-  template <legate::Type::Code CODE>
   void operator()(legate::TaskContext& context)
   {
-    using T         = legate::legate_type_of<CODE>;
     auto& X         = context.inputs().at(0);
     auto X_shape    = context.inputs().at(0).shape<2>();
     auto X_accessor = context.inputs().at(0).read_accessor<T, 2>();
@@ -79,7 +78,7 @@ struct predict_fn {
 /*static*/ void PredictTask::gpu_variant(legate::TaskContext& context)
 {
   const auto& X = context.inputs().at(0);
-  type_dispatch_float(X.code(), predict_fn(), context);
+  dispatch_dtype_float(X.code(), [&](auto t) { predict_fn<decltype(t)>{}(context); });
 }
 
 }  // namespace legateboost

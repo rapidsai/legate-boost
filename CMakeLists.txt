@@ -10,10 +10,6 @@ if (NOT legateboost_ROOT)
   set(legateboost_ROOT ${CMAKE_SOURCE_DIR}/build)
 endif()
 
-# if (NOT CMAKE_CXX_STANDARD)
-#   set(CMAKE_CXX_STANDARD 17)
-# endif()
-
 set(BUILD_SHARED_LIBS ON)
 
 # Look for an existing C++ editable build
