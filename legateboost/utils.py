@@ -1,12 +1,9 @@
-from enum import IntEnum
 from typing import Any
 
 import numpy as np
 
 import cunumeric as cn
 from legate.core import Store
-
-from .library import user_lib
 
 
 class PickleCunumericMixin:
@@ -62,9 +59,3 @@ def get_store(input: Any) -> Store:
     array = data[field]
     _, store = array.stores()
     return store
-
-
-class LegateBoostOpCode(IntEnum):
-    BUILD_TREE = user_lib.cffi.BUILD_TREE
-    PREDICT = user_lib.cffi.PREDICT
-    UPDATE_TREE = user_lib.cffi.UPDATE_TREE

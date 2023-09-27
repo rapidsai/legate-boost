@@ -1,4 +1,5 @@
 import math
+from enum import IntEnum
 from typing import Any, Tuple
 
 import numpy as np
@@ -6,8 +7,14 @@ import numpy as np
 import cunumeric as cn
 from legate.core import Future, Rect, get_legate_runtime, types
 
-from ..library import user_context
-from ..utils import LegateBoostOpCode, PickleCunumericMixin, get_store
+from ..library import user_context, user_lib
+from ..utils import PickleCunumericMixin, get_store
+
+
+class LegateBoostOpCode(IntEnum):
+    BUILD_TREE = user_lib.cffi.BUILD_TREE
+    PREDICT = user_lib.cffi.PREDICT
+    UPDATE_TREE = user_lib.cffi.UPDATE_TREE
 
 
 # handle the case of 1 input row, where the store can be a future

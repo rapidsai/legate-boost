@@ -3,9 +3,6 @@ from typing import Tuple
 
 import cunumeric as cn
 
-from .library import user_context
-from .utils import LegateBoostOpCode, get_store
-
 
 class BaseMetric(ABC):
     """The base class for metrics.
