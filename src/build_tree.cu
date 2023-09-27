@@ -616,10 +616,12 @@ void ReduceBaseSums(legate::Buffer<double> base_sums,
     g, h, num_rows, shape.lo[0], base_sums, num_outputs);
   CHECK_CUDA_STREAM(stream);
 }
-template <typename T>
+
 struct build_tree_fn {
+  template <legate::Type::Code CODE>
   void operator()(legate::TaskContext& context)
   {
+    using T           = legate::legate_type_of<CODE>;
     const auto& X     = context.inputs().at(0);
     auto X_shape      = X.shape<2>();
     auto X_accessor   = X.read_accessor<T, 2>();
@@ -705,7 +707,7 @@ struct build_tree_fn {
 /*static*/ void BuildTreeTask::gpu_variant(legate::TaskContext& context)
 {
   const auto& X = context.inputs().at(0);
-  dispatch_dtype_float(X.code(), [&](auto t) { build_tree_fn<decltype(t)>{}(context); });
+  type_dispatch_float(X.code(), build_tree_fn(), context);
 }
 
 }  // namespace legateboost

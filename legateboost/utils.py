@@ -68,4 +68,3 @@ class LegateBoostOpCode(IntEnum):
     BUILD_TREE = user_lib.cffi.BUILD_TREE
     PREDICT = user_lib.cffi.PREDICT
     UPDATE_TREE = user_lib.cffi.UPDATE_TREE
-    ERF = user_lib.cffi.ERF

@@ -27,8 +27,6 @@ set(legateboost_srcs
   build_tree.cc
   update_tree.cc
   predict.cc
-  metrics.cc
-  metrics.cu
   utils.h
   utils.cc
 )

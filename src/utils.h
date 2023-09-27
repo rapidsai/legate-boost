@@ -17,7 +17,6 @@
 #pragma once
 #include "legate_library.h"
 #include <core/type/type_info.h>
-#include <core/utilities/dispatch.h>
 
 namespace legateboost {
 
@@ -51,27 +50,25 @@ void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
 }
 #define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
 
-template <typename Fn>
-constexpr decltype(auto) dispatch_dtype_float(legate::Type::Code code, Fn&& f)
+template <typename Functor, typename... Fnargs>
+constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f, Fnargs&&... args)
 {
   switch (code) {
     case legate::Type::Code::FLOAT16: {
-#if LEGATEBOOST_USE_CUDA
-      return f(__half{});
-#else
-      throw legate::TaskException{"half type is not supported."};
-#endif
+      return f.template operator()<legate::Type::Code::FLOAT16>(std::forward<Fnargs>(args)...);
     }
     case legate::Type::Code::FLOAT32: {
-      return f(float{});
+      return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
     }
     case legate::Type::Code::FLOAT64: {
-      return f(double{});
+      return f.template operator()<legate::Type::Code::FLOAT64>(std::forward<Fnargs>(args)...);
     }
-    default: logger.error("Invalid dtype."); break;
+    default: break;
   }
-  return f(float{});
+  EXPECT(false, "Expected floating point data.");
+  return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
 }
 
 void SumAllReduce(legate::TaskContext& context, double* x, int count);
+
 }  // namespace legateboost
