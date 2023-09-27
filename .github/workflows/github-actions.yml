@@ -98,15 +98,13 @@ jobs:
           path: /opt/conda/envs/legate
           key: conda--${{
             steps.get-date.outputs.today }}
-      - name: Checkout
-        uses: actions/checkout@v3
       - uses: actions/download-artifact@v3
         with:
           name: legateboost-wheel
       - name: Install legateboost artifact
         run: |
           mamba activate legate
-          pip install $(find -name legateboost*.whl)[test]
+          pip install $(find -name legateboost*.whl)[test] -t .
       - name: Build legateboost docs
         working-directory: docs
         run: |
