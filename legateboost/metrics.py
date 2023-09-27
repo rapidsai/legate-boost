@@ -121,14 +121,24 @@ def erf(x: cn.ndarray) -> cn.ndarray:
     Returns :
         The error function applied element-wise to the input array.
     """
-    xs = get_store(x)
-    output = user_context.create_store(dtype=xs.type, shape=x.shape)
-    task = user_context.create_auto_task(LegateBoostOpCode.ERF)
-    task.add_input(xs)
-    task.add_output(output)
-    task.add_alignment(xs, output)
-    task.execute()
-    return cn.array(output)
+    # Code from https://www.johndcook.com/blog/python_erf/
+    a1 = 0.254829592
+    a2 = -0.284496736
+    a3 = 1.421413741
+    a4 = -1.453152027
+    a5 = 1.061405429
+    p = 0.3275911
+
+    # Save the sign of x
+    sign = cn.ones(shape=x.shape, dtype=cn.int8)
+    sign[x < 0.0] = -1
+    x = cn.abs(x)
+
+    # A&S formula 7.1.26
+    t = 1.0 / (1.0 + p * x)
+    y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * cn.exp(-x * x)
+
+    return sign * y
 
 
 def norm_cdf(x: cn.ndarray) -> cn.ndarray:
