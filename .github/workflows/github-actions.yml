@@ -104,7 +104,7 @@ jobs:
       - name: Install legateboost artifact
         run: |
           mamba activate legate
-          pip install $(find -name legateboost*.whl)[test] -t .
+          pip install $(find -name legateboost*.whl)[test] -prefix .
       - name: Build legateboost docs
         working-directory: docs
         run: |
