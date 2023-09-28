@@ -2,6 +2,7 @@
 
 GBM implementation on Legate. The primary goals of LegateBoost is to provide a state-of-the-art distributed GBM implementation on Legate, capable of running on CPUs or GPUs at supercomputer scale.
 
+[API Documentation](https://rapidsai.github.io/legateboost)
 
 For developers - see [contributing](contributing.md)
 

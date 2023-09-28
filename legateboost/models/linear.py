@@ -4,6 +4,24 @@ from .base_model import BaseModel
 
 
 class Linear(BaseModel):
+    """Generalised linear model. Boosting linear models is equivalent to
+    fitting a single linear model where each boosting iteration is a newton
+    step. Note that the l2 penalty is applied to the weights of each model, as
+    opposed to the sum of all models. This can lead to different results when
+    compared to fitting a linear model with sklearn.
+
+    Parameters
+    ----------
+    alpha : L2 regularization parameter.
+
+    Attributes
+    ----------
+    bias_ : ndarray of shape (n_outputs,)
+        Intercept term.
+    betas_ : ndarray of shape (n_features, n_outputs)
+        Coefficients of the linear model.
+    """
+
     def __init__(self, alpha: float = 0.0) -> None:
         self.alpha = alpha
 
@@ -13,7 +31,6 @@ class Linear(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "Linear":
-
         num_outputs = g.shape[1]
         self.bias_ = cn.zeros(num_outputs)
         self.betas_ = cn.zeros((X.shape[1], num_outputs))
