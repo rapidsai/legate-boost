@@ -117,18 +117,18 @@ jobs:
           pip install $(find -name legateboost*.whl)[test] --prefix .
           ls
       - name: Run cpu tests
-        working-directory: lib/python3.10/site-packages/legateboost
+        working-directory: lib/python3.10/site-packages
         run: |
           pip install hypothesis
           legate --cpus 16 --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
-        working-directory: lib/python3.10/site-packages/legateboost
+        working-directory: lib/python3.10/site-packages
         run: |
           # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
           OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 legate --launcher mpirun --ranks-per-node 2 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
         if: ${{ false }} # disabled due to issue #5
       - name: Run gpu tests
-        working-directory: lib/python3.10/site-packages/legateboost
+        working-directory: lib/python3.10/site-packages
         run: |
           legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
 
