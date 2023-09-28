@@ -106,7 +106,7 @@ jobs:
           mamba activate legate
           pip install $(find -name legateboost*.whl)[test] --prefix .
       - name: Build legateboost docs
-        working-directory: docs
+        working-directory: legateboost/docs
         run: |
           pip install sphinx pydata-sphinx-theme myst-parser
           # invoke sphinx build using legate
@@ -115,15 +115,18 @@ jobs:
         with:
           path: docs/build
       - name: Run cpu tests
+        working-directory: legateboost
         run: |
           pip install hypothesis
           legate --cpus 16 --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
+        working-directory: legateboost
         run: |
           # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
           OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 legate --launcher mpirun --ranks-per-node 2 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
         if: ${{ false }} # disabled due to issue #5
       - name: Run gpu tests
+        working-directory: legateboost
         run: |
           legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
 
