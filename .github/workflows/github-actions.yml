@@ -79,7 +79,7 @@ jobs:
         run: |
           pip install sphinx pydata-sphinx-theme myst-parser
           # invoke sphinx build using legate
-          legate --module sphinx.cmd.build source build -b html
+          make html
       - uses: actions/upload-pages-artifact@v1
         with:
           path: docs/build
