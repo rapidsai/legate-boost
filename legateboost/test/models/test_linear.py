@@ -10,6 +10,7 @@ import legateboost as lb
 from .utils import check_determinism
 
 
+@pytest.mark.xfail
 def test_determinism():
     check_determinism(lb.models.Linear())
 

@@ -8,7 +8,6 @@ from ..utils import non_increasing
 from .utils import check_determinism
 
 
-@pytest.mark.xfail
 @pytest.mark.parametrize("max_depth", [0, 12])
 def test_determinism(max_depth):
     check_determinism(lb.models.Tree(max_depth=max_depth))
