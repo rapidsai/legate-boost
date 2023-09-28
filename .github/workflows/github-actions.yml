@@ -105,6 +105,7 @@ jobs:
         run: |
           mamba activate legate
           pip install $(find -name legateboost*.whl)[test] --prefix .
+          ls
       - name: Build legateboost docs
         working-directory: lib/python3.10/site-packages/legateboost/docs
         run: |
