@@ -76,3 +76,12 @@ def test_logistic_regression(num_outputs, alpha):
     assert cn.allclose(
         model.predict_proba(X), sklearn_model.predict_proba(X), atol=1e-3
     )
+
+
+def test_singular_matrix():
+    # check that we can solve an underdetermined system
+    rs = cn.random.RandomState(0)
+    X = cn.random.random((2, 10))
+    g = rs.normal(size=(X.shape[0], 1))
+    h = cn.ones(g.shape)
+    lb.models.Linear().set_random_state(np.random.RandomState(2)).fit(X, g, h)

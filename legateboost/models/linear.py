@@ -1,3 +1,5 @@
+import numpy as np
+
 import cunumeric as cn
 
 from .base_model import BaseModel
@@ -25,6 +27,37 @@ class Linear(BaseModel):
     def __init__(self, alpha: float = 0.0) -> None:
         self.alpha = alpha
 
+    def solve_singular(self, a, b):
+        """Solve a singular linear system Ax = b for x.
+        The same as np.linalg.solve, but if A is singular,
+        then we use Algorithm 3.3 from:
+
+        Nocedal, Jorge, and Stephen J. Wright, eds.
+        Numerical optimization. New York, NY: Springer New York, 1999.
+
+        This progressively adds to the diagonal of the matrix until it is non-singular.
+        """
+        # try first without modification
+        try:
+            return cn.linalg.solve(a, b)
+        except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
+            pass
+
+        # if that fails, try adding to the diagonal
+        eps = 1e-3
+        min_diag = a[::].min()
+        if min_diag > 0:
+            tau = eps
+        else:
+            tau = -min_diag + eps
+        while True:
+            try:
+                return cn.linalg.solve(a + cn.eye(a.shape[0]) * tau, b)
+            except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
+                tau = max(tau * 2, eps)
+            if tau > 100.0:
+                raise ValueError("Matrix is singular")
+
     def fit(
         self,
         X: cn.ndarray,
@@ -43,7 +76,7 @@ class Linear(BaseModel):
             diag[0, 0] = 0
             XtX = cn.dot(Xw.T, Xw) + diag
             yw = W * (-g[:, k] / h[:, k])
-            result = cn.linalg.solve(XtX, cn.dot(Xw.T, yw))
+            result = self.solve_singular(XtX, cn.dot(Xw.T, yw))
             self.bias_[k] = result[0]
             self.betas_[:, k] = result[1:]
         return self
