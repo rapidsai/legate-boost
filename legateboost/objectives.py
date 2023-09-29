@@ -166,7 +166,7 @@ class NormalObjective(BaseObjective):
         # internally there is no third dimension
         # reshape this nicely for the user so mean and variance have their own dimension
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
-        pred[:, :, 1] = cn.maximum(pred[:, :, 1], 1e-5)
+        pred[:, :, 1] = cn.maximum(pred[:, :, 1], 1e-3)
         return pred
 
 
