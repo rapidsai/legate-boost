@@ -46,9 +46,9 @@ jobs:
         run: |
           mamba update -y mamba conda
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
-          mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
+          mamba env create -c conda-forge -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
-          mamba install -y build scikit-learn hypothesis pytest xgboost notebook seaborn matplotlib;
+          mamba install -c conda-forge -y build scikit-learn hypothesis pytest xgboost notebook seaborn matplotlib;
           ./install.py --network ucx --cuda;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
