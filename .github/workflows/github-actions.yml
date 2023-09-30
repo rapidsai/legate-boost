@@ -19,7 +19,7 @@ jobs:
     env:
       CONDA_PREFIX: /opt/conda
     container:
-      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
+      image: rapidsai/devcontainers:23.10-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         DEFAULT_CONDA_ENV: legate
     steps:
