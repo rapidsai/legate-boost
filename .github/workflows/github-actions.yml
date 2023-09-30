@@ -115,11 +115,13 @@ jobs:
         run: |
           mamba activate legate
           pip install $(find -name legateboost*.whl)[test] --prefix .
-          ls
+          ls -l lib/python3.10/site-packages/legateboost
       - name: Run cpu tests
         working-directory: lib/python3.10/site-packages
         run: |
-          pip install hypothesis
+          ls
+          ls legateboost
+          ls legateboost/test
           legate --cpus 16 --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
         working-directory: lib/python3.10/site-packages
