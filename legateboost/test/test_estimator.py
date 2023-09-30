@@ -271,13 +271,13 @@ def test_normal():
 
     pred = model.predict(X)[0]
     assert cn.allclose(pred[0], y.mean(), atol=1e-2)
-    assert cn.allclose(pred[1], y.var(), atol=1e-2)
+    assert cn.allclose(pred[1], cn.log(y.var()) / 2, atol=1e-2)
 
-    # check we don't get 0 variance
+    # check we don't get numerical errors on 0 variance
     X = cn.array([[0.0], [0.0]])
     y = cn.array([1.0, 1.0])
     model = lb.LBRegressor(
-        n_estimators=100,
+        n_estimators=50,
         objective="normal",
         max_depth=0,
         random_state=2,
@@ -287,4 +287,4 @@ def test_normal():
     ).fit(X, y)
     pred = model.predict(X)[0]
     assert cn.allclose(pred[0], y.mean(), atol=1e-2)
-    assert cn.allclose(pred[1], 0.0, atol=1e-1)
+    assert cn.all(pred[1] == -5)

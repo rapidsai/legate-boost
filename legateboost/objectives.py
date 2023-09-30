@@ -133,14 +133,15 @@ class NormalObjective(BaseObjective):
         grad = cn.zeros((y.shape[0], y.shape[1], 2))
         hess = cn.ones((y.shape[0], y.shape[1], 2))
         mean = pred[:, :, 0]
-        var = pred[:, :, 1]
-        assert var.ndim == 2
+        log_sigma = pred[:, :, 1]
+        inv_var = cn.exp(-2 * log_sigma)
+        assert log_sigma.ndim == 2
         diff = mean - y
-        grad[:, :, 0] = diff / var
-        hess[:, :, 0] = 1 / var  # fisher information
+        grad[:, :, 0] = diff * inv_var
+        hess[:, :, 0] = inv_var  # fisher information
 
-        grad[:, :, 1] = (var - (diff * diff)) / (2 * var * var)
-        hess[:, :, 1] = 1 / (2 * var * var)  # fisher information
+        grad[:, :, 1] = 1 - inv_var * diff * diff
+        hess[:, :, 1] = 1  # fisher information
         return grad.reshape(grad.shape[0], -1), hess.reshape(hess.shape[0], -1)
 
     def metric(self) -> NormalLLMetric:
@@ -151,7 +152,6 @@ class NormalObjective(BaseObjective):
     ) -> cn.ndarray:
         assert y.ndim == 2
         pred = cn.zeros((y.shape[1], 2))
-        pred[:, 1] = 1.0
         if boost_from_average:
             y = preround(y)
             w = preround(w)
@@ -159,14 +159,15 @@ class NormalObjective(BaseObjective):
             var = (y - mean) * (y - mean) * w[:, None]
             var = cn.sum(preround(var), axis=0) / cn.sum(w)
             pred[:, 0] = mean
-            pred[:, 1] = var
+            pred[:, 1] = cn.log(var) / 2
         return pred.reshape(-1)
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         # internally there is no third dimension
         # reshape this nicely for the user so mean and variance have their own dimension
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
-        pred[:, :, 1] = cn.maximum(pred[:, :, 1], 1e-5)
+        # don't let the variance go to zero
+        pred[:, :, 1] = cn.maximum(pred[:, :, 1], -5)
         return pred
 
 
