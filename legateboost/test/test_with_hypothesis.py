@@ -1,9 +1,10 @@
 import numpy as np
-import utils
 from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 
 import cunumeric as cn
 import legateboost as lb
+
+from .utils import non_increasing, sanity_check_tree_stats
 
 np.set_printoptions(threshold=10, edgeitems=1)
 
@@ -95,8 +96,8 @@ def test_regressor(model_params, regression_params, regression_dataset):
     )
     pred = model.predict(X)
     loss = next(iter(eval_result["train"].values()))
-    assert utils.non_increasing(loss)
-    utils.sanity_check_tree_stats(model.models_)
+    assert non_increasing(loss)
+    sanity_check_tree_stats(model.models_)
 
     # test partial fit
     n_estimators_first = model_params["n_estimators"] // 2
@@ -197,9 +198,9 @@ def test_classifier(model_params, classification_params, classification_dataset)
     loss = next(iter(eval_result["train"].values()))
     # multiclass models with higher learning rates don't always converge
     if len(model.classes_) == 2 or classification_params["learning_rate"] < 0.1:
-        assert utils.non_increasing(loss)
+        assert non_increasing(loss)
 
-    utils.sanity_check_tree_stats(model.models_)
+    sanity_check_tree_stats(model.models_)
 
     # test partial fit
     n_estimators_first = model_params["n_estimators"] // 2
