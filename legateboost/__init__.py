@@ -15,3 +15,8 @@ from .objectives import (
     ExponentialObjective,
     BaseObjective,
 )
+from .utils import (
+    pick_col_by_idx,
+    set_col_by_idx,
+    mod_col_by_idx,
+)
