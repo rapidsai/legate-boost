@@ -74,7 +74,7 @@ def animate(i):
             feature_name: X_test[:, 0],
             "y": y_test,
             "Predicted house value": normal_preds[i][:, 0],
-            "var": normal_preds[i][:, 1],
+            "sigma": np.exp(normal_preds[i][:, 1]),
         }
     ).sort_values(by=feature_name)
     sns.lineplot(
@@ -85,7 +85,7 @@ def animate(i):
         errorbar=("sd", 0),
     )
     interval = norm.interval(
-        0.95, loc=data["Predicted house value"], scale=data["var"] ** 0.5
+        0.95, loc=data["Predicted house value"], scale=data["sigma"]
     )
     ax[0].fill_between(data[feature_name], interval[0], interval[1], alpha=0.2)
     ax[0].set_ylim(-0.5, 5.5)
