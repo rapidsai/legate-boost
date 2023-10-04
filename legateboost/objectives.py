@@ -167,7 +167,7 @@ class NormalObjective(BaseObjective):
         # reshape this nicely for the user so mean and variance have their own dimension
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
         # don't let the variance go to zero
-        pred[:, :, 1] = cn.maximum(pred[:, :, 1], -5)
+        pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
 
 
