@@ -1,10 +1,11 @@
 import numpy as np
 import pytest
-import utils
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cunumeric as cn
 import legateboost as lb
+
+from .utils import non_increasing, sanity_check_tree_stats
 
 
 def test_init():
@@ -39,11 +40,11 @@ def test_regressor(num_outputs, objective):
     loss_recomputed = model._metrics[0].metric(y, model.predict(X), cn.ones(y.shape[0]))
     loss = next(iter(eval_result["train"].values()))
     assert np.isclose(loss[-1], loss_recomputed)
-    assert utils.non_increasing(loss)
+    assert non_increasing(loss)
 
     # test print
     model.dump_trees()
-    utils.sanity_check_tree_stats(model.models_)
+    sanity_check_tree_stats(model.models_)
 
 
 def test_update():
@@ -93,7 +94,7 @@ def test_regressor_improving_with_depth(num_outputs, objective):
         ).fit(X, y, eval_result=eval_result)
         loss = next(iter(eval_result["train"].values()))
         metrics.append(loss[-1])
-    assert utils.non_increasing(metrics)
+    assert non_increasing(metrics)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
@@ -198,9 +199,9 @@ def test_classifier(num_class, objective):
     loss = metric.metric(y, proba, cn.ones(y.shape[0]))
     train_loss = next(iter(eval_result["train"].values()))
     assert np.isclose(train_loss[-1], loss)
-    assert utils.non_increasing(train_loss)
+    assert non_increasing(train_loss)
     assert model.score(X, y) > 0.7
-    utils.sanity_check_tree_stats(model.models_)
+    sanity_check_tree_stats(model.models_)
 
 
 @pytest.mark.parametrize("num_class", [2, 5])
@@ -232,7 +233,7 @@ def test_classifier_improving_with_depth(num_class, objective):
         ).fit(X, y, eval_result=eval_result)
         loss = next(iter(eval_result["train"].values()))
         metrics.append(loss[-1])
-    assert utils.non_increasing(metrics)
+    assert non_increasing(metrics)
 
 
 @pytest.mark.parametrize("num_class", [2, 5])

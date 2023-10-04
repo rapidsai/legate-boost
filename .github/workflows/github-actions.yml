@@ -19,7 +19,7 @@ jobs:
     env:
       CONDA_PREFIX: /opt/conda
     container:
-      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
+      image: rapidsai/devcontainers:23.10-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         DEFAULT_CONDA_ENV: legate
     steps:
@@ -47,13 +47,9 @@ jobs:
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
-          mamba install -y 'gcc<=10.0.0' build scikit-learn;
-          # install test dependencies
-          mamba install -y hypothesis pytest xgboost notebook seaborn matplotlib;
-
-          # workaround issue https://github.com/nv-legate/legate.core/issues/789
-          mkdir -p _skbuild/linux-x86_64-3.10/cmake-build
-          ./install.py --network ucx --cuda --verbose;
+          mamba install -y build scikit-learn hypothesis pytest notebook;
+          pip install matplotlib seaborn xgboost
+          ./install.py --network ucx --cuda;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v3
@@ -73,11 +69,21 @@ jobs:
         uses: actions/checkout@v3
       - name: Build legateboost
         run: |
+          pip install -e .
           python -m build -n --wheel
       - uses: actions/upload-artifact@v3
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
+      - name: Build legateboost docs
+        working-directory: docs
+        run: |
+          pip install sphinx pydata-sphinx-theme myst-parser
+          # invoke sphinx build using legate
+          make html
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs/build
 
 
   test:
@@ -102,40 +108,31 @@ jobs:
           path: /opt/conda/envs/legate
           key: conda--${{
             steps.get-date.outputs.today }}
-      - name: Checkout
-        uses: actions/checkout@v3
       - uses: actions/download-artifact@v3
         with:
           name: legateboost-wheel
       - name: Install legateboost artifact
         run: |
           mamba activate legate
-          pip install $(find -name legateboost*.whl)[test]
-      - name: Build legateboost docs
-        working-directory: docs
-        run: |
-          pip install sphinx pydata-sphinx-theme myst-parser
-          # invoke sphinx build using legate
-          legate --module sphinx.cmd.build source build -b html
-      - uses: actions/upload-pages-artifact@v1
-        with:
-          path: docs/build
+          pip install $(find -name legateboost*.whl)[test] --prefix .
       - name: Run cpu tests
+        working-directory: lib/python3.10/site-packages
         run: |
-          pip install hypothesis
           legate --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
+        working-directory: lib/python3.10/site-packages
         run: |
           # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
           OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 legate --launcher mpirun --ranks-per-node 2 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
         if: ${{ false }} # disabled due to issue #5
       - name: Run gpu tests
+        working-directory: lib/python3.10/site-packages
         run: |
           legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
 
 
   deploy:
-    needs: test
+    needs: build
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 

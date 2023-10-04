@@ -13,7 +13,7 @@ from .metrics import (
     NormalLLMetric,
     QuantileMetric,
 )
-from .utils import preround
+from .utils import mod_col_by_idx, preround, set_col_by_idx
 
 
 class BaseObjective(ABC):
@@ -255,7 +255,8 @@ class LogLossObjective(BaseObjective):
         label = y.astype(cn.int32).squeeze()
         h = pred * (1.0 - pred)
         g = pred.copy()
-        g[cn.arange(y.size), label] -= 1.0
+        mod_col_by_idx(g, label, -1.0)
+        # g[cn.arange(y.size), label] -= 1.0
         return g, cn.maximum(h, eps)
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
@@ -325,7 +326,8 @@ class ExponentialObjective(BaseObjective):
         f = cn.log(pred) * (K - 1)  # undo softmax
         y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
         labels = y.astype(cn.int32).squeeze()
-        y_k[cn.arange(y.size), labels] = 1.0
+        set_col_by_idx(y_k, labels, 1.0)
+        # y_k[cn.arange(y.size), labels] = 1.0
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
 
         return (
