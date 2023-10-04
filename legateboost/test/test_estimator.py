@@ -5,7 +5,7 @@ from sklearn.utils.estimator_checks import parametrize_with_checks
 import cunumeric as cn
 import legateboost as lb
 
-from . import utils
+from .utils import non_increasing, sanity_check_tree_stats
 
 
 def test_init():
@@ -79,9 +79,9 @@ def test_regressor(num_outputs, objective, base_models):
     loss_recomputed = model._metrics[0].metric(y, model.predict(X), cn.ones(y.shape[0]))
     loss = next(iter(eval_result["train"].values()))
     assert np.isclose(loss[-1], loss_recomputed)
-    assert utils.non_increasing(loss)
+    assert non_increasing(loss)
 
-    utils.sanity_check_tree_stats(model)
+    sanity_check_tree_stats(model)
 
 
 @pytest.fixture
@@ -122,10 +122,10 @@ def test_classifier(num_class, objective, base_models):
     loss = metric.metric(y, proba, cn.ones(y.shape[0]))
     train_loss = next(iter(eval_result["train"].values()))
     assert np.isclose(train_loss[-1], loss)
-    assert utils.non_increasing(train_loss)
+    assert non_increasing(train_loss)
     # better than random guessing accuracy
     assert model.score(X, y) > 1 / num_class
-    utils.sanity_check_tree_stats(model)
+    sanity_check_tree_stats(model)
 
 
 def test_normal_distribution():

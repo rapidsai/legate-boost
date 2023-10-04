@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
+from typing import Tuple
 
 import cunumeric as cn
+
+from .utils import pick_col_by_idx, set_col_by_idx
 
 
 class BaseMetric(ABC):
@@ -65,6 +68,16 @@ class MSEMetric(BaseMetric):
         return "mse"
 
 
+def check_normal(y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
+    """Checks for normal distribution inputs."""
+    if y.size * 2 != pred.size:
+        raise ValueError("Expected pred to contain mean and sd for each y_i")
+    if y.ndim == 1:
+        y = y.reshape((y.size, 1))
+    pred = pred.reshape((y.shape[0], y.shape[1], 2))
+    return y, pred
+
+
 class NormalLLMetric(BaseMetric):
     """The mean negative log likelihood of the labels, given mean and variance
     parameters.
@@ -78,12 +91,7 @@ class NormalLLMetric(BaseMetric):
     """  # noqa: E501
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        assert (
-            y.size * 2 == pred.size
-        ), "Expected pred to contain mean and sd for each y_i"
-        if y.ndim == 1:
-            y = y.reshape((y.size, 1))
-        pred = pred.reshape((y.shape[0], y.shape[1], 2))
+        y, pred = check_normal(y, pred)
         w_sum = w.sum()
         if w_sum == 0:
             return 0
@@ -99,6 +107,74 @@ class NormalLLMetric(BaseMetric):
 
     def name(self) -> str:
         return "normal_neg_ll"
+
+
+def erf(x: cn.ndarray) -> cn.ndarray:
+    """Element-wise error function.
+
+    Parameters
+    ----------
+    x :
+        Input array.
+
+    Returns :
+        The error function applied element-wise to the input array.
+    """
+    # Code from https://www.johndcook.com/blog/python_erf/
+    a1 = 0.254829592
+    a2 = -0.284496736
+    a3 = 1.421413741
+    a4 = -1.453152027
+    a5 = 1.061405429
+    p = 0.3275911
+
+    # Save the sign of x
+    sign = cn.ones(shape=x.shape, dtype=cn.int8)
+    sign[x < 0.0] = -1
+    x = cn.abs(x)
+
+    # A&S formula 7.1.26
+    t = 1.0 / (1.0 + p * x)
+    y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * cn.exp(-x * x)
+
+    return sign * y
+
+
+def norm_cdf(x: cn.ndarray) -> cn.ndarray:
+    """CDF function for standard normal distribution."""
+    return 0.5 * (1.0 + erf(x / cn.sqrt(2.0)))
+
+
+def norm_pdf(x: cn.ndarray) -> cn.ndarray:
+    """PDF function for standard normal distribution."""
+    return cn.exp(-0.5 * (x) ** 2) / (cn.sqrt(2.0 * cn.pi))
+
+
+class NormalCRPSMetric(BaseMetric):
+    """Continuous Ranked Probability Score for normal distribution. Can be used with
+    :py:class:`~legateboost.objectives.NormalObjective`.
+
+    References
+    ----------
+    [1] Tilmann Gneiting, Adrian E. Raftery (2007)
+        `Strictly Proper Scoring Rules, Prediction, and Estimation`
+
+    """
+
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        y, pred = check_normal(y, pred)
+        loc = pred[:, :, 0]
+        # `NormalObjective` outputs variance instead of scale.
+        scale = cn.sqrt(pred[:, :, 1])
+        z = (y - loc) / scale
+        # This is negating the definition in [1] to make it a loss.
+        v = scale * (z * (2 * norm_cdf(z) - 1) + 2 * norm_pdf(z) - 1 / cn.sqrt(cn.pi))
+
+        v = cn.average(v, weights=w[:, cn.newaxis])
+        return float(v)
+
+    def name(self) -> str:
+        return "normal_crps"
 
 
 class QuantileMetric(BaseMetric):
@@ -169,7 +245,10 @@ class LogLossMetric(BaseMetric):
         # multi-class case
         assert pred.ndim == 2
         label = y.astype(cn.int32)
-        logloss = -cn.log(pred[cn.arange(label.size), label])
+
+        logloss = -cn.log(pick_col_by_idx(pred, label))
+        # logloss = -cn.log(pred[cn.arange(label.size), label])
+
         return float((logloss * w).sum() / w_sum)
 
     def name(self) -> str:
@@ -201,7 +280,9 @@ class ExponentialMetric(BaseMetric):
         K = pred.shape[1]  # number of classes
         f = cn.log(pred) * (K - 1)  # undo softmax
         y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
-        y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
+
+        set_col_by_idx(y_k, y.astype(cn.int32), 1.0)
+        # y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
 
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
         return float((exp * w).sum() / w.sum())
@@ -215,4 +296,5 @@ metrics = {
     "mse": MSEMetric,
     "exp": ExponentialMetric,
     "normal_neg_ll": NormalLLMetric,
+    "normal_crps": NormalCRPSMetric,
 }

@@ -19,7 +19,7 @@ jobs:
     env:
       CONDA_PREFIX: /opt/conda
     container:
-      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
+      image: rapidsai/devcontainers:23.10-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         DEFAULT_CONDA_ENV: legate
     steps:
@@ -47,8 +47,8 @@ jobs:
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
-          mamba install -y build scikit-learn hypothesis pytest xgboost notebook seaborn matplotlib cmake>=3.21.0;
-          # install test dependencies
+          mamba install -y build scikit-learn hypothesis pytest notebook;
+          pip install matplotlib seaborn xgboost
           ./install.py --network ucx --cuda;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
@@ -115,11 +115,9 @@ jobs:
         run: |
           mamba activate legate
           pip install $(find -name legateboost*.whl)[test] --prefix .
-          ls
       - name: Run cpu tests
         working-directory: lib/python3.10/site-packages
         run: |
-          pip install hypothesis
           legate --cpus 16 --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
         working-directory: lib/python3.10/site-packages
