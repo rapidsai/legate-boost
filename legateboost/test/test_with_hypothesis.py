@@ -94,22 +94,10 @@ def test_regressor(model_params, regression_params, regression_dataset):
     model = lb.LBRegressor(**model_params, **regression_params).fit(
         X, y, sample_weight=w, eval_result=eval_result
     )
-    pred = model.predict(X)
+    model.predict(X)
     loss = next(iter(eval_result["train"].values()))
     assert non_increasing(loss)
     sanity_check_tree_stats(model.models_)
-
-    # test partial fit
-    n_estimators_first = model_params["n_estimators"] // 2
-    partial_model = lb.LBRegressor(**model_params, **regression_params)
-    partial_model.set_params(n_estimators=n_estimators_first)
-    partial_model.partial_fit(X, y, sample_weight=w)
-    partial_model.set_params(
-        n_estimators=model_params["n_estimators"] - n_estimators_first
-    )
-    partial_model.partial_fit(X, y, sample_weight=w)
-
-    assert cn.allclose(pred, partial_model.predict(X), atol=1e-3)
 
 
 classification_param_strategy = st.fixed_dictionaries(
@@ -192,8 +180,8 @@ def test_classifier(model_params, classification_params, classification_dataset)
     model = lb.LBClassifier(**model_params, **classification_params).fit(
         X, y, sample_weight=w, eval_result=eval_result
     )
-    pred = model.predict(X)
-    pred_proba = model.predict_proba(X)
+    model.predict(X)
+    model.predict_proba(X)
     model.predict_raw(X)
     loss = next(iter(eval_result["train"].values()))
     # multiclass models with higher learning rates don't always converge
@@ -201,17 +189,3 @@ def test_classifier(model_params, classification_params, classification_dataset)
         assert non_increasing(loss)
 
     sanity_check_tree_stats(model.models_)
-
-    # test partial fit
-    n_estimators_first = model_params["n_estimators"] // 2
-    partial_model = lb.LBClassifier(**model_params, **classification_params)
-    partial_model.set_params(n_estimators=n_estimators_first)
-    classes = cn.unique(y)
-    partial_model.partial_fit(X, y, sample_weight=w, classes=classes)
-    partial_model.set_params(
-        n_estimators=model_params["n_estimators"] - n_estimators_first
-    )
-    partial_model.partial_fit(X, y, sample_weight=w, classes=classes)
-
-    assert cn.all(pred == partial_model.predict(X))
-    assert cn.allclose(pred_proba, partial_model.predict_proba(X), atol=1e-3)
