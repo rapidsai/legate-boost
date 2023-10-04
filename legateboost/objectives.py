@@ -119,9 +119,9 @@ class NormalObjective(BaseObjective):
 
     The objective minimised is the negative log likelihood of the normal distribution.
 
-    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi p_{i, 1}}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 p_{i, 1}}))`
+    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(p_{i, 1})}))`
 
-    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the variance.
+    Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the log standard deviation.
 
     The variance is clipped to a minimum of 1e-5 to avoid numerical instability.
 
@@ -141,7 +141,7 @@ class NormalObjective(BaseObjective):
         hess[:, :, 0] = inv_var  # fisher information
 
         grad[:, :, 1] = 1 - inv_var * diff * diff
-        hess[:, :, 1] = 1  # fisher information
+        hess[:, :, 1] = 2  # fisher information
         return grad.reshape(grad.shape[0], -1), hess.reshape(hess.shape[0], -1)
 
     def metric(self) -> NormalLLMetric:
