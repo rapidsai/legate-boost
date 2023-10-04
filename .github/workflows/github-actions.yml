@@ -123,7 +123,7 @@ jobs:
       - name: Run cpu tests
         run: |
           pip install hypothesis
-          legate --cpus 16 --sysmem 16000 --module pytest legateboost/test -sv --durations=0
+          legate --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
         run: |
           # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
