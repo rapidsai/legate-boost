@@ -8,7 +8,7 @@ def test_normal():
     obj = lb.NormalObjective()
     y = cn.array([[1.0], [2.0], [3.0]])
     init = obj.initialise_prediction(y, cn.array([1.0, 1.0, 1.0]), True)
-    assert cn.allclose(init, cn.array([y.mean(), y.var()]))
+    assert cn.allclose(init, cn.array([y.mean(), cn.log(y.std())]))
 
 
 def test_log_loss():

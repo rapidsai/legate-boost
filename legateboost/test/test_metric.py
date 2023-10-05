@@ -152,26 +152,33 @@ def test_normal_neg_ll():
     def neg_ll(y, p):
         from scipy.stats import norm
 
-        return float(
-            -norm.logpdf(y.squeeze(), loc=p[:, 0], scale=cn.sqrt(p[:, 1])).mean()
-        )
+        return float(-norm.logpdf(y.squeeze(), loc=p[:, 0], scale=p[:, 1]).mean())
 
     y = cn.array([1.0, 0.0, 1.0]).reshape(-1, 1)
-    pred = cn.array([[0.0, 1.0], [0.0, 2.0], [0.0, 1.0]])
-    assert cn.allclose(metric.metric(y, pred, cn.ones(y.shape)), neg_ll(y, pred))
+    sigma_pred = cn.array([[0.0, 1.0], [0.0, 2.0], [0.0, 1.0]])
+    log_sigma_pred = sigma_pred.copy()
+    log_sigma_pred[:, 1] = cn.log(log_sigma_pred[:, 1])
+    assert cn.allclose(
+        metric.metric(y, log_sigma_pred, cn.ones(y.shape)), neg_ll(y, sigma_pred)
+    )
 
     # multi_output
     y_1 = cn.array([0.0, 1.0, 2.0]).reshape(-1, 1)
-    pred_1 = cn.array([[0.0, 1.0], [0.0, 2.0], [2.0, 0.5]])
+    sigma_pred_1 = cn.array([[0.0, 1.0], [0.0, 2.0], [2.0, 0.5]])
+    log_sigma_pred_1 = sigma_pred_1.copy()
+    log_sigma_pred_1[:, 1] = cn.log(log_sigma_pred_1[:, 1])
 
     our_metric = metric.metric(
         cn.hstack((y, y_1)),
         cn.hstack(
-            (pred.reshape(pred.shape[0], 1, -1), pred_1.reshape(pred_1.shape[0], 1, -1))
+            (
+                log_sigma_pred_1.reshape(log_sigma_pred_1.shape[0], 1, -1),
+                log_sigma_pred_1.reshape(log_sigma_pred_1.shape[0], 1, -1),
+            )
         ),
         cn.ones(y_1.shape),
     )
-    ref_metric = cn.mean([neg_ll(y, pred), neg_ll(y_1, pred_1)])
+    ref_metric = cn.mean([neg_ll(y, sigma_pred_1), neg_ll(y_1, sigma_pred_1)])
     assert cn.allclose(our_metric, ref_metric)
 
 

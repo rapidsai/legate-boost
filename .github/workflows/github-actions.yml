@@ -118,7 +118,7 @@ jobs:
       - name: Run cpu tests
         working-directory: lib/python3.10/site-packages
         run: |
-          legate --cpus 16 --sysmem 16000 --module pytest legateboost/test -sv --durations=0
+          legate --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
         working-directory: lib/python3.10/site-packages
         run: |
