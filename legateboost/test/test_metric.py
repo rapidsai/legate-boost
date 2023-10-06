@@ -7,10 +7,11 @@ from legateboost.metrics import erf
 
 
 def test_multiple_metrics():
-    X = cn.random.random((10, 1))
-    y = cn.random.randint(0, 2, size=X.shape[0])
-    X_eval = cn.random.random((5, 1))
-    y_eval = cn.random.randint(0, 2, size=X_eval.shape[0])
+    np.random.seed(0)
+    X = np.random.random((10, 1))
+    y = np.random.randint(0, 2, size=X.shape[0])
+    X_eval = np.random.random((5, 1))
+    y_eval = np.random.randint(0, 2, size=X_eval.shape[0])
 
     eval_result = {}
     lb.LBClassifier(n_estimators=2, metric=["log_loss", "exp"]).fit(
@@ -34,10 +35,11 @@ def test_multiple_metrics():
 
 def test_eval_tuple():
     # check weights get registered
-    X = cn.random.random((10, 1))
-    y = cn.random.randint(0, 2, size=X.shape[0])
-    X_eval = cn.random.random((10, 1))
-    y_eval = cn.random.randint(0, 2, size=X.shape[0])
+    np.random.seed(0)
+    X = np.random.random((10, 1))
+    y = np.random.randint(0, 2, size=X.shape[0])
+    X_eval = np.random.random((10, 1))
+    y_eval = np.random.randint(0, 2, size=X.shape[0])
     w_eval = cn.zeros(X.shape[0])
 
     eval_result = {}
@@ -185,7 +187,7 @@ def test_normal_neg_ll():
 def test_erf() -> None:
     from scipy.special import erf as scipy_erf
 
-    rng = cn.random.default_rng(0)
+    rng = np.random.default_rng(0)
     for t in [cn.float32, cn.float64]:
         for s in [(100,), (100, 10), (100, 10, 10)]:
             x = rng.normal(size=s)
@@ -221,6 +223,7 @@ def test_quantile_metric():
             ]
         )
 
+    np.random.seed(5)
     y = np.random.normal(size=(100, 1))
     pred = np.random.normal(size=(100, 3))
     assert cn.allclose(

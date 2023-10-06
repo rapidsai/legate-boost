@@ -10,8 +10,8 @@ from .utils import non_increasing, sanity_check_tree_stats
 
 def test_init():
     np.random.seed(2)
-    X = cn.random.random((100, 10))
-    y = cn.random.random((X.shape[0], 2))
+    X = np.random.random((100, 10))
+    y = np.random.random((X.shape[0], 2))
     model = lb.LBRegressor(n_estimators=0, init="average").fit(X, y)
     assert cn.allclose(model.model_init_, y.mean(axis=0))
     # weights
@@ -23,8 +23,8 @@ def test_init():
 
 def test_update():
     np.random.seed(2)
-    X = cn.random.random((1000, 10))
-    y = cn.random.random((X.shape[0], 2))
+    X = np.random.random((1000, 10))
+    y = np.random.random((X.shape[0], 2))
     # shift the distribution of the first dataset half
     y[0 : X.shape[0] // 2] += 3.0
 
@@ -66,8 +66,8 @@ def test_regressor(num_outputs, objective, base_models):
         pytest.skip("Quantile objective not implemented for multi-output")
 
     np.random.seed(2)
-    X = cn.random.random((100, 10))
-    y = cn.random.random((X.shape[0], num_outputs))
+    X = np.random.random((100, 10))
+    y = np.random.random((X.shape[0], num_outputs))
     eval_result = {}
     model = lb.LBRegressor(
         n_estimators=20,
@@ -80,7 +80,6 @@ def test_regressor(num_outputs, objective, base_models):
     loss = next(iter(eval_result["train"].values()))
     assert np.isclose(loss[-1], loss_recomputed)
     assert non_increasing(loss)
-
     sanity_check_tree_stats(model)
 
 
@@ -108,8 +107,8 @@ def test_sklearn_compatible_estimator(estimator, check, test_name):
 )
 def test_classifier(num_class, objective, base_models):
     np.random.seed(3)
-    X = cn.random.random((100, 10))
-    y = cn.random.randint(0, num_class, X.shape[0])
+    X = np.random.random((100, 10))
+    y = np.random.randint(0, num_class, X.shape[0])
     eval_result = {}
     model = lb.LBClassifier(
         n_estimators=10, objective=objective, base_models=base_models
@@ -131,8 +130,8 @@ def test_classifier(num_class, objective, base_models):
 def test_normal_distribution():
     # check variance converges as expected
     np.random.seed(2)
-    X = cn.random.random((100, 2))
-    y = cn.random.normal(5, 2, X.shape[0])
+    X = np.random.random((100, 2))
+    y = np.random.normal(5, 2, X.shape[0])
     model = lb.LBRegressor(
         n_estimators=50,
         objective="normal",

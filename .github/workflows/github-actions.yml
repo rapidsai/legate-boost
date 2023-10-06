@@ -118,7 +118,6 @@ jobs:
       - name: Run cpu tests
         working-directory: lib/python3.10/site-packages
         run: |
-          pip install hypothesis
           legate --sysmem 16000 --module pytest legateboost/test -sv --durations=0
       - name: Run cpu multi-node tests
         working-directory: lib/python3.10/site-packages
