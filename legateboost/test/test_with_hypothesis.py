@@ -1,7 +1,6 @@
 import numpy as np
 from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 
-import cunumeric as cn
 import legateboost as lb
 
 from .utils import non_increasing, sanity_check_tree_stats
@@ -57,8 +56,8 @@ def regression_generated_dataset_strategy(draw):
     num_features = draw(st.integers(1, 150))
     num_rows = draw(st.integers(10, 10000))
     np.random.seed(2)
-    X = cn.random.random((num_rows, num_features))
-    y = cn.random.random((X.shape[0], num_outputs))
+    X = np.random.random((num_rows, num_features))
+    y = np.random.random((X.shape[0], num_outputs))
 
     dtype = draw(st.sampled_from([np.float16, np.float32, np.float64]))
     return X.astype(dtype), y.astype(dtype)
@@ -75,7 +74,7 @@ def regression_dataset_strategy(draw):
         )
     )
     if draw(st.booleans()):
-        w = cn.random.random(y.shape[0])
+        w = np.random.random(y.shape[0])
     else:
         w = None
 
@@ -129,8 +128,8 @@ def classification_generated_dataset_strategy(draw):
     num_features = draw(st.integers(1, 150))
     num_rows = draw(st.integers(num_classes, 10000))
     np.random.seed(3)
-    X = cn.random.random((num_rows, num_features))
-    y = cn.random.randint(0, num_classes, size=X.shape[0])
+    X = np.random.random((num_rows, num_features))
+    y = np.random.randint(0, num_classes, size=X.shape[0])
 
     # ensure we have at least one of each class
     y[:num_classes] = np.arange(num_classes)
@@ -162,7 +161,7 @@ def classification_dataset_strategy(draw):
         )
     )
     if draw(st.booleans()):
-        w = cn.random.random(y.shape[0])
+        w = np.random.random(y.shape[0])
     else:
         w = None
 

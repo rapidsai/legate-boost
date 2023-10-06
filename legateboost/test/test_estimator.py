@@ -10,8 +10,8 @@ from .utils import non_increasing, sanity_check_tree_stats
 
 def test_init():
     np.random.seed(2)
-    X = cn.random.random((100, 10))
-    y = cn.random.random((X.shape[0], 2))
+    X = np.random.random((100, 10))
+    y = np.random.random((X.shape[0], 2))
     model = lb.LBRegressor(n_estimators=0, init="average").fit(X, y)
     assert cn.allclose(model.model_init_, y.mean(axis=0))
     # weights
@@ -27,8 +27,8 @@ def test_regressor(num_outputs, objective):
     if objective == "quantile" and num_outputs > 1:
         pytest.skip("Quantile objective not implemented for multi-output")
     np.random.seed(2)
-    X = cn.random.random((100, 10))
-    y = cn.random.random((X.shape[0], num_outputs))
+    X = np.random.random((100, 10))
+    y = np.random.random((X.shape[0], num_outputs))
     eval_result = {}
     model = lb.LBRegressor(
         n_estimators=20,
@@ -49,8 +49,8 @@ def test_regressor(num_outputs, objective):
 
 def test_update():
     np.random.seed(2)
-    X = cn.random.random((1000, 10))
-    y = cn.random.random((X.shape[0], 2))
+    X = np.random.random((1000, 10))
+    y = np.random.random((X.shape[0], 2))
     # shift the distribution of the first dataset half
     y[0 : X.shape[0] // 2] += 3.0
 
@@ -84,8 +84,8 @@ def test_regressor_improving_with_depth(num_outputs, objective):
     if objective == "quantile" and num_outputs > 1:
         pytest.skip("Quantile objective not implemented for multi-output")
     np.random.seed(3)
-    X = cn.random.random((100, 10))
-    y = cn.random.random((X.shape[0], num_outputs))
+    X = np.random.random((100, 10))
+    y = np.random.random((X.shape[0], num_outputs))
     metrics = []
     for max_depth in range(0, 10):
         eval_result = {}
@@ -105,9 +105,9 @@ def test_regressor_weights(num_outputs):
     Check this happens with weights.
     """
     np.random.seed(4)
-    X = cn.random.random((100, 10))
-    y = cn.random.random((X.shape[0], num_outputs))
-    w = cn.random.random(X.shape[0])
+    X = np.random.random((100, 10))
+    y = np.random.random((X.shape[0], num_outputs))
+    w = np.random.random(X.shape[0])
     eval_result = {}
     lb.LBRegressor(n_estimators=5, random_state=0, max_depth=10, learning_rate=1.0).fit(
         X, y, sample_weight=w, eval_result=eval_result
@@ -121,8 +121,8 @@ def test_regressor_weights(num_outputs):
 def test_regressor_determinism(num_outputs, objective):
     if objective == "quantile" and num_outputs > 1:
         pytest.skip("Quantile objective not implemented for multi-output")
-    X = cn.random.random((10000, 10))
-    y = cn.random.random((X.shape[0], num_outputs))
+    X = np.random.random((10000, 10))
+    y = np.random.random((X.shape[0], num_outputs))
     preds = []
     params = {"max_depth": 12, "random_state": 84, "objective": objective}
     preds = []
@@ -185,8 +185,8 @@ def test_sklearn_compatible_estimator(estimator, check, test_name):
 @pytest.mark.parametrize("objective", ["log_loss", "exp"])
 def test_classifier(num_class, objective):
     np.random.seed(3)
-    X = cn.random.random((100, 10))
-    y = cn.random.randint(0, num_class, X.shape[0])
+    X = np.random.random((100, 10))
+    y = np.random.randint(0, num_class, X.shape[0])
     eval_result = {}
     model = lb.LBClassifier(n_estimators=10, objective=objective).fit(
         X, y, eval_result=eval_result
@@ -208,9 +208,9 @@ def test_classifier(num_class, objective):
 @pytest.mark.parametrize("objective", ["log_loss", "exp"])
 def test_classifier_weights(num_class, objective):
     np.random.seed(7)
-    X = cn.random.random((100, 10))
-    y = cn.random.randint(0, num_class, X.shape[0])
-    w = cn.random.random(X.shape[0])
+    X = np.random.random((100, 10))
+    y = np.random.randint(0, num_class, X.shape[0])
+    w = np.random.random(X.shape[0])
     eval_result = {}
     lb.LBClassifier(
         n_estimators=10, learning_rate=1.0, max_depth=10, objective=objective
@@ -223,8 +223,8 @@ def test_classifier_weights(num_class, objective):
 @pytest.mark.parametrize("objective", ["log_loss", "exp"])
 def test_classifier_improving_with_depth(num_class, objective):
     np.random.seed(3)
-    X = cn.random.random((100, 10))
-    y = cn.random.randint(0, num_class, X.shape[0])
+    X = np.random.random((100, 10))
+    y = np.random.randint(0, num_class, X.shape[0])
     metrics = []
     for max_depth in range(0, 5):
         eval_result = {}
@@ -240,8 +240,8 @@ def test_classifier_improving_with_depth(num_class, objective):
 @pytest.mark.parametrize("objective", ["log_loss", "exp"])
 def test_classifier_determinism(num_class, objective):
     np.random.seed(3)
-    X = cn.random.random((10000, 20))
-    y = cn.random.randint(0, num_class, X.shape[0])
+    X = np.random.random((10000, 20))
+    y = np.random.randint(0, num_class, X.shape[0])
     params = {"max_depth": 12, "random_state": 84, "objective": objective}
     preds = []
     models = []
@@ -258,8 +258,8 @@ def test_classifier_determinism(num_class, objective):
 def test_normal():
     # check variance converges as expected
     np.random.seed(2)
-    X = cn.random.random((100, 2))
-    y = cn.random.normal(5, 2, X.shape[0])
+    X = np.random.random((100, 2))
+    y = np.random.normal(5, 2, X.shape[0])
     model = lb.LBRegressor(
         n_estimators=50,
         objective="normal",
