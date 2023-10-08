@@ -67,7 +67,7 @@ class Linear(BaseModel):
                 return res
             except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
                 tau = max(tau * 2, eps)
-            if tau > 100:
+            if tau > 1e10:
                 raise ValueError(
                     "Numerical instability in linear model solve. "
                     "Consider normalising your data."
