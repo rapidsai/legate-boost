@@ -1,6 +1,7 @@
 import numpy as np
 
 import cunumeric as cn
+from legate.core import get_legate_runtime
 
 from .base_model import BaseModel
 
@@ -39,7 +40,11 @@ class Linear(BaseModel):
         """
         # try first without modification
         try:
-            return cn.linalg.solve(a, b)
+            res = cn.linalg.solve(a, b)
+            get_legate_runtime().raise_exceptions()
+            if cn.isnan(res).any():
+                raise cn.linalg.LinAlgError
+            return res
         except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
             pass
 
@@ -52,7 +57,11 @@ class Linear(BaseModel):
             tau = -min_diag + eps
         while True:
             try:
-                return cn.linalg.solve(a + cn.eye(a.shape[0]) * tau, b)
+                res = cn.linalg.solve(a + cn.eye(a.shape[0]) * tau, b)
+                get_legate_runtime().raise_exceptions()
+                if cn.isnan(res).any():
+                    raise cn.linalg.LinAlgError
+                return res
             except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
                 tau = max(tau * 2, eps)
             if tau > 100.0:
@@ -79,6 +88,7 @@ class Linear(BaseModel):
             result = self.solve_singular(XtX, cn.dot(Xw.T, yw))
             self.bias_[k] = result[0]
             self.betas_[:, k] = result[1:]
+
         return self
 
     def clear(self) -> None:

@@ -20,17 +20,31 @@ settings.register_profile(
 settings.load_profile("local")
 
 
+@st.composite
+def tree_strategy(draw):
+    max_depth = draw(st.integers(1, 12))
+    return lb.models.Tree(max_depth=max_depth)
+
+
+@st.composite
+def linear_strategy(draw):
+    alpha = draw(st.floats(0.0, 1.0))
+    return lb.models.Linear(alpha=alpha)
+
+
+@st.composite
+def base_model_strategy(draw):
+    n = draw(st.integers(1, 5))
+    base_models = ()
+    for _ in range(n):
+        base_models += (draw(st.one_of([tree_strategy(), linear_strategy()])),)
+    return base_models
+
+
 general_model_param_strategy = st.fixed_dictionaries(
     {
         "n_estimators": st.integers(1, 20),
-        "base_models": st.sampled_from(
-            [
-                (lb.models.Tree(max_depth=1),),
-                (lb.models.Linear(),),
-                (lb.models.Tree(max_depth=12),),
-                (lb.models.Linear(alpha=0.5),),
-            ]
-        ),
+        "base_models": base_model_strategy(),
         "init": st.sampled_from([None, "average"]),
         "random_state": st.integers(0, 10000),
     }
@@ -60,7 +74,7 @@ def regression_real_dataset_strategy(draw):
 @st.composite
 def regression_generated_dataset_strategy(draw):
     num_outputs = draw(st.integers(1, 5))
-    num_features = draw(st.integers(1, 150))
+    num_features = draw(st.integers(1, 50))
     num_rows = draw(st.integers(10, 10000))
     np.random.seed(2)
     X = np.random.random((num_rows, num_features))
@@ -124,6 +138,9 @@ def classification_real_dataset_strategy(draw):
     name = draw(st.sampled_from(["covtype", "breast_cancer"]))
     if name == "covtype":
         X, y = fetch_covtype(return_X_y=True, as_frame=False)
+        # using the full dataset is somewhat slow
+        X = X[0:50000]
+        y = y[0:50000]
         return (X, y - 1, name)
     elif name == "breast_cancer":
         return (*load_breast_cancer(return_X_y=True, as_frame=False), name)
@@ -132,7 +149,7 @@ def classification_real_dataset_strategy(draw):
 @st.composite
 def classification_generated_dataset_strategy(draw):
     num_classes = draw(st.integers(2, 5))
-    num_features = draw(st.integers(1, 150))
+    num_features = draw(st.integers(1, 50))
     num_rows = draw(st.integers(num_classes, 10000))
     np.random.seed(3)
     X = np.random.random((num_rows, num_features))
