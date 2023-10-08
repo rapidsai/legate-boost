@@ -13,6 +13,9 @@ class Linear(BaseModel):
     opposed to the sum of all models. This can lead to different results when
     compared to fitting a linear model with sklearn.
 
+    It is recommended to normalize the data before fitting. This ensures
+    regularisation is evening applied to all features and prevents numerical issues.
+
     Parameters
     ----------
     alpha : L2 regularization parameter.
@@ -64,8 +67,11 @@ class Linear(BaseModel):
                 return res
             except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
                 tau = max(tau * 2, eps)
-            if tau > 100.0:
-                raise ValueError("Matrix is singular")
+            if tau > 100:
+                raise ValueError(
+                    "Numerical instability in linear model solve. "
+                    "Consider normalising your data."
+                )
 
     def fit(
         self,
@@ -82,7 +88,6 @@ class Linear(BaseModel):
             Xw[:, 1:] = X
             Xw = Xw * W[:, cn.newaxis]
             diag = cn.eye(Xw.shape[1]) * self.alpha
-            diag[0, 0] = 0
             XtX = cn.dot(Xw.T, Xw) + diag
             yw = W * (-g[:, k] / h[:, k])
             result = self.solve_singular(XtX, cn.dot(Xw.T, yw))

@@ -61,14 +61,17 @@ regression_param_strategy = st.fixed_dictionaries(
 @st.composite
 def regression_real_dataset_strategy(draw):
     from sklearn.datasets import fetch_california_housing, fetch_openml, load_diabetes
+    from sklearn.preprocessing import normalize
 
     name = draw(st.sampled_from(["california_housing", "million_songs", "diabetes"]))
     if name == "california_housing":
         return fetch_california_housing(return_X_y=True)
     elif name == "million_songs":
-        return fetch_openml(name="year", version=1, return_X_y=True, as_frame=False)
+        X, y = fetch_openml(name="year", version=1, return_X_y=True, as_frame=False)
+        return X, y
     elif name == "diabetes":
-        return load_diabetes(return_X_y=True)
+        X, y = load_diabetes(return_X_y=True)
+        return X, normalize(y.reshape(-1, 1), axis=0).reshape(-1)
 
 
 @st.composite
@@ -134,6 +137,7 @@ classification_param_strategy = st.fixed_dictionaries(
 @st.composite
 def classification_real_dataset_strategy(draw):
     from sklearn.datasets import fetch_covtype, load_breast_cancer
+    from sklearn.preprocessing import normalize
 
     name = draw(st.sampled_from(["covtype", "breast_cancer"]))
     if name == "covtype":
@@ -141,7 +145,7 @@ def classification_real_dataset_strategy(draw):
         # using the full dataset is somewhat slow
         X = X[0:50000]
         y = y[0:50000]
-        return (X, y - 1, name)
+        return (normalize(X), y - 1, name)
     elif name == "breast_cancer":
         return (*load_breast_cancer(return_X_y=True, as_frame=False), name)
 
