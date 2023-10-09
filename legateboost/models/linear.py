@@ -48,6 +48,8 @@ class Linear(BaseModel):
         try:
             res = cn.linalg.solve(a, b)
             get_legate_runtime().raise_exceptions()
+            if np.isnan(res).any():
+                raise np.linalg.LinAlgError
             return res
         except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
             pass
@@ -63,6 +65,8 @@ class Linear(BaseModel):
             try:
                 res = cn.linalg.solve(a + cn.eye(a.shape[0]) * tau, b)
                 get_legate_runtime().raise_exceptions()
+                if np.isnan(res).any():
+                    raise np.linalg.LinAlgError
                 return res
             except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
                 tau = max(tau * 2, eps)
@@ -81,6 +85,7 @@ class Linear(BaseModel):
         num_outputs = g.shape[1]
         self.bias_ = cn.zeros(num_outputs)
         self.betas_ = cn.zeros((X.shape[1], num_outputs))
+
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k])
             Xw = cn.ones((X.shape[0], X.shape[1] + 1))

@@ -204,6 +204,7 @@ def classification_dataset_strategy(draw):
 def test_classifier(model_params, classification_params, classification_dataset):
     X, y, w, name = classification_dataset
     eval_result = {}
+    model_params["n_estimators"] = 3
     model = lb.LBClassifier(**model_params, **classification_params).fit(
         X, y, sample_weight=w, eval_result=eval_result
     )

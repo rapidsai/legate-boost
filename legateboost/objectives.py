@@ -253,6 +253,7 @@ class LogLossObjective(BaseObjective):
         # multi-class case
         label = y.astype(cn.int32).squeeze()
         h = pred * (1.0 - pred)
+        print(pred.min(), pred.max())
         g = pred.copy()
         mod_col_by_idx(g, label, -1.0)
         # g[cn.arange(y.size), label] -= 1.0
