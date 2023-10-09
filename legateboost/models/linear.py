@@ -41,12 +41,13 @@ class Linear(BaseModel):
 
         This progressively adds to the diagonal of the matrix until it is non-singular.
         """
+        # ensure we are doing all calculations in float 64 for stability
+        a = a.astype(np.float64)
+        b = b.astype(np.float64)
         # try first without modification
         try:
             res = cn.linalg.solve(a, b)
             get_legate_runtime().raise_exceptions()
-            if cn.isnan(res).any():
-                raise cn.linalg.LinAlgError
             return res
         except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
             pass
@@ -62,8 +63,6 @@ class Linear(BaseModel):
             try:
                 res = cn.linalg.solve(a + cn.eye(a.shape[0]) * tau, b)
                 get_legate_runtime().raise_exceptions()
-                if cn.isnan(res).any():
-                    raise cn.linalg.LinAlgError
                 return res
             except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
                 tau = max(tau * 2, eps)

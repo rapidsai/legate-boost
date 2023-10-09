@@ -246,10 +246,9 @@ class LogLossObjective(BaseObjective):
         self, y: cn.ndarray, pred: cn.ndarray
     ) -> Tuple[cn.ndarray, cn.ndarray]:
         assert pred.ndim == 2
-        eps = 1e-15
         # binary case
         if pred.shape[1] == 1:
-            return pred - y, cn.maximum(pred * (1.0 - pred), eps)
+            return pred - y, pred * (1.0 - pred)
 
         # multi-class case
         label = y.astype(cn.int32).squeeze()
@@ -257,7 +256,7 @@ class LogLossObjective(BaseObjective):
         g = pred.copy()
         mod_col_by_idx(g, label, -1.0)
         # g[cn.arange(y.size), label] -= 1.0
-        return g, cn.maximum(h, eps)
+        return g, h
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         assert len(pred.shape) == 2

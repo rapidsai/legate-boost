@@ -176,7 +176,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
 
         # apply weights and learning rate
         g = g * sample_weight[:, None] * learning_rate
-        h = h * sample_weight[:, None]
+        # ensure hessians are not too small for numerical stability
+        h = cn.maximum(h * sample_weight[:, None], 1e-8)
         return preround(g), preround(h)
 
     def _partial_fit(
