@@ -87,6 +87,7 @@ class Linear(BaseModel):
             Xw[:, 1:] = X
             Xw = Xw * W[:, cn.newaxis]
             diag = cn.eye(Xw.shape[1]) * self.alpha
+            diag[0, 0] = 0
             XtX = cn.dot(Xw.T, Xw) + diag
             yw = W * (-g[:, k] / h[:, k])
             result = self.solve_singular(XtX, cn.dot(Xw.T, yw))
