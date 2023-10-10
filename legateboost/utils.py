@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 
 import cunumeric as cn
-from legate.core import Store
+from legate.core import Store, get_legate_runtime
 
 
 class PickleCunumericMixin:
@@ -99,3 +99,49 @@ def get_store(input: Any) -> Store:
     array = data[field]
     _, store = array.stores()
     return store
+
+
+def solve_singular(a, b):
+    """Solve a singular linear system Ax = b for x.
+    The same as np.linalg.solve, but if A is singular,
+    then we use Algorithm 3.3 from:
+
+    Nocedal, Jorge, and Stephen J. Wright, eds.
+    Numerical optimization. New York, NY: Springer New York, 1999.
+
+    This progressively adds to the diagonal of the matrix until it is non-singular.
+    """
+    # ensure we are doing all calculations in float 64 for stability
+    a = a.astype(np.float64)
+    b = b.astype(np.float64)
+    # try first without modification
+    try:
+        res = cn.linalg.solve(a, b)
+        get_legate_runtime().raise_exceptions()
+        if np.isnan(res).any():
+            raise np.linalg.LinAlgError
+        return res
+    except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
+        pass
+
+    # if that fails, try adding to the diagonal
+    eps = 1e-3
+    min_diag = a[::].min()
+    if min_diag > 0:
+        tau = eps
+    else:
+        tau = -min_diag + eps
+    while True:
+        try:
+            res = cn.linalg.solve(a + cn.eye(a.shape[0]) * tau, b)
+            get_legate_runtime().raise_exceptions()
+            if np.isnan(res).any():
+                raise np.linalg.LinAlgError
+            return res
+        except (np.linalg.LinAlgError, cn.linalg.LinAlgError):
+            tau = max(tau * 2, eps)
+        if tau > 1e10:
+            raise ValueError(
+                "Numerical instability in linear model solve. "
+                "Consider normalising your data."
+            )

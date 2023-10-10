@@ -12,8 +12,11 @@ def non_decreasing(x):
     return all(x <= y for x, y in zip(x, x[1:]))
 
 
-def sanity_check_tree_stats(model):
+def sanity_check_models(model):
     trees = [m for m in model.models_ if isinstance(m, lb.models.Tree)]
+    linear_models = [m for m in model.models_ if isinstance(m, lb.models.Linear)]
+    krr_models = [m for m in model.models_ if isinstance(m, lb.models.KRR)]
+
     for m in trees:
         # Check that we have no 0 hessian splits
         split_nodes = m.feature != -1
@@ -26,3 +29,10 @@ def sanity_check_tree_stats(model):
         leaves = (m.feature == -1) & (m.hessian[:, 0] > 0.0)
         leaf_sum = m.hessian[leaves].sum(axis=0)
         assert np.isclose(leaf_sum, m.hessian[0]).all()
+
+    for m in linear_models:
+        assert cn.isfinite(m.betas_).all()
+        assert cn.isfinite(m.bias_).all()
+
+    for m in krr_models:
+        assert cn.isfinite(m.betas_).all()
