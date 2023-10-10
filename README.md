@@ -2,6 +2,7 @@
 
 GBM implementation on Legate. The primary goals of LegateBoost is to provide a state-of-the-art distributed GBM implementation on Legate, capable of running on CPUs or GPUs at supercomputer scale.
 
+[API Documentation](https://rapidsai.github.io/legateboost)
 
 For developers - see [contributing](contributing.md)
 
@@ -49,6 +50,16 @@ for i in range(total_estimators // estimators_per_batch):
 
 The above example can be found here: [examples/batch_training](examples/batch_training/README.md).
 
+### Different model types
+Legateboost supports tree models, linear models, kernel ridge regression models, custom user models and any combinations of these models.
+
+The following example shows a model combining linear and decision tree base learners.
+
+```python
+model = lb.LBRegressor(base_models=(lb.models.Linear(), lb.models.Tree(max_depth=1),), **params).fit(X, y)
+```
+
+<img src="examples/linear_model/linear_model.png" alt="drawing" width="800"/>
 
 ## Installation
 

@@ -246,18 +246,18 @@ class LogLossObjective(BaseObjective):
         self, y: cn.ndarray, pred: cn.ndarray
     ) -> Tuple[cn.ndarray, cn.ndarray]:
         assert pred.ndim == 2
-        eps = 1e-15
         # binary case
         if pred.shape[1] == 1:
-            return pred - y, cn.maximum(pred * (1.0 - pred), eps)
+            return pred - y, pred * (1.0 - pred)
 
         # multi-class case
         label = y.astype(cn.int32).squeeze()
         h = pred * (1.0 - pred)
+        print(pred.min(), pred.max())
         g = pred.copy()
         mod_col_by_idx(g, label, -1.0)
         # g[cn.arange(y.size), label] -= 1.0
-        return g, cn.maximum(h, eps)
+        return g, h
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         assert len(pred.shape) == 2
@@ -283,13 +283,13 @@ class LogLossObjective(BaseObjective):
             g, h = self.gradient(
                 y,
                 self.transform(
-                    cn.zeros((y.shape[0], num_class if num_class > 1 else 1))
+                    cn.zeros((y.shape[0], num_class if num_class > 2 else 1))
                 ),
             )
             g = g * w[:, None]
             h = h * w[:, None]
             return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
-        return cn.zeros(num_class) if num_class > 1 else cn.zeros(1)
+        return cn.zeros(num_class) if num_class > 2 else cn.zeros(1)
 
 
 class ExponentialObjective(BaseObjective):
@@ -356,13 +356,13 @@ class ExponentialObjective(BaseObjective):
             g, h = self.gradient(
                 y,
                 self.transform(
-                    cn.zeros((y.shape[0], num_class if num_class > 1 else 1))
+                    cn.zeros((y.shape[0], num_class if num_class > 2 else 1))
                 ),
             )
             g = g * w[:, None]
             h = h * w[:, None]
             return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
-        return cn.zeros(num_class) if num_class > 1 else cn.zeros(1)
+        return cn.zeros(num_class) if num_class > 2 else cn.zeros(1)
 
 
 objectives = {

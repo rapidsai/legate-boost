@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+from copy import deepcopy
 from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
@@ -12,7 +13,7 @@ import cunumeric as cn
 
 from .input_validation import check_sample_weight, check_X_y
 from .metrics import BaseMetric, metrics
-from .models import Tree
+from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
 from .utils import PickleCunumericMixin, preround
 
@@ -25,9 +26,9 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
+        base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
-        max_depth: int = 3,
         version: str = "native",
     ) -> None:
         self.n_estimators = n_estimators
@@ -37,9 +38,9 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.init = init
         self.verbose = verbose
         self.random_state = random_state
-        self.max_depth = max_depth
         self.version = version
         self.model_init_: cn.ndarray
+        self.base_models = base_models
 
     def _more_tags(self) -> Any:
         return {
@@ -175,7 +176,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
 
         # apply weights and learning rate
         g = g * sample_weight[:, None] * learning_rate
-        h = h * sample_weight[:, None]
+        # ensure hessians are not too small for numerical stability
+        h = cn.maximum(h * sample_weight[:, None], 1e-8)
         return preround(g), preround(h)
 
     def _partial_fit(
@@ -215,21 +217,19 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         # current model prediction
         train_pred = self._predict(X)
         eval_preds = [self._predict(X_eval) for X_eval, _, _ in _eval_set]
-        for _ in range(self.n_estimators):
+        for i in range(self.n_estimators):
             # obtain gradients
             g, h = self._get_weighted_gradient(
                 y, train_pred, sample_weight, self.learning_rate
             )
-            # build new tree
+
+            # build new model
             self.models_.append(
-                Tree(
-                    X,
-                    g,
-                    h,
-                    self.max_depth,
-                    self.random_state_,
+                deepcopy(self.base_models[i % len(self.base_models)]).set_random_state(
+                    self.random_state_
                 )
             )
+            self.models_[-1].fit(X, g, h)
 
             # update current predictions
             train_pred += self.models_[-1].predict(X)
@@ -368,7 +368,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         """
         sample_weight = check_sample_weight(sample_weight, len(y))
         self.n_features_in_ = X.shape[1]
-        self.models_: List[Tree] = []
+        self.models_: List[BaseModel] = []
         # initialise random state if an integer was passed
         self.random_state_ = check_random_state(self.random_state)
 
@@ -387,8 +387,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.model_init_ = self._objective_instance.initialise_prediction(
             y, sample_weight, self.init == "average"
         )
-        self.sum_model_weights_ = sample_weight.sum()
-
         self.is_fitted_ = True
 
         return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
@@ -407,7 +405,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             pred += m.predict(X)
         return pred
 
-    def dump_trees(self) -> str:
+    def dump_models(self) -> str:
         check_is_fitted(self, "is_fitted_")
         text = "init={}\n".format(self.model_init_)
         for m in self.models_:
@@ -417,8 +415,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
 
 class LBRegressor(LBBase, RegressorMixin):
     """Implementation of a gradient boosting algorithm for regression problems.
-    Uses decision trees as weak learners and iteratively improves the model by
-    minimizing a loss function.
+    Learns component models to iteratively improve a loss function.
 
     Parameters
     ----------
@@ -431,19 +428,20 @@ class LBRegressor(LBBase, RegressorMixin):
         the accompanying metric. Possible values: ['mse'] or instance of BaseMetric. Can
         be a list multiple metrics.
     learning_rate :
-        The learning rate shrinks the contribution of each tree.
+        The learning rate shrinks the contribution of each model.
     init :
         The initial prediction of the model. If `None`, the initial prediction
         is zero. If 'average', the initial prediction minimises a second order
         approximation of the loss-function (simply the mean label in the case of
         regression).
+    base_models :
+        The base models to use for each iteration. The model used in each iteration
+        i is base_models[i % len(base_models)].
     verbose :
         Controls the verbosity when fitting and predicting.
     random_state :
         Controls the randomness of the estimator. Pass an int for reproducible
         results across multiple function calls.
-    max_depth :
-        The maximum depth of the decision trees.
 
     Attributes
     ----------
@@ -477,9 +475,9 @@ class LBRegressor(LBBase, RegressorMixin):
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
+        base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
-        max_depth: int = 3,
     ) -> None:
         super().__init__(
             n_estimators=n_estimators,
@@ -487,9 +485,9 @@ class LBRegressor(LBBase, RegressorMixin):
             metric=metric,
             learning_rate=learning_rate,
             init=init,
+            base_models=base_models,
             verbose=verbose,
             random_state=random_state,
-            max_depth=max_depth,
         )
 
     def _more_tags(self) -> Any:
@@ -581,18 +579,19 @@ class LBClassifier(LBBase, ClassifierMixin):
         choose the accompanying metric. Possible values: ['log_loss', 'exp'] or
         instance of BaseMetric. Can be a list multiple metrics.
     learning_rate :
-        The learning rate shrinks the contribution of each tree by `learning_rate`.
+        The learning rate shrinks the contribution of each model.
     init :
         The initial prediction of the model. If `None`, the initial prediction
         is zero. If 'average', the initial prediction minimises a second order
         approximation of the loss-function.
+    base_models:
+        The base models to use for each iteration. The model used in each iteration
+        i is base_models[i % len(base_models)].
     verbose :
         Controls the verbosity of the boosting process.
     random_state :
         Controls the randomness of the estimator. Pass an int for reproducible output
         across multiple function calls.
-    max_depth :
-        The maximum depth of the individual trees.
 
     Attributes
     ----------
@@ -627,9 +626,9 @@ class LBClassifier(LBBase, ClassifierMixin):
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
+        base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
-        max_depth: int = 3,
     ) -> None:
         super().__init__(
             n_estimators=n_estimators,
@@ -637,9 +636,9 @@ class LBClassifier(LBBase, ClassifierMixin):
             metric=metric,
             learning_rate=learning_rate,
             init=init,
+            base_models=base_models,
             verbose=verbose,
             random_state=random_state,
-            max_depth=max_depth,
         )
 
     def partial_fit(

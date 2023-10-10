@@ -153,8 +153,7 @@ struct build_tree_fn {
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
 
     // Scalars
-    auto max_depth   = context.scalars().at(0).value<int>();
-    auto random_seed = context.scalars().at(1).value<uint64_t>();
+    auto max_depth = context.scalars().at(0).value<int>();
 
     Tree tree(max_depth, num_outputs);
 

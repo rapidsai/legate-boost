@@ -10,3 +10,4 @@ Python API Reference
    estimators
    metrics
    objectives
+   models
