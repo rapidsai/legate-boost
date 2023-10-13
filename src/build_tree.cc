@@ -25,15 +25,19 @@ struct Tree {
   Tree(int max_depth, int num_outputs) : num_outputs(num_outputs)
   {
     int max_nodes = 1 << (max_depth + 1);
-    leaf_value    = legate::create_buffer<double, 2>({max_nodes, num_outputs});
-    std::fill(leaf_value.ptr({0, 0}), leaf_value.ptr({max_nodes, num_outputs}), 0.0);
     feature.resize(max_nodes, -1);
     split_value.resize(max_nodes);
     gain.resize(max_nodes);
-    hessian = legate::create_buffer<double, 2>({max_nodes, num_outputs});
-    std::fill(hessian.ptr({0, 0}), hessian.ptr({max_nodes, num_outputs}), 0.0);
-    gradient = legate::create_buffer<double, 2>({max_nodes, num_outputs});
-    std::fill(gradient.ptr({0, 0}), gradient.ptr({max_nodes, num_outputs}), 0.0);
+    leaf_value = legate::create_buffer<double, 2>({max_nodes, num_outputs});
+    hessian    = legate::create_buffer<double, 2>({max_nodes, num_outputs});
+    gradient   = legate::create_buffer<double, 2>({max_nodes, num_outputs});
+    for (int i = 0; i < max_nodes; ++i) {
+      for (int j = 0; j < num_outputs; ++j) {
+        leaf_value[{i, j}] = 0.0;
+        hessian[{i, j}]    = 0.0;
+        gradient[{i, j}]   = 0.0;
+      }
+    }
   }
   void AddSplit(int node_id,
                 int feature_id,
