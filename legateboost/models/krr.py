@@ -11,13 +11,14 @@ def l2(X, Y):
     return XX + YY - XY
 
 
-def rbf_kernel(X, Y, sigma=1.0):
+def rbf_kernel(X, Y):
     K = l2(X, Y)
-    return cn.exp(-K / (2 * sigma**2))
+    sigma_sq = K.mean()
+    return cn.exp(-K / (2 * sigma_sq))
 
 
 class KRR(BaseModel):
-    def __init__(self, n_components=10, alpha=1.0):
+    def __init__(self, n_components=10, alpha=1e-5):
         self.num_components = n_components
         self.alpha = alpha
 

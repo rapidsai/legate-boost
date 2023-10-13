@@ -26,7 +26,7 @@ class Linear(BaseModel):
         Coefficients of the linear model.
     """
 
-    def __init__(self, alpha: float = 0.0) -> None:
+    def __init__(self, alpha: float = 1e-5) -> None:
         self.alpha = alpha
 
     def fit(
