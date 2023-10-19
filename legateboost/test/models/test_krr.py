@@ -1,10 +1,35 @@
 import numpy as np
 import pytest
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.metrics import mean_squared_error
 
 import cunumeric as cn
 import legateboost as lb
 
 from ..utils import non_increasing
+
+
+@pytest.mark.parametrize("weights", [True, False])
+def test_against_sklearn(weights):
+    X = np.linspace(0, 1, 100)[:, np.newaxis]
+    y = np.sin(X[:, 0] * 8 * np.pi)
+    w = (
+        np.random.RandomState(0).uniform(0.1, 100.0, size=y.shape) * np.maximum(0.0, y)
+        if weights
+        else None
+    )
+    alpha = 0.00001
+    sigma = 0.1
+    gamma = 1 / (2 * sigma**2)
+    model = lb.LBRegressor(
+        n_estimators=1,
+        learning_rate=1.0,
+        base_models=(lb.models.KRR(n_components=X.shape[0], alpha=alpha, sigma=sigma),),
+    ).fit(X, y, sample_weight=w)
+    skl = KernelRidge(kernel="rbf", alpha=alpha, gamma=gamma).fit(X, y, sample_weight=w)
+    skl_mse = mean_squared_error(y, skl.predict(X), sample_weight=w)
+    lb_mse = mean_squared_error(y, model.predict(X), sample_weight=w)
+    assert np.allclose(skl_mse, lb_mse)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
