@@ -21,6 +21,46 @@ def rbf_kernel(X, Y, sigma=None):
 
 
 class KRR(BaseModel):
+    """Kernel Ridge Regression model using the Nyström approximation. The
+    accuracy of the approximation is governed by the parameter `n_components`
+    <= `n`. Effectively, `n_components` rows will be randomly sampled (without
+    replacement) from X in each boosting iteration.
+
+    The kernel is fixed to be the RBF kernel:
+
+    :math:`k(x_i, x_j) = \\exp(-\\frac{||x_i - x_j||^2}{2\\sigma^2})`
+
+    Standardising data is recommended.
+
+    The sigma parameter, if not given is estimated as:
+
+    :math:`\\sigma = \\sqrt{\\frac{1}{n}\\sum_{i=1}^n ||x_i - \\mu||^2}`
+
+    See the following reference for more details on gradient boosting with
+    kernel ridge regression:
+    Sigrist, Fabio. "KTBoost: Combined kernel and tree boosting."
+    Neural Processing Letters 53.2 (2021): 1147-1160.
+
+
+    Parameters
+    ----------
+    n_components :
+        Number of components to use in the model.
+    alpha :
+        Regularization parameter.
+    sigma :
+        Kernel bandwidth parameter. If None, use the mean squared distance.
+
+    Attributes
+    ----------
+    betas_ : ndarray of shape (n_train_samples, n_outputs)
+        Coefficients of the regression model.
+    X_train : ndarray of shape (n_components, n_features)
+        Training data used to fit the model.
+    indices : ndarray of shape (n_components,)
+        Indices of the training data used to fit the model.
+    """
+
     def __init__(self, n_components=10, alpha=1e-5, sigma=None):
         self.num_components = n_components
         self.alpha = alpha
