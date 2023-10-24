@@ -1,6 +1,5 @@
 import cunumeric as cn
 
-from ..utils import solve_singular
 from .base_model import BaseModel
 
 
@@ -9,15 +8,6 @@ def l2(X, Y):
     YY = cn.einsum("ij,ij->i", Y, Y)
     XY = 2 * cn.dot(X, Y.T)
     return XX + YY - XY
-
-
-def rbf_kernel(X, Y, sigma=None):
-    K = l2(X, Y)
-    if sigma is None:
-        sigma_sq = K.mean()
-    else:
-        sigma_sq = sigma**2
-    return cn.exp(-K / (2 * sigma_sq))
 
 
 class KRR(BaseModel):
@@ -32,7 +22,7 @@ class KRR(BaseModel):
 
     Standardising data is recommended.
 
-    The sigma parameter, if not given is estimated as:
+    The sigma parameter, if not given, is estimated as:
 
     :math:`\\sigma = \\sqrt{\\frac{1}{n}\\sum_{i=1}^n ||x_i - \\mu||^2}`
 
@@ -61,13 +51,13 @@ class KRR(BaseModel):
         Indices of the training data used to fit the model.
     """
 
-    def __init__(self, n_components=10, alpha=1e-5, sigma=None):
+    def __init__(self, n_components=100, alpha=1e-5, sigma=None):
         self.num_components = n_components
         self.alpha = alpha
         self.sigma = sigma
 
     def _apply_kernel(self, X):
-        return rbf_kernel(X, self.X_train, sigma=self.sigma)
+        return self.rbf_kernel(X, self.X_train)
 
     def _fit_components(self, X, g, h) -> "KRR":
         # fit with fixed set of components
@@ -80,10 +70,16 @@ class KRR(BaseModel):
             W = cn.sqrt(h[:, k])
             Kw = K_nm * W[:, cn.newaxis]
             yw = W * (-g[:, k] / h[:, k])
-            self.betas_[:, k] = solve_singular(
+            self.betas_[:, k] = cn.linalg.lstsq(
                 Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw)
-            )
+            )[0]
         return self
+
+    def rbf_kernel(self, X, Y):
+        K = l2(X, Y)
+        if self.sigma is None:
+            self.sigma = cn.sqrt(K.mean())
+        return cn.exp(-K / (2 * self.sigma * self.sigma))
 
     def fit(
         self,
@@ -113,7 +109,10 @@ class KRR(BaseModel):
 
     def __str__(self) -> str:
         return (
-            "Components: "
+            "Sigma:"
+            + str(self.sigma)
+            + "\n"
+            + "Components: "
             + str(self.X_train)
             + "\nCoefficients: "
             + str(self.betas_)

@@ -1,4 +1,6 @@
-# Linear model
-This example shows how to train a mixed model with linear and tree components. The dataset is a linear function with some added noise, then a step in the middle of the function. This is challenging for a linear model due to the step, and challenging for a tree model due to the sloped function (see the characteristic axis aligned step function of the tree model). We create a combined model by alternately adding a linear model and then a tree model. The result is a model that is better able to fit the linear function and the step function.
+# Kernel Ridge Regression Model
+This example shows how to train a mixed model with KRR and tree components. We reproduce an experiment from [1] using the wine quality dataset. On this dataset we see that alternating kernel ridge regression and tree models achieves lower test error than either of these models alone.
 
-<img src="linear_model.png" alt="drawing" width="800"/>
+<img src="kernel_ridge_regression.png" alt="drawing" width="800"/>
+
+[1] Sigrist, Fabio. "KTBoost: Combined kernel and tree boosting." Neural Processing Letters 53.2 (2021): 1147-1160.
