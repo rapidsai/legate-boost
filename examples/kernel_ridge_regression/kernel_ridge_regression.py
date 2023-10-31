@@ -61,6 +61,7 @@ for name, model in models.items():
             ],
         )
 sns.lineplot(data=df, x="Iteration", y="Test MSE", hue="Algorithm")
+plt.suptitle("KRR Models + Tree Models")
 plt.tight_layout()
 image_dir = Path(__file__).parent
 plt.savefig(image_dir / "kernel_ridge_regression.png")
