@@ -24,9 +24,10 @@ class KRR(BaseModel):
 
     Standardising data is recommended.
 
-    The sigma parameter, if not given, is estimated as:
+    The sigma parameter, if not given, is estimated using the method described in:
+    Allerbo, Oskar, and Rebecka Jörnsten. "Bandwidth Selection for Gaussian Kernel
+    Ridge Regression via Jacobian Control." arXiv preprint arXiv:2205.11956 (2022).
 
-    :math:`\\sigma = \\sqrt{\\frac{1}{n}\\sum_{i=1}^n ||x_i - \\mu||^2}`
 
     See the following reference for more details on gradient boosting with
     kernel ridge regression:
@@ -53,11 +54,10 @@ class KRR(BaseModel):
         Indices of the training data used to fit the model.
     """
 
-    def __init__(self, n_components=100, alpha=1e-5, sigma=None, distance_init=None):
+    def __init__(self, n_components=100, alpha=1e-5, sigma=None):
         self.num_components = n_components
         self.alpha = alpha
         self.sigma = sigma
-        self.distance_init = distance_init
 
     def _apply_kernel(self, X):
         return self.rbf_kernel(X, self.X_train)
@@ -81,31 +81,11 @@ class KRR(BaseModel):
 
     def opt_sigma(self, D_2):
         n = D_2.shape[1]
-        D = cn.sqrt(D_2)
-        if self.distance_init is None or self.distance_init == "lmax_mean":
-            mins = self.X_train.min(axis=0)
-            maxs = self.X_train.max(axis=0)
-            lmax = cn.mean(maxs - mins)
-            p = self.X_train.shape[1]
-            d = 2 * lmax / (((n - 1) ** (1 / p) - 1) * cn.pi)
-        elif self.distance_init == "lmax_eucl":
-            lmax = D.max()
-            p = self.X_train.shape[1]
-            d = 2 * lmax / (((n - 1) ** (1 / p) - 1) * cn.pi)
-        elif self.distance_init == "lmax":
-            mins = self.X_train.min(axis=0)
-            maxs = self.X_train.max(axis=0)
-            lmax = cn.max(maxs - mins)
-            p = self.X_train.shape[1]
-            d = 2 * lmax / (((n - 1) ** (1 / p) - 1) * cn.pi)
-        elif self.distance_init == "median":
-            bool_mask = (
-                cn.arange(D.shape[0])[:, cn.newaxis] == self.indices[cn.newaxis, :]
-            )
-            # set the self distances to infinity
-            D[bool_mask] = cn.inf
-            min_distance = D.min(axis=0)
-            d = 2 / cn.pi * cn.median(min_distance[min_distance != cn.inf])
+        mins = self.X_train.min(axis=0)
+        maxs = self.X_train.max(axis=0)
+        lmax = cn.mean(maxs - mins)
+        p = self.X_train.shape[1]
+        d = 2 * lmax / (((n - 1) ** (1 / p) - 1) * cn.pi)
 
         w_arg = -self.alpha * cn.exp(0.5) / (2 * n)
         if w_arg < -cn.exp(-1):
