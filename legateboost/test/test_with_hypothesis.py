@@ -34,9 +34,13 @@ def linear_strategy(draw):
 
 @st.composite
 def krr_strategy(draw):
+    if draw(st.booleans()):
+        sigma = draw(st.floats(0.1, 1.0))
+    else:
+        sigma = None
     alpha = draw(st.floats(0.0, 1.0))
-    components = draw(st.integers(1, 10))
-    return lb.models.KRR(n_components=components, alpha=alpha)
+    components = draw(st.integers(2, 10))
+    return lb.models.KRR(n_components=components, alpha=alpha, sigma=sigma)
 
 
 @st.composite
