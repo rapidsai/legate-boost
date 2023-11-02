@@ -6,3 +6,6 @@ Models
 
 .. autoclass:: legateboost.models.Linear
     :members:
+
+.. autoclass:: legateboost.models.KRR
+    :members:

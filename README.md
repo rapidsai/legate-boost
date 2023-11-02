@@ -53,13 +53,21 @@ The above example can be found here: [examples/batch_training](examples/batch_tr
 ### Different model types
 Legateboost supports tree models, linear models, kernel ridge regression models, custom user models and any combinations of these models.
 
-The following example shows a model combining linear and decision tree base learners.
+The following example shows a model combining linear and decision tree base learners on a synthetic dataset.
 
 ```python
 model = lb.LBRegressor(base_models=(lb.models.Linear(), lb.models.Tree(max_depth=1),), **params).fit(X, y)
 ```
 
 <img src="examples/linear_model/linear_model.png" alt="drawing" width="800"/>
+
+The second example shows a model combining kernel ridge regression and decision tree base learners on the wine quality dataset.
+
+```python
+model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max_depth=5),), **params).fit(X, y)
+```
+
+<img src="examples/kernel_ridge_regression/kernel_ridge_regression.png" alt="drawing" width="800"/>
 
 ## Installation
 

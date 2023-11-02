@@ -3,7 +3,7 @@ from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategi
 
 import legateboost as lb
 
-from .utils import non_increasing, sanity_check_tree_stats
+from .utils import non_increasing, sanity_check_models
 
 np.set_printoptions(threshold=10, edgeitems=1)
 
@@ -33,11 +33,24 @@ def linear_strategy(draw):
 
 
 @st.composite
+def krr_strategy(draw):
+    if draw(st.booleans()):
+        sigma = draw(st.floats(0.1, 1.0))
+    else:
+        sigma = None
+    alpha = draw(st.floats(0.0, 1.0))
+    components = draw(st.integers(2, 10))
+    return lb.models.KRR(n_components=components, alpha=alpha, sigma=sigma)
+
+
+@st.composite
 def base_model_strategy(draw):
     n = draw(st.integers(1, 5))
     base_models = ()
     for _ in range(n):
-        base_models += (draw(st.one_of([tree_strategy(), linear_strategy()])),)
+        base_models += (
+            draw(st.one_of([tree_strategy(), linear_strategy(), krr_strategy()])),
+        )
     return base_models
 
 
@@ -120,7 +133,7 @@ def test_regressor(model_params, regression_params, regression_dataset):
     model.predict(X)
     loss = next(iter(eval_result["train"].values()))
     assert non_increasing(loss)
-    sanity_check_tree_stats(model)
+    sanity_check_models(model)
 
 
 classification_param_strategy = st.fixed_dictionaries(
