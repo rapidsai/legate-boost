@@ -41,7 +41,7 @@ def test_improving_with_components(num_outputs):
     X, g, h = cn.array(X), cn.array(g), cn.array(h)
     y = -g / h
     metrics = []
-    for n_components in range(1, 15):
+    for n_components in range(2, 15):
         model = (
             lb.models.KRR(n_components=n_components)
             .set_random_state(np.random.RandomState(2))

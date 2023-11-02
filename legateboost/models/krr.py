@@ -81,6 +81,7 @@ class KRR(BaseModel):
 
     def opt_sigma(self, D_2):
         n = D_2.shape[1]
+        assert self.X_train.shape[0] > 1, "Need at least 2 components to estimate sigma"
         mins = self.X_train.min(axis=0)
         maxs = self.X_train.max(axis=0)
         lmax = cn.mean(maxs - mins)
