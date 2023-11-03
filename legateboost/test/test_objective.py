@@ -3,15 +3,41 @@ import pytest
 import cunumeric as cn
 import legateboost as lb
 
+from .utils import non_increasing
 
-def test_normal():
+
+def test_normal() -> None:
     obj = lb.NormalObjective()
     y = cn.array([[1.0], [2.0], [3.0]])
     init = obj.initialise_prediction(y, cn.array([1.0, 1.0, 1.0]), True)
     assert cn.allclose(init, cn.array([y.mean(), cn.log(y.std())]))
 
 
-def test_log_loss():
+def test_gamma_deviance() -> None:
+    obj = lb.GammaDevianceObjective()
+    n_samples = 8196
+    with pytest.raises(ValueError, match="greater"):
+        y = cn.empty(shape=(n_samples,))
+        y[:] = -1
+        obj.initialise_prediction(y, None, True)
+
+    rng = cn.random.default_rng(1)
+    X = rng.normal(size=(n_samples, 32))
+    y = rng.gamma(shape=2.0, size=n_samples)
+
+    eval_result: dict[str, dict[str, list[float]]] = {}
+    reg = lb.LBRegressor(objective=obj, init=None, n_estimators=10)
+    reg.fit(X, y, eval_set=[(X, y)], eval_result=eval_result)
+    assert non_increasing(eval_result["train"]["deviance_gamma"])
+
+    eval_result.clear()
+    y1 = rng.gamma(size=(n_samples, 2), shape=2.0)
+    reg = lb.LBRegressor(objective=obj, init=None, n_estimators=10)
+    reg.fit(X, y1, eval_set=[(X, y1)], eval_result=eval_result)
+    assert non_increasing(eval_result["train"]["deviance_gamma"])
+
+
+def test_log_loss() -> None:
     obj = lb.LogLossObjective()
     # binary
     g, h = obj.gradient(cn.array([[1], [0]]), cn.array([[0.5], [0.5]]))

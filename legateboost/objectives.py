@@ -8,6 +8,7 @@ import cunumeric as cn
 from .metrics import (
     BaseMetric,
     ExponentialMetric,
+    GammaDevianceMetric,
     LogLossMetric,
     MSEMetric,
     NormalLLMetric,
@@ -171,6 +172,59 @@ class NormalObjective(BaseObjective):
         return pred
 
 
+class FitInterceptRegMixIn(BaseObjective):
+    def one_step_newton(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool, n_targets: int
+    ) -> cn.ndarray:
+        if boost_from_average:
+            # take 1 newton step (we could iterate here to get a better estimate)
+            g, h = self.gradient(
+                y,
+                self.transform(cn.zeros((y.shape[0], n_targets))),
+            )
+            g = g * w[:, None]
+            h = h * w[:, None]
+            return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
+        return cn.zeros(n_targets)
+
+
+class GammaDevianceObjective(FitInterceptRegMixIn):
+    """Gamma regression with the log link function. For the expression of the
+    deviance, see :py:class:`legateboost.metrics.GammaDevianceMetric`.
+
+    The response :math:`y` variable should be positive values.
+    """
+
+    def gradient(
+        self, y: cn.ndarray, pred: cn.ndarray
+    ) -> Tuple[cn.ndarray, cn.ndarray]:
+        # p = exp(u)
+        #
+        # g = dL/du   = 1 - y / exp(u)
+        # h = d^2L/du = y / exp(u)
+        h = y / pred
+        g = 1.0 - h
+        return g, h
+
+    def metric(self) -> GammaDevianceMetric:
+        return GammaDevianceMetric()
+
+    def transform(self, pred: cn.ndarray) -> cn.ndarray:
+        """Inverse log link."""
+        return cn.exp(pred)
+
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        if not (y > 0.0).all():
+            raise ValueError("y is expected to be positive.")
+        if y.ndim == 1 or y.shape[1] <= 1:
+            n_targets = 1
+        else:
+            n_targets = y.shape[1]
+        return self.one_step_newton(y, w, boost_from_average, n_targets)
+
+
 class QuantileObjective(BaseObjective):
     """Minimises the quantile loss, otherwise known as check loss or pinball
     loss.
@@ -187,12 +241,12 @@ class QuantileObjective(BaseObjective):
         :class:`legateboost.metrics.QuantileMetric`
     """  # noqa
 
-    def __init__(self, quantiles=cn.array([0.25, 0.5, 0.75])) -> None:
+    def __init__(self, quantiles: cn.ndarray = cn.array([0.25, 0.5, 0.75])) -> None:
         super().__init__()
         assert cn.all(0.0 < quantiles) and cn.all(quantiles < 1.0)
         self.quantiles = quantiles
 
-    def gradient(self, y, pred):
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
         diff = y - pred
         indicator = diff <= 0
         # Apply the polyak step size rule for subgradient descent.
@@ -207,7 +261,7 @@ class QuantileObjective(BaseObjective):
             pred.shape
         )
 
-    def metric(self):
+    def metric(self) -> BaseMetric:
         return QuantileMetric(self.quantiles)
 
     def initialise_prediction(
@@ -230,7 +284,7 @@ class QuantileObjective(BaseObjective):
         return cn.zeros_like(self.quantiles)
 
 
-class LogLossObjective(BaseObjective):
+class LogLossObjective(FitInterceptRegMixIn):
     """The Log Loss objective function for binary and multi-class
     classification problems.
 
@@ -277,21 +331,11 @@ class LogLossObjective(BaseObjective):
         if not cn.all((y == cn.floor(y)) & (y >= 0)):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
-        if boost_from_average:
-            # take 1 newton step (we could iterate here to get a better estimate)
-            g, h = self.gradient(
-                y,
-                self.transform(
-                    cn.zeros((y.shape[0], num_class if num_class > 2 else 1))
-                ),
-            )
-            g = g * w[:, None]
-            h = h * w[:, None]
-            return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
-        return cn.zeros(num_class) if num_class > 2 else cn.zeros(1)
+        n_targets = num_class if num_class > 2 else 1
+        return self.one_step_newton(y, w, boost_from_average, n_targets)
 
 
-class ExponentialObjective(BaseObjective):
+class ExponentialObjective(FitInterceptRegMixIn):
     """Exponential loss objective function for binary classification.
     Equivalent to the AdaBoost multiclass exponential loss in [1].
 
@@ -350,18 +394,8 @@ class ExponentialObjective(BaseObjective):
         if not cn.all((y == cn.floor(y)) & (y >= 0)):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
-        if boost_from_average:
-            # take 1 newton step (we could iterate here to get a better estimate)
-            g, h = self.gradient(
-                y,
-                self.transform(
-                    cn.zeros((y.shape[0], num_class if num_class > 2 else 1))
-                ),
-            )
-            g = g * w[:, None]
-            h = h * w[:, None]
-            return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
-        return cn.zeros(num_class) if num_class > 2 else cn.zeros(1)
+        n_targets = num_class if num_class > 2 else 1
+        return self.one_step_newton(y, w, boost_from_average, n_targets)
 
 
 objectives = {
@@ -370,4 +404,5 @@ objectives = {
     "log_loss": LogLossObjective,
     "exp": ExponentialObjective,
     "quantile": QuantileObjective,
+    "gamma_deviance": GammaDevianceObjective,
 }

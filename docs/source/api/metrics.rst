@@ -13,6 +13,9 @@ Metrics
 .. autoclass:: legateboost.NormalCRPSMetric
     :members:
 
+.. autoclass:: legateboost.GammaDevianceMetric
+    :members:
+
 .. autoclass:: legateboost.QuantileMetric
     :members:
 

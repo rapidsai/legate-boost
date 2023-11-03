@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -39,7 +39,7 @@ def pick_col_by_idx(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
 
 
 def set_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
-    """Alternative implementation for a[cn.arange(b.size), b] = delta"""
+    """Alternative implementation for a[cn.arange(b.size), b] = delta."""
 
     assert a.ndim == 2
     assert b.ndim == 1
@@ -102,14 +102,14 @@ def get_store(input: Any) -> Store:
 
 
 def solve_singular(a, b):
-    """Solve a singular linear system Ax = b for x.
-    The same as np.linalg.solve, but if A is singular,
-    then we use Algorithm 3.3 from:
+    """Solve a singular linear system Ax = b for x. The same as
+    np.linalg.solve, but if A is singular, then we use Algorithm 3.3 from:
 
-    Nocedal, Jorge, and Stephen J. Wright, eds.
-    Numerical optimization. New York, NY: Springer New York, 1999.
+    Nocedal, Jorge, and Stephen J. Wright, eds. Numerical optimization.
+    New York, NY: Springer New York, 1999.
 
-    This progressively adds to the diagonal of the matrix until it is non-singular.
+    This progressively adds to the diagonal of the matrix until it is
+    non-singular.
     """
     # ensure we are doing all calculations in float 64 for stability
     a = a.astype(np.float64)
@@ -145,3 +145,31 @@ def solve_singular(a, b):
                 "Numerical instability in linear model solve. "
                 "Consider normalising your data."
             )
+
+
+def sample_average(
+    y: cn.ndarray, sample_weight: Optional[cn.ndarray] = None
+) -> cn.ndarray:
+    """Compute weighted average on the first axis (usually the sample
+    dimension).
+
+    Returns 0 if sum weight is zero or if the input is empty.
+    """
+    if y.shape[0] == 0:
+        return cn.zeros(shape=(1,))
+    if sample_weight is None:
+        return cn.sum(y, axis=0) / np.full(
+            shape=y.shape[1], fill_value=float(y.shape[0])
+        )
+    if sample_weight.ndim > 1:
+        raise ValueError("Expecting 1-dim sample weight")
+    sum_w = sample_weight.sum()
+    if y.ndim == 2:
+        sample_weight = sample_weight[:, cn.newaxis]
+    if cn.isclose(sum_w, cn.zeros(shape=(1,))):
+        return 0.0
+    return (y * sample_weight).sum(axis=0) / sum_w
+
+
+# Constant for reducing numerical issues.
+EPS = 1e-6
