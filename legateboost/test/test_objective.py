@@ -16,7 +16,7 @@ def test_normal() -> None:
 def test_gamma_deviance() -> None:
     obj = lb.GammaDevianceObjective()
     n_samples = 8196
-    with pytest.raises(ValueError, match="greater"):
+    with pytest.raises(ValueError, match="positive"):
         y = cn.empty(shape=(n_samples,))
         y[:] = -1
         obj.initialise_prediction(y, None, True)

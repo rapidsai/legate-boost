@@ -243,7 +243,7 @@ def test_gamma_deviance() -> None:
     rng = cn.random.default_rng(0)
 
     X = rng.normal(size=(100, 10))
-    y = rng.gamma(1.0, 1.0, size=100)
+    y = rng.gamma(3.0, 1.0, size=100)
     w = rng.uniform(0.0, 1.0, size=y.shape[0])
 
     reg = lb.LBRegressor()

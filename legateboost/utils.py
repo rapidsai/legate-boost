@@ -155,12 +155,13 @@ def sample_average(
 
     Returns 0 if sum weight is zero or if the input is empty.
     """
+    if y.ndim > 2:
+        raise ValueError("Expecting a 1-dim or 2-dim input.")
     if y.shape[0] == 0:
         return cn.zeros(shape=(1,))
     if sample_weight is None:
-        return cn.sum(y, axis=0) / np.full(
-            shape=y.shape[1], fill_value=float(y.shape[0])
-        )
+        n_columns = y.shape[1:] if y.ndim > 1 else 1
+        return cn.sum(y, axis=0) / cn.full(shape=n_columns, value=float(y.shape[0]))
     if sample_weight.ndim > 1:
         raise ValueError("Expecting 1-dim sample weight")
     sum_w = sample_weight.sum()
