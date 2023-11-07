@@ -1,9 +1,14 @@
 import numpy as np
-from sklearn.metrics import log_loss, mean_pinball_loss, mean_squared_error
+from sklearn.metrics import (
+    log_loss,
+    mean_gamma_deviance as skl_gamma_deviance,
+    mean_pinball_loss,
+    mean_squared_error,
+)
 
 import cunumeric as cn
 import legateboost as lb
-from legateboost.metrics import erf
+from legateboost.metrics import GammaDevianceMetric, erf
 
 
 def test_multiple_metrics():
@@ -211,7 +216,7 @@ def test_normal_crps() -> None:
     assert np.isclose(score, 6.316697)
 
 
-def test_quantile_metric():
+def test_quantile_metric() -> None:
     quantiles = cn.array([0.1, 0.5, 0.9])
     metric = lb.QuantileMetric(quantiles)
 
@@ -232,3 +237,22 @@ def test_quantile_metric():
 
     w = np.random.normal(size=(100))
     assert cn.allclose(metric.metric(y, pred, w), sklearn_loss(y, pred, w))
+
+
+def test_gamma_deviance() -> None:
+    rng = cn.random.default_rng(0)
+
+    X = rng.normal(size=(100, 10))
+    y = rng.gamma(3.0, 1.0, size=100)
+    w = rng.uniform(0.0, 1.0, size=y.shape[0])
+
+    reg = lb.LBRegressor()
+    reg.fit(X, y, sample_weight=w)
+    p = reg.predict(X)
+
+    m = GammaDevianceMetric()
+    d0 = m.metric(y, p, w=w)
+
+    d1 = skl_gamma_deviance(y, p, sample_weight=w)
+
+    assert cn.allclose(d0, d1, rtol=1e-3)

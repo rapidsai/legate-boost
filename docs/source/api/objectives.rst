@@ -10,6 +10,9 @@ Objectives
 .. autoclass:: legateboost.NormalObjective
     :members:
 
+.. autoclass:: legateboost.GammaDevianceObjective
+    :members:
+
 .. autoclass:: legateboost.QuantileObjective
     :members:
 
