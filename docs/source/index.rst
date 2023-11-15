@@ -10,6 +10,7 @@ Welcome to legateboost's documentation!
 
    Getting started <README.md>
    Contributing <contributing.md>
+   Memory usage guidelines <memory.md>
    Python API Reference <api/index.rst>
 
 
