@@ -178,7 +178,7 @@ def __line_search(f, eval, g, x, d, args=()):
     c = 1e-4
     rho = 0.5
     new_eval, new_g = f(x + alpha * d, *args)
-    beta = c * np.dot(g, d)
+    beta = c * cn.dot(g, d)
     while new_eval > eval + alpha * beta:
         alpha *= rho
         new_eval, new_g = f(x + alpha * d, *args)
@@ -196,7 +196,7 @@ def __lbfgs_recursion(g, s, y):
     if s == []:
         H_k0 = 1
     else:
-        H_k0 = np.dot(s[-1], y[-1]) / np.dot(y[-1], y[-1])
+        H_k0 = cn.dot(s[-1], y[-1]) / cn.dot(y[-1], y[-1])
     r = H_k0 * q
     for i in range(m):
         beta = rho[i] * cn.dot(y[i], r)
@@ -282,7 +282,7 @@ def lbfgs(x0, f, max_iter=100, m=10, gtol=1e-5, args=(), verbose=False):
         x = x + s[-1]
         y.append(new_g - g)
         g = new_g
-        norm = np.linalg.norm(g)
+        norm = cn.linalg.norm(g)
         if verbose and k % verbose == 0:
             print("L-BFGS:\tk={}\tfeval:{:8.5}\tnorm:{:8.5f}".format(k, eval, norm))
         if norm < gtol:

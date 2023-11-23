@@ -1,30 +1,30 @@
-# import cunumeric as cn
-import numpy as cn
+import cunumeric as cn
 
-# from ..utils import lbfgs
+from ..utils import lbfgs
 from .base_model import BaseModel
 
 
 class NN(BaseModel):
-    def __init__(self, max_iter=100, hidden_layer_sizes=(100,), verbose=False):
+    def __init__(self, max_iter=100, hidden_layer_sizes=(100,), verbose=False, m=10):
         self.max_iter = max_iter
         self.hidden_layer_sizes = hidden_layer_sizes
         self.verbose = verbose
+        self.m = m
 
     def tanh(self, x):
-        return cn.tanh(x)
+        return cn.tanh(x, out=x)
 
-    def tanh_prime(self, x):
-        return 1 - cn.tanh(x) ** 2
+    def tanh_prime(self, H, delta):
+        delta *= 1 - H**2
 
     def forward(self, X):
-        activations = []
-        Z = []
-        Z.append(X.dot(self.coefficients_[0]))
-        for i in range(1, len(self.hidden_layer_sizes) + 1):
-            activations.append(self.tanh(Z[-1]))
-            Z.append(activations[-1].dot(self.coefficients_[i]))
-        return activations, Z
+        activations = [X]
+        for i in range(len(self.hidden_layer_sizes) + 1):
+            activations.append(activations[-1].dot(self.coefficients_[i]))
+            activations[-1] += self.biases_[i]
+            if i + 1 < len(self.hidden_layer_sizes) + 1:
+                activations[i + 1] = self.tanh(activations[i + 1])
+        return activations
 
     def cost(self, pred, y, sample_weight):
         result = (
@@ -38,22 +38,27 @@ class NN(BaseModel):
         return (pred - y.reshape(pred.shape)) * sample_weight
 
     def backward(self, X, y, sample_weight):
-        activations, Z = self.forward(X)
-        grads = [None] * (len(self.hidden_layer_sizes) + 1)
-        E = self.cost_prime(Z[-1], y, sample_weight=sample_weight)
+        activations = self.forward(X)
+        coeff_grads = [None] * (len(self.hidden_layer_sizes) + 1)
+        bias_grads = [None] * (len(self.hidden_layer_sizes) + 1)
+        deltas = [None] * (len(self.hidden_layer_sizes) + 1)
+        deltas[-1] = activations[-1] - y
+        # todo: scale by weight?
+        coeff_grads[-1] = activations[-2].T.dot(deltas[-1]) / X.shape[0]
+        bias_grads[-1] = deltas[-1].mean(axis=0)
         for i in range(len(self.hidden_layer_sizes), 0, -1):
-            grads[i] = activations[i - 1].T.dot(E)
-            E = E.dot(self.coefficients_[i].T) * self.tanh_prime(Z[i - 1])
-        grads[0] = X.T.dot(E)
-
-        for g, c in zip(grads, self.coefficients_):
+            deltas[i - 1] = deltas[i].dot(self.coefficients_[i].T)
+            self.tanh_prime(activations[i], deltas[i - 1])
+            coeff_grads[i - 1] = activations[i - 1].T.dot(deltas[i - 1]) / X.shape[0]
+            bias_grads[i - 1] = deltas[i - 1].mean(axis=0)
+        for g, c in zip(coeff_grads, self.coefficients_):
             assert g.shape == c.shape, (g.shape, c.shape)
-        return self.cost(Z[-1].squeeze(), y, sample_weight), grads
+        return self.cost(activations[-1], y, sample_weight), bias_grads, coeff_grads
 
     def _loss_grad_lbfgs(self, packed, X, y, sample_weight=None):
         self._unpack(packed)
-        loss, grads = self.backward(X, y, sample_weight)
-        packed_grad = self._pack(grads)
+        loss, bias_grads, coeff_grads = self.backward(X, y, sample_weight)
+        packed_grad = self._pack(bias_grads + coeff_grads)
         assert packed_grad.shape == packed.shape
         return loss, packed_grad
 
@@ -63,6 +68,11 @@ class NN(BaseModel):
     def _unpack(self, packed_coef):
         offset = 0
         for i in range(len(self.hidden_layer_sizes) + 1):
+            self.biases_[i] = packed_coef[
+                offset : offset + self.biases_[i].size
+            ].reshape(self.biases_[i].shape)
+            offset += self.biases_[i].size
+        for i in range(len(self.hidden_layer_sizes) + 1):
             self.coefficients_[i] = packed_coef[
                 offset : offset + self.coefficients_[i].size
             ].reshape(self.coefficients_[i].shape)
@@ -71,10 +81,20 @@ class NN(BaseModel):
     def _fitlbfgs(self, X, y, sample_weight=None):
         assert y.ndim == 2
         assert sample_weight.ndim == 2
-        packed = self._pack(self.coefficients_)
-        # result = lbfgs(packed, self._loss_grad_lbfgs, args=(X, y, sample_weight,),
-        #    verbose=self.verbose, max_iter=self.max_iter)
-        from scipy.optimize import minimize
+        packed = self._pack(self.biases_ + self.coefficients_)
+        result = lbfgs(
+            packed,
+            self._loss_grad_lbfgs,
+            args=(
+                X,
+                y,
+                sample_weight,
+            ),
+            verbose=self.verbose,
+            max_iter=self.max_iter,
+            m=self.m,
+        )
+        """From scipy.optimize import minimize.
 
         result = minimize(
             self._loss_grad_lbfgs,
@@ -88,21 +108,25 @@ class NN(BaseModel):
             jac=True,
             options={"maxiter": self.max_iter, "disp": self.verbose},
         )
+        """
         self._unpack(result.x)
         if self.verbose:
             print(result)
 
     def fit(self, X, g, h):
-        X = cn.concatenate([cn.ones((X.shape[0], 1)), X], axis=1)
         # init layers with glorot initialization
         self.coefficients_ = []
+        self.biases_ = []
         for i in range(0, len(self.hidden_layer_sizes) + 1):
             n = self.hidden_layer_sizes[i - 1] if i > 0 else X.shape[1]
             m = self.hidden_layer_sizes[i] if i < len(self.hidden_layer_sizes) else 1
-            factor = 2.0
+            factor = 6.0
             init_bound = cn.sqrt(factor / (n + m))
             self.coefficients_.append(
                 self.random_state.uniform(-init_bound, init_bound, size=(n, m))
+            )
+            self.biases_.append(
+                self.random_state.uniform(-init_bound, init_bound, size=(m,))
             )
 
         y = -g / h
@@ -110,8 +134,7 @@ class NN(BaseModel):
         return self
 
     def predict(self, X):
-        X = cn.concatenate([cn.ones((X.shape[0], 1)), X], axis=1)
-        return self.forward(X)[1][-1]
+        return self.forward(X)[-1]
 
     def clear(self) -> None:
         for c in self.coefficients_:
