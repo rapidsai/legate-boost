@@ -1,20 +1,23 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
+from scipy import special
 from scipy.stats import norm
 
 import cunumeric as cn
 
+from . import dist
 from .metrics import (
     BaseMetric,
     ExponentialMetric,
     GammaDevianceMetric,
+    GammaLLMetric,
     LogLossMetric,
     MSEMetric,
     NormalLLMetric,
     QuantileMetric,
 )
-from .utils import mod_col_by_idx, preround, set_col_by_idx
+from .utils import mod_col_by_idx, preround, sample_average, set_col_by_idx
 
 GradPair = Tuple[cn.ndarray, cn.ndarray]
 
@@ -111,7 +114,21 @@ class SquaredErrorObjective(BaseObjective):
             return cn.zeros(y.shape[1])
 
 
-class NormalObjective(BaseObjective):
+class Forecast:
+    @abstractmethod
+    def to_dist(self, pred: cn.ndarray) -> dist.Dist:
+        """Return the distribution that the parameter represents.
+
+        Parameters
+        ----------
+
+        pred :
+            The parameters returned by the model.
+        """
+        raise NotImplementedError("abstractmethod")
+
+
+class NormalObjective(BaseObjective, Forecast):
     """The normal distribution objective function for regression problems.
 
     This objective fits both mean and variance parameters, where :class:`SquaredErrorObjective` only fits the mean.
@@ -167,21 +184,51 @@ class NormalObjective(BaseObjective):
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
 
+    def to_dist(self, pred: cn.ndarray) -> dist.Dist:
+        return dist.Normal(pred)
+
 
 class FitInterceptRegMixIn(BaseObjective):
     def one_step_newton(
-        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool, n_targets: int
+        self,
+        y: cn.ndarray,
+        w: cn.ndarray,
+        boost_from_average: bool,
+        init: cn.ndarray,
     ) -> cn.ndarray:
+        """Run one Newton step for initialiszing the prediction.
+
+        Parameters
+        ----------
+        y :
+            Label.
+        w :
+            Sample weight.
+        boost_from_average :
+            Skip if False.
+        n_targets :
+            Number of targets for the current objective.
+        init :
+            The starting point. Use zero if None.
+
+        Returns
+        -------
+        A single sample prediction.
+        """
         if boost_from_average:
-            # take 1 newton step (we could iterate here to get a better estimate)
-            g, h = self.gradient(
-                y,
-                self.transform(cn.zeros((y.shape[0], n_targets))),
-            )
+            assert init.shape[0] == 1
+            # Construct the initial prediction array for gradient.
+            pred = cn.repeat(init, y.shape[0], axis=0)
+
+            # Take 1 newton step (we could iterate here to get a better estimate)
+            g, h = self.gradient(y, pred)
             g = g * w[:, None]
             h = h * w[:, None]
-            return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
-        return cn.zeros(n_targets)
+            # Unregularised Newton.
+            delta = g.sum(axis=0) / h.sum(axis=0)
+            # Update step.
+            return (init - delta).reshape(-1)
+        return init.reshape(-1)
 
 
 class GammaDevianceObjective(FitInterceptRegMixIn):
@@ -216,7 +263,127 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
             n_targets = 1
         else:
             n_targets = y.shape[1]
-        return self.one_step_newton(y, w, boost_from_average, n_targets)
+        return self.one_step_newton(
+            y,
+            w,
+            boost_from_average,
+            self.transform(cn.zeros(shape=(1, n_targets), dtype=cn.float64)),
+        )
+
+
+class GammaObjective(FitInterceptRegMixIn, Forecast):
+    """Regression with the :math:`\\Gamma` distribution function.
+
+    Parameters
+    ----------
+
+    parameterization :
+        How to parameterize the :math:`\\Gamma`-distribution. See
+        :py:class:`legateboost.dist.Gamma` for details.
+    """
+
+    def __init__(self, parameterization: str) -> None:
+        dist.Gamma.check_parameterization(parameterization)
+
+        self._p = parameterization
+        super().__init__()
+
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
+        grad = cn.empty((y.shape[0], y.shape[1], 2))
+        fisher = cn.empty((y.shape[0], y.shape[1], 2))
+        if self._p == "shape-scale":
+            shape = pred[:, :, 0]
+            scale = pred[:, :, 1]
+            grad[:, :, 0] = shape * (special.digamma(shape) + cn.log(scale) - cn.log(y))
+            grad[:, :, 1] = shape - (1 / scale * y)
+        elif self._p == "canonical":
+            # n0 = \exp{m} - 1
+            # n1 = -\exp{n}
+            shape = pred[:, :, 0] + 1
+            en = -pred[:, :, 1]
+
+            grad[:, :, 0] = -shape * (-special.digamma(shape) + cn.log(en) + cn.log(y))
+            grad[:, :, 1] = en * y - shape
+        else:
+            # scale-rate
+            shape = pred[:, :, 0]
+            rate = pred[:, :, 1]
+            grad[:, :, 0] = -shape * (
+                -special.digamma(shape) + cn.log(rate) + cn.log(y)
+            )
+            grad[:, :, 1] = rate * y - shape
+
+        fisher[:, :, 0] = special.polygamma(1, shape) * shape**2
+        fisher[:, :, 1] = shape
+
+        fisher = fisher.reshape(fisher.shape[0], -1)
+        assert fisher.ndim == 2
+        return grad.reshape(grad.shape[0], -1), fisher
+
+    def transform(self, pred: cn.ndarray) -> cn.ndarray:
+        pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
+        assert pred.ndim == 3
+        if self._p in {"shape-scale", "shape-rate"}:
+            return cn.exp(pred)
+        else:
+            t = cn.empty(shape=pred.shape)
+            t[:, :, 0] = cn.exp(pred[:, :, 0]) - 1.0
+            t[:, :, 1] = -cn.exp(pred[:, :, 1])
+            return t
+
+    def metric(self) -> GammaLLMetric:
+        return GammaLLMetric(parameterization=self._p)
+
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        assert y.ndim == 2
+        if not (y > 0.0).all():
+            raise ValueError("y is expected to be positive.")
+        if y.shape[1] > 1:
+            raise ValueError("multi-target is not yet supported.")
+
+        # Just pick a valid number to get things started, no special meaning.
+        if self._p in {"shape-scale", "shape-rate"}:
+            # s.t
+            # k > 0
+            # theta > 0
+            pred = cn.ones(shape=(2,))
+        elif self._p == "canonical":
+            # s.t.
+            # n0 > -1
+            # n1 < 0
+            pred = cn.array([0.0, -1.0])
+        else:
+            dist.Gamma.check_parameterization(self._p)
+
+        if not boost_from_average:
+            return pred.reshape(-1)
+
+        # No close solution, scipy has a more complicated fit method.
+        if self._p == "shape-scale":
+            init = self.one_step_newton(
+                y, w, boost_from_average, init=pred.reshape(1, 1, 2)
+            )
+            mean = sample_average(y, w)
+            pred[0] = init[0]
+            pred[1] = max(mean / pred[0], 0.0)
+        elif self._p == "shape-rate":
+            init = self.one_step_newton(
+                y, w, boost_from_average, init=pred.reshape(1, 1, 2)
+            )
+            mean = sample_average(y, w)
+            pred[0] = init[0]
+            pred[1] = max(pred[0] / mean, 0.0)
+        elif self._p == "canonical":
+            pred = self.one_step_newton(
+                y, w, boost_from_average, init=pred.reshape(1, 1, 2)
+            )
+
+        return pred
+
+    def to_dist(self, pred: cn.ndarray) -> dist.Dist:
+        return dist.Gamma(pred, self._p)
 
 
 class QuantileObjective(BaseObjective):
@@ -284,7 +451,7 @@ class LogLossObjective(FitInterceptRegMixIn):
 
     This objective function computes the log loss between the predicted and true labels.
 
-    :math:`L(y_i, p_i) = -y_i log(p_i) - (1 - y_i) log(1 - p_i)`
+    :math:`L(y_i, p_i) = -y_i \\log(p_i) - (1 - y_i) \\log(1 - p_i)`
 
     See also:
         :class:`legateboost.metrics.LogLossMetric`
@@ -324,7 +491,8 @@ class LogLossObjective(FitInterceptRegMixIn):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
         n_targets = num_class if num_class > 2 else 1
-        return self.one_step_newton(y, w, boost_from_average, n_targets)
+        init = self.transform(cn.zeros((1, n_targets), dtype=cn.float64))
+        return self.one_step_newton(y, w, boost_from_average, init)
 
 
 class ExponentialObjective(FitInterceptRegMixIn):
@@ -387,7 +555,8 @@ class ExponentialObjective(FitInterceptRegMixIn):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
         n_targets = num_class if num_class > 2 else 1
-        return self.one_step_newton(y, w, boost_from_average, n_targets)
+        init = self.transform(cn.zeros((1, n_targets), dtype=cn.float64))
+        return self.one_step_newton(y, w, boost_from_average, init)
 
 
 objectives = {
@@ -397,4 +566,5 @@ objectives = {
     "exp": ExponentialObjective,
     "quantile": QuantileObjective,
     "gamma_deviance": GammaDevianceObjective,
+    "gamma": GammaObjective,
 }

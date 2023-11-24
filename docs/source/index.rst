@@ -12,6 +12,7 @@ Welcome to legateboost's documentation!
    Contributing <contributing.md>
    Memory usage guidelines <memory.md>
    Python API Reference <api/index.rst>
+   Probabilistic Forecasting <forecasting/index.rst>
 
 
 Indices and tables

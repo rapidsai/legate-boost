@@ -119,6 +119,57 @@ class NormalLLMetric(BaseMetric):
         return "normal_neg_ll"
 
 
+class GammaLLMetric(BaseMetric):
+    """The mean negative log likelihood of the labels, given parameters
+    predicted by the model.
+
+    Parameters
+    ----------
+
+    parameterization :
+        How to parameterize the :math:`\\Gamma`-distribution. See
+        :py:class:`legateboost.dist.Gamma` for details.
+    """
+
+    def __init__(self, parameterization: str) -> None:
+        self._p = parameterization
+
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        from scipy import special
+
+        y, pred = check_normal(y, pred)
+
+        w_sum = w.sum()
+        if w_sum == 0:
+            return 0
+
+        if self._p == "shape-scale":
+            k = pred[:, :, 0]
+            b = pred[:, :, 1]
+            error = (
+                -(k - 1) * cn.log(y)
+                + y / (b + 1e-6)
+                + k * cn.log(b)
+                + special.loggamma(k)
+            )
+        elif self._p == "canonical":
+            m = pred[:, :, 0]
+            n = pred[:, :, 1]
+            n0p1 = m + 1
+            error = -(
+                m * cn.log(y) + n * y - (special.loggamma(n0p1) - n0p1 * cn.log(-n))
+            )
+        else:
+            a = pred[:, :, 0]
+            b = pred[:, :, 1]
+            error = -((a - 1) * cn.log(y) - b * y + a * cn.log(b) - special.loggamma(a))
+
+        return float(sample_average(error, w))
+
+    def name(self) -> str:
+        return "gamma_neg_ll"
+
+
 def norm_cdf(x: cn.ndarray) -> cn.ndarray:
     """CDF function for standard normal distribution."""
     return 0.5 * (1.0 + erf(x / cn.sqrt(2.0)))
@@ -292,6 +343,7 @@ metrics = {
     "mse": MSEMetric,
     "exp": ExponentialMetric,
     "normal_neg_ll": NormalLLMetric,
+    "gamma_neg_ll": GammaLLMetric,
     "normal_crps": NormalCRPSMetric,
     "deviance_gamma": GammaDevianceMetric,
 }
