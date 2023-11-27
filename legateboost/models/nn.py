@@ -17,11 +17,10 @@ class NN(BaseModel):
     def tanh_prime(self, H, delta):
         delta *= 1 - H**2
 
-    def forward(self, X):
-        activations = [X]
+    def forward(self, X, activations):
         for i in range(len(self.hidden_layer_sizes) + 1):
-            activations.append(activations[-1].dot(self.coefficients_[i]))
-            activations[-1] += self.biases_[i]
+            activations[i + 1] = activations[i].dot(self.coefficients_[i])
+            activations[i + 1] += self.biases_[i]
             if i + 1 < len(self.hidden_layer_sizes) + 1:
                 activations[i + 1] = self.tanh(activations[i + 1])
         return activations
@@ -29,20 +28,20 @@ class NN(BaseModel):
     def cost(self, pred, y, sample_weight):
         result = (
             0.5
-            * cn.square(pred - y.reshape(pred.shape) * sample_weight).sum(axis=0)
+            * cn.square((pred - y.reshape(pred.shape)) * sample_weight).sum(axis=0)
             / sample_weight.sum(axis=0)
         )
-        return float(result.mean())
+        return result.mean()
 
     def cost_prime(self, pred, y, sample_weight):
         return (pred - y.reshape(pred.shape)) * sample_weight
 
-    def backward(self, X, y, sample_weight):
-        activations = self.forward(X)
-        coeff_grads = [None] * (len(self.hidden_layer_sizes) + 1)
-        bias_grads = [None] * (len(self.hidden_layer_sizes) + 1)
-        deltas = [None] * (len(self.hidden_layer_sizes) + 1)
-        deltas[-1] = activations[-1] - y
+    def backward(
+        self, X, y, sample_weight, coeff_grads, bias_grads, deltas, activations
+    ):
+        activations = self.forward(X, activations)
+        cost = self.cost(activations[-1], y, sample_weight)
+        deltas[-1] = self.cost_prime(activations[-1], y, sample_weight)
         # todo: scale by weight?
         coeff_grads[-1] = activations[-2].T.dot(deltas[-1]) / X.shape[0]
         bias_grads[-1] = deltas[-1].mean(axis=0)
@@ -53,11 +52,15 @@ class NN(BaseModel):
             bias_grads[i - 1] = deltas[i - 1].mean(axis=0)
         for g, c in zip(coeff_grads, self.coefficients_):
             assert g.shape == c.shape, (g.shape, c.shape)
-        return self.cost(activations[-1], y, sample_weight), bias_grads, coeff_grads
+        return cost, bias_grads, coeff_grads
 
-    def _loss_grad_lbfgs(self, packed, X, y, sample_weight=None):
+    def _loss_grad_lbfgs(
+        self, packed, X, y, sample_weight, coeff_grads, bias_grads, deltas, activations
+    ):
         self._unpack(packed)
-        loss, bias_grads, coeff_grads = self.backward(X, y, sample_weight)
+        loss, bias_grads, coeff_grads = self.backward(
+            X, y, sample_weight, coeff_grads, bias_grads, deltas, activations
+        )
         packed_grad = self._pack(bias_grads + coeff_grads)
         assert packed_grad.shape == packed.shape
         return loss, packed_grad
@@ -82,6 +85,10 @@ class NN(BaseModel):
         assert y.ndim == 2
         assert sample_weight.ndim == 2
         packed = self._pack(self.biases_ + self.coefficients_)
+        coeff_grads = [None] * (len(self.hidden_layer_sizes) + 1)
+        bias_grads = [None] * (len(self.hidden_layer_sizes) + 1)
+        deltas = [None] * (len(self.hidden_layer_sizes) + 1)
+        activations = [X] + [None] * len(self.hidden_layer_sizes) + [None]
         result = lbfgs(
             packed,
             self._loss_grad_lbfgs,
@@ -89,6 +96,10 @@ class NN(BaseModel):
                 X,
                 y,
                 sample_weight,
+                coeff_grads,
+                bias_grads,
+                deltas,
+                activations,
             ),
             verbose=self.verbose,
             max_iter=self.max_iter,
@@ -134,7 +145,8 @@ class NN(BaseModel):
         return self
 
     def predict(self, X):
-        return self.forward(X)[-1]
+        activations = [X] + [None] * len(self.hidden_layer_sizes) + [None]
+        return self.forward(X, activations)[-1]
 
     def clear(self) -> None:
         for c in self.coefficients_:
