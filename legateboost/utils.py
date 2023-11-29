@@ -3,7 +3,7 @@ from typing import Any, Optional
 import numpy as np
 
 import cunumeric as cn
-from legate.core import Store, get_legate_runtime
+from legate.core import LogicalArray, LogicalStore
 
 
 class PickleCunumericMixin:
@@ -82,7 +82,7 @@ def preround(x: cn.ndarray) -> cn.ndarray:
     return (x + M) - M
 
 
-def get_store(input: Any) -> Store:
+def get_store(input: Any) -> LogicalStore:
     """Extracts a Legate store from any object implementing the legete data
     interface.
 
@@ -90,14 +90,18 @@ def get_store(input: Any) -> Store:
         input (Any): The input object
 
     Returns:
-        Store: The extracted Legate store
+        LogicalStore: The extracted Legate store
     """
-    if isinstance(input, Store):
+    if isinstance(input, LogicalStore):
         return input
+    if isinstance(input, LogicalArray):
+        assert not (input.nullable or input.nested)
+        return input.data
     data = input.__legate_data_interface__["data"]
     field = next(iter(data))
     array = data[field]
-    _, store = array.stores()
+    assert not (array.nullable or array.nested)
+    store = array.data
     return store
 
 
@@ -117,7 +121,6 @@ def solve_singular(a, b):
     # try first without modification
     try:
         res = cn.linalg.solve(a, b)
-        get_legate_runtime().raise_exceptions()
         if np.isnan(res).any():
             raise np.linalg.LinAlgError
         return res
@@ -134,7 +137,6 @@ def solve_singular(a, b):
     while True:
         try:
             res = cn.linalg.solve(a + cn.eye(a.shape[0]) * tau, b)
-            get_legate_runtime().raise_exceptions()
             if np.isnan(res).any():
                 raise np.linalg.LinAlgError
             return res

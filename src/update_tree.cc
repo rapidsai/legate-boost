@@ -21,33 +21,33 @@ namespace legateboost {
 
 struct update_tree_fn {
   template <legate::Type::Code CODE>
-  void operator()(legate::TaskContext& context)
+  void operator()(legate::TaskContext context)
   {
-    using T           = legate::legate_type_of<CODE>;
-    const auto& X     = context.inputs().at(0);
+    using T           = legate::type_of<CODE>;
+    const auto& X     = context.input(0).data();
     auto X_shape      = X.shape<2>();
     auto X_accessor   = X.read_accessor<T, 2>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
-    const auto& g     = context.inputs().at(1);
-    const auto& h     = context.inputs().at(2);
+    const auto& g     = context.input(1).data();
+    const auto& h     = context.input(2).data();
     EXPECT_AXIS_ALIGNED(0, X.shape<2>(), g.shape<2>());
     EXPECT_AXIS_ALIGNED(0, g.shape<2>(), h.shape<2>());
     EXPECT_AXIS_ALIGNED(1, g.shape<2>(), h.shape<2>());
-    auto g_shape     = context.inputs().at(1).shape<2>();
+    auto g_shape     = context.input(1).data().shape<2>();
     auto num_outputs = g.shape<2>().hi[1] - g.shape<2>().lo[1] + 1;
     auto g_accessor  = g.read_accessor<double, 2>();
     auto h_accessor  = h.read_accessor<double, 2>();
 
     // Tree structure
-    auto feature     = context.inputs().at(3).read_accessor<int32_t, 1>();
-    auto split_value = context.inputs().at(4).read_accessor<double, 1>();
+    auto feature     = context.input(3).data().read_accessor<int32_t, 1>();
+    auto split_value = context.input(4).data().read_accessor<double, 1>();
 
     // We should have the whole tree
-    EXPECT_IS_BROADCAST(context.inputs().at(3).shape<1>());
-    EXPECT_IS_BROADCAST(context.inputs().at(4).shape<1>());
+    EXPECT_IS_BROADCAST(context.input(3).data().shape<1>());
+    EXPECT_IS_BROADCAST(context.input(4).data().shape<1>());
 
-    auto feature_shape  = context.inputs().at(3).shape<1>();
+    auto feature_shape  = context.input(3).data().shape<1>();
     auto num_nodes      = feature_shape.hi[0] - feature_shape.lo[0] + 1;
     auto new_leaf_value = legate::create_buffer<double, 2>({num_nodes, num_outputs});
     auto new_gradient   = legate::create_buffer<double, 2>({num_nodes, num_outputs});
@@ -94,12 +94,12 @@ struct update_tree_fn {
     }
 
     if (context.get_task_index()[0] == 0) {
-      auto leaf_value_out = context.outputs().at(0).write_accessor<double, 2>();
+      auto leaf_value_out = context.output(0).data().write_accessor<double, 2>();
       std::copy(new_leaf_value.ptr({0, 0}),
                 new_leaf_value.ptr({0, 0}) + num_nodes * num_outputs,
                 leaf_value_out.ptr({0, 0}));
 
-      auto hessian_out = context.outputs().at(1).write_accessor<double, 2>();
+      auto hessian_out = context.output(1).data().write_accessor<double, 2>();
       std::copy(new_hessian.ptr({0, 0}),
                 new_hessian.ptr({0, 0}) + num_nodes * num_outputs,
                 hessian_out.ptr({0, 0}));
@@ -109,9 +109,9 @@ struct update_tree_fn {
 
 class UpdateTreeTask : public Task<UpdateTreeTask, UPDATE_TREE> {
  public:
-  static void cpu_variant(legate::TaskContext& context)
+  static void cpu_variant(legate::TaskContext context)
   {
-    const auto& X = context.inputs().at(0);
+    const auto& X = context.input(0).data();
     type_dispatch_float(X.code(), update_tree_fn(), context);
   }
 };
