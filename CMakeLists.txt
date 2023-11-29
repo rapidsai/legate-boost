@@ -12,11 +12,6 @@ endif()
 
 set(BUILD_SHARED_LIBS ON)
 
-include(cmake/thirdparty/fetch_rapids.cmake)
-include(rapids-cmake)
-include(rapids-cpm)
-include(rapids-cuda)
-
 # Look for an existing C++ editable build
 # Not required. We will build it if not found.
 find_package(legateboost QUIET)
