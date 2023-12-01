@@ -156,7 +156,6 @@ class Tree(BaseModel):
         num_outputs = g.shape[1]
         n_rows = X.shape[0]
         num_procs = self.num_procs_to_use(n_rows)
-        use_gpu = get_legate_runtime().machine.preferred_kind == 1
         rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
         task = get_legate_runtime().create_manual_task(
@@ -195,11 +194,10 @@ class Tree(BaseModel):
             projection=(dimension(0), constant(0)),
         )
 
-        if num_procs > 1:
-            if use_gpu:
-                task.add_nccl_communicator()
-            else:
-                task.add_cpu_communicator()
+        if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
+            task.add_nccl_communicator()
+        elif get_legate_runtime().machine.count() > 1:
+            task.add_cpu_communicator()
 
         task.execute()
         self.leaf_value = cn.array(leaf_value, copy=False)
@@ -231,7 +229,6 @@ class Tree(BaseModel):
             partition_if_not_future(pred, (rows_per_tile, n_outputs)),
             projection=(dimension(0), constant(0)),
         )
-
         task.execute()
         return cn.array(pred)
 
