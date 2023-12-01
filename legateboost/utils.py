@@ -192,9 +192,12 @@ def __vlbfgs_recursion(g, s, y):
     if m == 0:
         return -g
     b = cn.array(s + y + [g])
-    B = b.dot(b.T)
-    delta = cn.zeros(len(b))
-    alpha = cn.zeros(len(b))
+
+    # Perform this computation using numpy to avoid Legate overhead
+    # B matrix is small
+    B = b.dot(b.T).__array__()
+    delta = np.zeros(len(b))
+    alpha = np.zeros(len(b))
     delta[-1] = -1.0
 
     for i in reversed(range(m)):
@@ -206,7 +209,8 @@ def __vlbfgs_recursion(g, s, y):
     for i in range(m):
         beta = delta.dot(B[:, i + m]) / B[i, i + m]
         delta[i] = delta[i] + (alpha[i] - beta)
-    return delta.dot(b)
+    # Convert back to cunumeric
+    return cn.dot(delta, b)
 
 
 def __lbfgs_recursion(g, s, y):
@@ -300,15 +304,15 @@ def lbfgs(x0, f, max_iter=100, m=10, gtol=1e-5, args=(), verbose=False):
         # r = __lbfgs_recursion(g, s, y)
         r = __vlbfgs_recursion(g, s, y)
         lr, eval, new_g = __line_search(count_f, eval, g, x, r, args=args)
-        if not cn.isfinite(lr) or lr < 1e-16:
-            if verbose:
-                print("L-BFGS: lr too small, ending iteration.")
-            break
+        norm = cn.linalg.norm(new_g)
         s.append(lr * r)
         x = x + s[-1]
         y.append(new_g - g)
         g = new_g
-        norm = cn.linalg.norm(g)
+        if not cn.isfinite(lr) or lr < 1e-16:
+            if verbose:
+                print("L-BFGS: lr too small, ending iteration.")
+            break
         if verbose and k % verbose == 0:
             print(
                 "L-BFGS:\tk={}\tfeval:{:8.5}\tnorm:{:8.5f}".format(k, float(eval), norm)

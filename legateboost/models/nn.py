@@ -31,7 +31,9 @@ class NN(BaseModel):
             * cn.square((pred - y.reshape(pred.shape)) * sample_weight).sum(axis=0)
             / sample_weight.sum(axis=0)
         )
-        return result.mean()
+        if pred.shape[1] > 1:
+            return result.mean()
+        return result
 
     def cost_prime(self, pred, y, sample_weight):
         return (pred - y.reshape(pred.shape)) * sample_weight
