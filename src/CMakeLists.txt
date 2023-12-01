@@ -44,6 +44,12 @@ add_library(
   ${TEMPLATE_SOURCES}
 )
 
+set_target_properties(legateboost
+  PROPERTIES
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED ON
+  POSITION_INDEPENDENT_CODE ON)
+
 target_compile_options(legateboost
       PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${LB_CXX_FLAGS}>"
               "$<$<COMPILE_LANGUAGE:CUDA>:${LB_CUDA_FLAGS}>"
