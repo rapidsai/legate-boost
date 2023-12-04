@@ -279,7 +279,7 @@ namespace {
 void SumAllReduce(legate::TaskContext context, double* x, int count, cudaStream_t stream)
 {
   if (context.communicators().size() == 0) return;
-  auto& comm            = context.communicators().at(0);
+  auto comm             = context.communicators().at(0);
   auto domain           = context.get_launch_domain();
   size_t num_ranks      = domain.get_volume();
   ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();

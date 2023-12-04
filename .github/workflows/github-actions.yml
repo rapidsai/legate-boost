@@ -12,6 +12,7 @@ on:
       - "main"
 jobs:
   build:
+    if: false
     defaults:
       run:
         shell: bash -el {0}
@@ -32,7 +33,7 @@ jobs:
           path: /opt/conda/envs/legate
           # renew cache weekly with legate.core/cunumeric builds
           key:
-            conda--${{
+            conda--internal--${{
             steps.get-date.outputs.week }}
         id: cache
       - name: Checkout legate core
@@ -106,7 +107,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: /opt/conda/envs/legate
-          key: conda--${{
+          key: conda--internal--${{
             steps.get-date.outputs.today }}
       - uses: actions/download-artifact@v3
         with:
