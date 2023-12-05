@@ -1,6 +1,6 @@
 import math
 from enum import IntEnum
-from typing import Any, Tuple
+from typing import Any
 
 import cunumeric as cn
 from legate.core import TaskTarget, constant, dimension, get_legate_runtime, types
@@ -14,13 +14,6 @@ class LegateBoostOpCode(IntEnum):
     BUILD_TREE = user_lib.cffi.BUILD_TREE
     PREDICT = user_lib.cffi.PREDICT
     UPDATE_TREE = user_lib.cffi.UPDATE_TREE
-
-
-# handle the case of 1 input row, where the store can be a future
-# calls to partition_by_tiling will fail
-def partition_if_not_future(array: cn.ndarray, shape: Tuple[int, int]) -> Any:
-    store = get_store(array)
-    return store.partition_by_tiling(shape)
 
 
 class Tree(BaseModel):
@@ -77,17 +70,16 @@ class Tree(BaseModel):
 
         # inputs
         task.add_scalar_arg(self.max_depth, types.int32)
-
         task.add_input(
-            partition_if_not_future(X, (rows_per_tile, num_features)),
+            get_store(X).partition_by_tiling((rows_per_tile, num_features)),
             projection=(dimension(0), constant(0)),
         )
         task.add_input(
-            partition_if_not_future(g, (rows_per_tile, num_outputs)),
+            get_store(g).partition_by_tiling((rows_per_tile, num_outputs)),
             projection=(dimension(0), constant(0)),
         )
         task.add_input(
-            partition_if_not_future(h, (rows_per_tile, num_outputs)),
+            get_store(h).partition_by_tiling((rows_per_tile, num_outputs)),
             projection=(dimension(0), constant(0)),
         )
         task.add_input(get_store(split_proposals))
@@ -163,15 +155,15 @@ class Tree(BaseModel):
         )
 
         task.add_input(
-            partition_if_not_future(X, (rows_per_tile, num_features)),
+            get_store(X).partition_by_tiling((rows_per_tile, num_features)),
             projection=(dimension(0), constant(0)),
         )
         task.add_input(
-            partition_if_not_future(g, (rows_per_tile, num_outputs)),
+            get_store(g).partition_by_tiling((rows_per_tile, num_outputs)),
             projection=(dimension(0), constant(0)),
         )
         task.add_input(
-            partition_if_not_future(h, (rows_per_tile, num_outputs)),
+            get_store(h).partition_by_tiling((rows_per_tile, num_outputs)),
             projection=(dimension(0), constant(0)),
         )
 
@@ -215,7 +207,7 @@ class Tree(BaseModel):
         )
 
         task.add_input(
-            partition_if_not_future(X, (rows_per_tile, n_features)),
+            get_store(X).partition_by_tiling((rows_per_tile, n_features)),
             projection=(dimension(0), constant(0)),
         )
 
@@ -226,7 +218,7 @@ class Tree(BaseModel):
 
         pred = get_legate_runtime().create_store(types.float64, (n_rows, n_outputs))
         task.add_output(
-            partition_if_not_future(pred, (rows_per_tile, n_outputs)),
+            get_store(pred).partition_by_tiling((rows_per_tile, n_outputs)),
             projection=(dimension(0), constant(0)),
         )
         task.execute()

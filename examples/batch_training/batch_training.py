@@ -1,9 +1,10 @@
+import os
 from pathlib import Path
 
 import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.ticker import FuncFormatter
-from sklearn.datasets import fetch_openml
+from sklearn.datasets import fetch_openml, make_regression
 from sklearn.model_selection import train_test_split
 from sklearn.utils import gen_even_slices
 
@@ -13,7 +14,7 @@ import legateboost as lb
 sns.set()
 plt.rcParams["font.family"] = "serif"
 
-total_estimators = 100
+total_estimators = 10 if os.environ.get("CI") else 100
 n_batches = 10
 estimators_per_batch = 5
 
@@ -27,7 +28,10 @@ training_params = {
 }
 
 # Fetch the data, create a train test split and convert to cunumeric arrays
-X, y = fetch_openml(name="year", version=1, return_X_y=True, as_frame=False)
+if os.environ.get("CI"):
+    X, y = make_regression(random_state=2)
+else:
+    X, y = fetch_openml(name="year", version=1, return_X_y=True, as_frame=False)
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=random_state
 )

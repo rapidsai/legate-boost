@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +20,7 @@ X = StandardScaler().fit_transform(X.astype(np.float64))
 n_folds = 5
 
 params = {
-    "n_estimators": 100,
+    "n_estimators": 2 if os.environ.get("CI") else 100,
     "learning_rate": 0.3,
     "random_state": 98,
     "verbose": True,
