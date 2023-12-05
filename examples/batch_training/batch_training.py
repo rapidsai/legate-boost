@@ -19,7 +19,7 @@ estimators_per_batch = 5
 
 random_state = 23
 training_params = {
-    "max_depth": 5,
+    "base_models": (lb.models.Tree(max_depth=5),),
     "learning_rate": 0.1,
     "verbose": True,
     "init": "average",
