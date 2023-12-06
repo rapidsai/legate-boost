@@ -40,6 +40,7 @@ jobs:
         with:
             repository: nv-legate/legate.core.internal
             path: legate.core
+            token: ${{ secrets.pat }}
             ref: 40bb28ccd21886e6529dc1393a171039b875fd46
       - name: Install legate core
         working-directory: ./legate.core.internal
