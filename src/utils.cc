@@ -6,10 +6,12 @@ Legion::Logger logger("legateboost");
 
 void SumAllReduce(legate::TaskContext context, double* x, int count)
 {
-  if (context.communicators().size() == 0) return;
-  auto comm        = context.communicators().at(0);
   auto domain      = context.get_launch_domain();
   size_t num_ranks = domain.get_volume();
+  EXPECT(num_ranks == 1 || context.num_communicators() > 0,
+         "Expected a CPU communicator for multi-rank task.");
+  if (context.num_communicators() == 0) return;
+  auto comm = context.communicator(0);
   std::vector<double> gather_result(num_ranks * count);
   auto result = legate::comm::coll::collAllgather(x,
                                                   gather_result.data(),
