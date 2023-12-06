@@ -12,7 +12,6 @@ on:
       - "main"
 jobs:
   build:
-    if: false
     defaults:
       run:
         shell: bash -el {0}
@@ -39,11 +38,11 @@ jobs:
       - name: Checkout legate core
         uses: actions/checkout@v3
         with:
-            repository: nv-legate/legate.core
+            repository: nv-legate/legate.core.internal
             path: legate.core
-            ref: branch-23.09
+            ref: 40bb28ccd21886e6529dc1393a171039b875fd46
       - name: Install legate core
-        working-directory: ./legate.core
+        working-directory: ./legate.core.internal
         run: |
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
@@ -55,9 +54,9 @@ jobs:
       - name: Checkout cunumeric
         uses: actions/checkout@v3
         with:
-            repository: nv-legate/cunumeric
+            repository: nv-legate/cunumeric.internal
             path: cunumeric
-            ref: branch-23.09
+            ref: 548f1cd73ac318a3ad2b3f6f239a999db87182c3
       - name: Install cunumeric
         working-directory: ./cunumeric
         run: |
