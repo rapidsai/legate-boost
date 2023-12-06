@@ -186,10 +186,8 @@ class Tree(BaseModel):
             projection=(dimension(0), constant(0)),
         )
 
-        if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
-            task.add_nccl_communicator()
-        elif get_legate_runtime().machine.count() > 1:
-            task.add_cpu_communicator()
+        # Update task has only a CPU implementation
+        task.add_cpu_communicator()
 
         task.execute()
         self.leaf_value = cn.array(leaf_value, copy=False)
