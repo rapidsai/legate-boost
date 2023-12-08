@@ -120,7 +120,7 @@ jobs:
       - name: Run cpu tests
         working-directory: lib/python3.10/site-packages
         run: |
-          legate --sysmem 16000 --module pytest legateboost/test -sv --durations=0
+          legate --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
       - name: Run cpu multi-node tests
         working-directory: lib/python3.10/site-packages
         run: |
@@ -130,7 +130,7 @@ jobs:
       - name: Run gpu tests
         working-directory: lib/python3.10/site-packages
         run: |
-          legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
+          legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
 
 
   deploy:
