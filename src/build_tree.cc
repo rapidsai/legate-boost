@@ -13,6 +13,7 @@
  * limitations under the License.
  *
  */
+#include "legate.h"
 #include "legate_library.h"
 #include "legateboost.h"
 #include "utils.h"
@@ -80,25 +81,25 @@ struct Tree {
 };
 
 template <typename T>
-void WriteOutput(legate::Store& out, const std::vector<T>& x)
+void WriteOutput(legate::PhysicalStore out, const std::vector<T>& x)
 {
   EXPECT(out.shape<2>().volume() >= x.size(), "Output not large enough.");
   std::copy(x.begin(), x.end(), out.write_accessor<T, 2>().ptr({0, 0}));
 }
-void WriteOutput(legate::Store& out, const legate::Buffer<double, 2>& x)
+void WriteOutput(legate::PhysicalStore out, const legate::Buffer<double, 2>& x)
 {
   std::copy(x.ptr({0, 0}),
             x.ptr({0, 0}) + out.shape<2>().volume(),
             out.write_accessor<double, 2>().ptr({0, 0}));
 }
 
-void WriteTreeOutput(legate::TaskContext& context, const Tree& tree)
+void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
 {
-  WriteOutput(context.outputs().at(0), tree.leaf_value);
-  WriteOutput(context.outputs().at(1), tree.feature);
-  WriteOutput(context.outputs().at(2), tree.split_value);
-  WriteOutput(context.outputs().at(3), tree.gain);
-  WriteOutput(context.outputs().at(4), tree.hessian);
+  WriteOutput(context.output(0).data(), tree.leaf_value);
+  WriteOutput(context.output(1).data(), tree.feature);
+  WriteOutput(context.output(2).data(), tree.split_value);
+  WriteOutput(context.output(3).data(), tree.gain);
+  WriteOutput(context.output(4).data(), tree.hessian);
 }
 
 struct GradientHistogram {
@@ -135,24 +136,24 @@ struct GradientHistogram {
 
 struct build_tree_fn {
   template <legate::Type::Code CODE>
-  void operator()(legate::TaskContext& context)
+  void operator()(legate::TaskContext context)
   {
-    using T           = legate::legate_type_of<CODE>;
-    const auto& X     = context.inputs().at(0);
+    using T           = legate::type_of<CODE>;
+    const auto& X     = context.input(0).data();
     auto X_shape      = X.shape<2>();
     auto X_accessor   = X.read_accessor<T, 2>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
-    const auto& g     = context.inputs().at(1);
-    const auto& h     = context.inputs().at(2);
+    const auto& g     = context.input(1).data();
+    const auto& h     = context.input(2).data();
     EXPECT_AXIS_ALIGNED(0, X.shape<2>(), g.shape<2>());
     EXPECT_AXIS_ALIGNED(0, g.shape<2>(), h.shape<2>());
     EXPECT_AXIS_ALIGNED(1, g.shape<2>(), h.shape<2>());
-    auto g_shape                = context.inputs().at(1).shape<2>();
+    auto g_shape                = context.input(1).data().shape<2>();
     auto num_outputs            = g.shape<2>().hi[1] - g.shape<2>().lo[1] + 1;
     auto g_accessor             = g.read_accessor<double, 2>();
     auto h_accessor             = h.read_accessor<double, 2>();
-    const auto& split_proposals = context.inputs().at(3);
+    const auto& split_proposals = context.input(3).data();
     EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X.shape<2>());
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
 
@@ -271,9 +272,9 @@ struct build_tree_fn {
 
 }  // namespace
 
-/*static*/ void BuildTreeTask::cpu_variant(legate::TaskContext& context)
+/*static*/ void BuildTreeTask::cpu_variant(legate::TaskContext context)
 {
-  const auto& X = context.inputs().at(0);
+  const auto& X = context.input(0).data();
   type_dispatch_float(X.code(), build_tree_fn(), context);
 }
 

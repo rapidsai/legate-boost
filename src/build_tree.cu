@@ -276,12 +276,14 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
 namespace {
 
-void SumAllReduce(legate::TaskContext& context, double* x, int count, cudaStream_t stream)
+void SumAllReduce(legate::TaskContext context, double* x, int count, cudaStream_t stream)
 {
-  if (context.communicators().size() == 0) return;
-  auto& comm            = context.communicators().at(0);
-  auto domain           = context.get_launch_domain();
-  size_t num_ranks      = domain.get_volume();
+  auto domain      = context.get_launch_domain();
+  size_t num_ranks = domain.get_volume();
+  EXPECT(num_ranks == 1 || context.num_communicators() > 0,
+         "Expected a GPU communicator for multi-rank task.");
+  if (context.num_communicators() == 0) return;
+  auto comm             = context.communicator(0);
   ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();
 
   if (num_ranks > 1) {
@@ -360,7 +362,7 @@ struct Tree {
   }
 
   template <typename T, int DIM>
-  void WriteOutput(legate::Store& out, const legate::Buffer<T, DIM>& x)
+  void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, DIM>& x)
   {
     // all outputs are 2D
     // for those where the internal buffer is 1D we expect the 2nd extent to be 1
@@ -378,13 +380,13 @@ struct Tree {
                                stream));
   }
 
-  void WriteTreeOutput(legate::TaskContext& context)
+  void WriteTreeOutput(legate::TaskContext context)
   {
-    WriteOutput(context.outputs().at(0), leaf_value);
-    WriteOutput(context.outputs().at(1), feature);
-    WriteOutput(context.outputs().at(2), split_value);
-    WriteOutput(context.outputs().at(3), gain);
-    WriteOutput(context.outputs().at(4), hessian);
+    WriteOutput(context.output(0).data(), leaf_value);
+    WriteOutput(context.output(1).data(), feature);
+    WriteOutput(context.output(2).data(), split_value);
+    WriteOutput(context.output(3).data(), gain);
+    WriteOutput(context.output(4).data(), hessian);
     CHECK_CUDA_STREAM(stream);
   }
 
@@ -619,16 +621,16 @@ void ReduceBaseSums(legate::Buffer<double> base_sums,
 
 struct build_tree_fn {
   template <legate::Type::Code CODE>
-  void operator()(legate::TaskContext& context)
+  void operator()(legate::TaskContext context)
   {
-    using T           = legate::legate_type_of<CODE>;
-    const auto& X     = context.inputs().at(0);
+    using T           = legate::type_of<CODE>;
+    const auto& X     = context.input(0).data();
     auto X_shape      = X.shape<2>();
     auto X_accessor   = X.read_accessor<T, 2>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
-    const auto& g     = context.inputs().at(1);
-    const auto& h     = context.inputs().at(2);
+    const auto& g     = context.input(1).data();
+    const auto& h     = context.input(2).data();
     auto g_shape      = g.shape<2>();
     auto h_shape      = h.shape<2>();
     EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
@@ -637,7 +639,7 @@ struct build_tree_fn {
     auto num_outputs            = g_shape.hi[1] - g_shape.lo[1] + 1;
     auto g_accessor             = g.read_accessor<double, 2>();
     auto h_accessor             = h.read_accessor<double, 2>();
-    const auto& split_proposals = context.inputs().at(3);
+    const auto& split_proposals = context.input(3).data();
     EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X_shape);
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
 
@@ -703,9 +705,9 @@ struct build_tree_fn {
 
 }  // namespace
 
-/*static*/ void BuildTreeTask::gpu_variant(legate::TaskContext& context)
+/*static*/ void BuildTreeTask::gpu_variant(legate::TaskContext context)
 {
-  const auto& X = context.inputs().at(0);
+  const auto& X = context.input(0).data();
   type_dispatch_float(X.code(), build_tree_fn(), context);
 }
 

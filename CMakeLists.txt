@@ -12,11 +12,6 @@ endif()
 
 set(BUILD_SHARED_LIBS ON)
 
-include(cmake/thirdparty/fetch_rapids.cmake)
-include(rapids-cmake)
-include(rapids-cpm)
-include(rapids-cuda)
-
 # Look for an existing C++ editable build
 # Not required. We will build it if not found.
 find_package(legateboost QUIET)
@@ -27,11 +22,6 @@ legate_add_cpp_subdirectory(src TARGET legateboost EXPORT legateboost-export)
 legate_add_cffi(${CMAKE_SOURCE_DIR}/src/legateboost.h TARGET legateboost)
 legate_python_library_template(legateboost)
 legate_default_python_install(legateboost EXPORT legateboost-export)
-set_target_properties(legateboost
-  PROPERTIES
-  CXX_STANDARD 17
-  CXX_STANDARD_REQUIRED ON
-  POSITION_INDEPENDENT_CODE ON)
 
 if (SANITIZE)
   message(STATUS "Adding sanitizer flags")
