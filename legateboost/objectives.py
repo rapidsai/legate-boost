@@ -118,11 +118,9 @@ class NormalObjective(BaseObjective):
 
     The objective minimised is the negative log likelihood of the normal distribution.
 
-    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(p_{i, 1})}))`
+    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(2 p_{i, 1})}))`
 
     Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the log standard deviation.
-
-    The variance is clipped to a minimum of 1e-5 to avoid numerical instability.
 
     See also:
         :class:`legateboost.metrics.NormalLLMetric`
@@ -165,7 +163,7 @@ class NormalObjective(BaseObjective):
         # internally there is no third dimension
         # reshape this nicely for the user so mean and variance have their own dimension
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
-        # don't let the variance go to zero
+        # don't let the sd go to zero
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
 
