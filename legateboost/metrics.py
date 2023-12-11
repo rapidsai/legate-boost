@@ -316,4 +316,5 @@ metrics = {
     "exp": ExponentialMetric,
     "normal_neg_ll": NormalLLMetric,
     "normal_crps": NormalCRPSMetric,
+    "deviance_gamma": GammaDevianceMetric,
 }
