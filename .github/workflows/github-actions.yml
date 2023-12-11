@@ -85,7 +85,7 @@ jobs:
           make html
       - uses: actions/upload-pages-artifact@v1
         with:
-          path: docs/build
+          path: docs/build/html
 
 
   test:

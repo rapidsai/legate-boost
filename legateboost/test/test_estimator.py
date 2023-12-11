@@ -130,7 +130,7 @@ def test_classifier(num_class, objective, base_models):
 
 
 def test_normal_distribution():
-    # check variance converges as expected
+    # check sd converges as expected
     np.random.seed(2)
     X = np.random.random((100, 2))
     y = np.random.normal(5, 2, X.shape[0])

@@ -82,7 +82,7 @@ class NormalLLMetric(BaseMetric):
     """The mean negative log likelihood of the labels, given mean and variance
     parameters.
 
-    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(p_{i, 1})}))`
+    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(2 p_{i, 1})}))`
 
     Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the log standard deviation.
 
