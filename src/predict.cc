@@ -25,17 +25,17 @@ struct predict_fn {
   {
     using T         = legate::type_of<CODE>;
     auto X          = context.input(0).data();
-    auto X_shape    = X.shape<2>();
-    auto X_accessor = X.read_accessor<T, 2>();
+    auto X_shape    = X.shape<3>();
+    auto X_accessor = X.read_accessor<T, 3>();
 
     auto leaf_value  = context.input(1).data().read_accessor<double, 2>();
     auto feature     = context.input(2).data().read_accessor<int32_t, 1>();
     auto split_value = context.input(3).data().read_accessor<double, 1>();
 
     auto pred          = context.output(0).data();
-    auto pred_shape    = pred.shape<2>();
-    auto pred_accessor = pred.write_accessor<double, 2>();
-    auto n_outputs     = pred.shape<2>().hi[1] - pred.shape<2>().lo[1] + 1;
+    auto pred_shape    = pred.shape<3>();
+    auto pred_accessor = pred.write_accessor<double, 3>();
+    auto n_outputs     = pred_shape.hi[2] - pred_shape.lo[2] + 1;
 
     // We should have one output prediction per row of X
     EXPECT_AXIS_ALIGNED(0, X_shape, pred_shape);
@@ -50,10 +50,12 @@ struct predict_fn {
       // Use a max depth of 100 to avoid infinite loops
       for (int depth = 0; depth < 100; depth++) {
         if (feature[pos] == -1) break;
-        auto x = X_accessor[{i, feature[pos]}];
+        auto x = X_accessor[{i, feature[pos], 0}];
         pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
       }
-      for (int64_t j = 0; j < n_outputs; j++) { pred_accessor[{i, j}] = leaf_value[{pos, j}]; }
+      for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
+        pred_accessor[{i, 0, j}] = leaf_value[{pos, j}];
+      }
     }
   }
 };

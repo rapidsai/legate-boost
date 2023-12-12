@@ -293,8 +293,8 @@ void SumAllReduce(legate::TaskContext context, double* x, int count, cudaStream_
 }
 
 struct Tree {
-  Tree(int max_depth, int num_outputs, cudaStream_t stream)
-    : num_outputs(num_outputs), max_nodes(1 << (max_depth + 1)), stream(stream)
+  Tree(int max_nodes, int num_outputs, cudaStream_t stream)
+    : num_outputs(num_outputs), max_nodes(max_nodes), stream(stream)
   {
     leaf_value  = legate::create_buffer<double, 2>({max_nodes, num_outputs});
     feature     = legate::create_buffer<int32_t, 1>({max_nodes});
@@ -645,12 +645,13 @@ struct build_tree_fn {
 
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();
+    auto max_nodes = context.scalars().at(1).value<int>();
 
     auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
 
-    Tree tree(max_depth, num_outputs, stream);
+    Tree tree(max_nodes, num_outputs, stream);
 
     // Initialize the root node
     {
