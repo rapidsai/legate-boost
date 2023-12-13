@@ -182,7 +182,6 @@ class Tree(BaseModel):
         task.add_input(X_)
 
         # broadcast the tree structure
-        # make the tree 3d
         leaf_value_ = get_store(self.leaf_value)
         feature_ = get_store(self.feature)
         split_value_ = get_store(self.split_value)

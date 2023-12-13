@@ -37,6 +37,8 @@ struct predict_fn {
     auto pred_accessor = pred.write_accessor<double, 3>();
     auto n_outputs     = pred_shape.hi[2] - pred_shape.lo[2] + 1;
 
+    EXPECT(pred_shape.lo[2] == 0, "Expect all outputs to be present");
+
     // We should have one output prediction per row of X
     EXPECT_AXIS_ALIGNED(0, X_shape, pred_shape);
 
