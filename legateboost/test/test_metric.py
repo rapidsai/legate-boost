@@ -11,7 +11,7 @@ import legateboost as lb
 from legateboost.metrics import GammaDevianceMetric, erf
 
 
-def test_multiple_metrics():
+def test_multiple_metrics() -> None:
     np.random.seed(0)
     X = np.random.random((10, 1))
     y = np.random.randint(0, 2, size=X.shape[0])

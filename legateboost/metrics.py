@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
+from typing_extensions import Self
+
 import cunumeric as cn
 
 from .utils import EPS, pick_col_by_idx, sample_average, set_col_by_idx
@@ -36,6 +38,10 @@ class BaseMetric(ABC):
             The name of the metric.
         """
         pass
+
+    @classmethod
+    def create(cls) -> Self:
+        return cls()
 
 
 class MSEMetric(BaseMetric):

@@ -38,6 +38,7 @@ requires = [
     "legate.core",
     "scikit-learn",
     "numpy",
+    "typing_extensions",    # Required by legate.core as well.
 ]
 
 extras_require = {

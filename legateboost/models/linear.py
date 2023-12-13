@@ -73,4 +73,6 @@ class Linear(BaseModel):
         return "Bias: " + str(self.bias_) + "\nCoefficients: " + str(self.betas_) + "\n"
 
     def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Linear):
+            raise NotImplementedError()
         return (other.betas_ == self.betas_).all()
