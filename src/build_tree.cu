@@ -365,22 +365,15 @@ struct Tree {
   void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, DIM> x)
   {
     // Write a tile of x to the output
-    const legate::Rect<3> out_shape = out.shape<3>();
-    auto out_acc                    = out.write_accessor<T, 3>();
+    auto out_shape = out.shape<DIM>();
+    auto out_acc   = out.write_accessor<T, DIM>();
 
-    if constexpr (DIM == 1) {
-      LaunchN(out_shape.volume(), stream, [=] __device__(size_t idx) {
-        legate::PointInRectIterator<3> it(out_shape);
-        for (int i = 0; i < idx; i++) { it++; }
-        out_acc[*it] = x[(*it)[0]];
-      });
-    } else {
-      LaunchN(out_shape.volume(), stream, [=] __device__(size_t idx) {
-        legate::PointInRectIterator<3> it(out_shape);
-        for (int i = 0; i < idx; i++) { it++; }
-        out_acc[*it] = x[{(*it)[0], (*it)[1]}];
-      });
-    }
+    LaunchN(out_shape.volume(), stream, [=] __device__(size_t idx) {
+      legate::PointInRectIterator<DIM> it(out_shape);
+      // TODO: remove this loop somehow
+      for (int i = 0; i < idx; i++) { it++; }
+      out_acc[*it] = x[*it];
+    });
   }
 
   void WriteTreeOutput(legate::TaskContext context)
