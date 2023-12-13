@@ -26,6 +26,7 @@ legate_dir = Path(lg_install_info.libpath).parent.as_posix()
 
 cmake_flags = [
     f"-Dlegate_core_ROOT:STRING={legate_dir}",
+    "-DCMAKE_CUDA_ARCHITECTURES=70",  # volta
 ]
 
 env_cmake_args = os.environ.get("CMAKE_ARGS")
