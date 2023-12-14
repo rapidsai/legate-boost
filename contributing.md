@@ -14,6 +14,10 @@ pip install -e .[test]
 legate --module pytest legateboost/test
 ```
 
+## Change default CUDA architectures
+
+Set the environment variable `CUDA_ARCH` according to cmake [CUDA_ARCHITECTURES](https://cmake.org/cmake/help/latest/prop_tgt/CUDA_ARCHITECTURES.html) if you are installing with pip. For running cmake directly, the argument `CMAKE_CUDA_ARCHITECTURES` works as well.
+
 ## Pre-commit hooks
 
 The pre-commit package is used for linting, formatting and type checks. This project uses strict mypy type checking.
