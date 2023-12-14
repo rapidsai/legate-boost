@@ -82,22 +82,19 @@ class Tree(BaseModel):
         leaf_value = get_legate_runtime().create_store(
             types.float64, (max_nodes, num_outputs)
         )
-        feature = get_legate_runtime().create_store(types.int32, (max_nodes,))
-        split_value = get_legate_runtime().create_store(types.float64, (max_nodes,))
-        gain = get_legate_runtime().create_store(types.float64, (max_nodes,))
+        feature = get_legate_runtime().create_store(types.int32, (max_nodes, 1))
+        split_value = get_legate_runtime().create_store(types.float64, (max_nodes, 1))
+        gain = get_legate_runtime().create_store(types.float64, (max_nodes, 1))
         hessian = get_legate_runtime().create_store(
             types.float64, (max_nodes, num_outputs)
         )
-        task.add_output(leaf_value)
-        task.add_output(feature)
-        task.add_output(split_value)
-        task.add_output(gain)
-        task.add_output(hessian)
-        task.add_broadcast(leaf_value)
-        task.add_broadcast(feature)
-        task.add_broadcast(split_value)
-        task.add_broadcast(gain)
-        task.add_broadcast(hessian)
+        # Make 3D
+        task.add_output(leaf_value.promote(2, 1))
+
+        task.add_output(feature.promote(2, 1))
+        task.add_output(split_value.promote(2, 1))
+        task.add_output(gain.promote(2, 1))
+        task.add_output(hessian.promote(2, 1))
         if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
             task.add_nccl_communicator()
         elif get_legate_runtime().machine.count() > 1:

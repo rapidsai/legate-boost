@@ -40,7 +40,9 @@ struct predict_fn {
     auto pred          = context.output(0).data();
     auto pred_shape    = pred.shape<3>();
     auto pred_accessor = pred.write_accessor<double, 3>();
+    auto n_outputs     = pred_shape.hi[2] - pred_shape.lo[2] + 1;
 
+    EXPECT(pred_shape.lo[2] == 0, "Expect all outputs to be present");
     // We should have one output prediction per row of X
     EXPECT_AXIS_ALIGNED(0, X_shape, pred_shape);
 
@@ -61,7 +63,7 @@ struct predict_fn {
         double X_val = X_accessor[x_point];
         pos          = X_val <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
       }
-      for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
+      for (int64_t j = 0; j < n_outputs; j++) {
         pred_accessor[{X_shape.lo[0] + (int64_t)idx, 0, j}] = leaf_value[{pos, j}];
       }
     };
