@@ -158,6 +158,7 @@ struct build_tree_fn {
     const auto& split_proposals = context.input(3).data();
     EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X.shape<3>());
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
+    EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();

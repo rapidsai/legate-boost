@@ -77,7 +77,7 @@ class Tree(BaseModel):
         task.add_input(get_store(split_proposals))
         task.add_broadcast(get_store(split_proposals))
         # outputs
-        max_nodes = max(2 ** (self.max_depth + 1), num_outputs + 1)
+        max_nodes = 2 ** (self.max_depth + 1)
         task.add_scalar_arg(max_nodes, types.int32)
         leaf_value = get_legate_runtime().create_store(
             types.float64, (max_nodes, num_outputs)
@@ -90,7 +90,6 @@ class Tree(BaseModel):
         )
         # Make 3D
         task.add_output(leaf_value.promote(2, 1))
-
         task.add_output(feature.promote(2, 1))
         task.add_output(split_value.promote(2, 1))
         task.add_output(gain.promote(2, 1))
