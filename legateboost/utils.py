@@ -196,10 +196,12 @@ def __vlbfgs_recursion(g, s, y):
     # Perform this computation using numpy to avoid Legate overhead
     # B matrix is small
     B = b.dot(b.T).__array__()
+    # elements of B are not allowed to be near 0
+    B[np.abs(B) < 1e-15] = 1e-15
+
     delta = np.zeros(len(b))
     alpha = np.zeros(len(b))
     delta[-1] = -1.0
-
     for i in reversed(range(m)):
         alpha[i] = delta.dot(B[:, i]) / B[i, i + m]
         delta[m + i] = delta[m + i] - alpha[i]
@@ -288,6 +290,7 @@ def lbfgs(x0, f, max_iter=100, m=10, gtol=1e-5, args=(), verbose=False):
         `num_iter` (the number of iterations performed), and `feval` (the
         number of function evaluations performed).
     """
+    assert x0.ndim == 1
     x = x0.copy()
 
     def count_f(x, *args):
@@ -301,7 +304,6 @@ def lbfgs(x0, f, max_iter=100, m=10, gtol=1e-5, args=(), verbose=False):
     y = []
     norm = 0.0
     for k in range(max_iter):
-        # r = __lbfgs_recursion(g, s, y)
         r = __vlbfgs_recursion(g, s, y)
         lr, eval, new_g = __line_search(count_f, eval, g, x, r, args=args)
         norm = cn.linalg.norm(new_g)
@@ -309,7 +311,7 @@ def lbfgs(x0, f, max_iter=100, m=10, gtol=1e-5, args=(), verbose=False):
         x = x + s[-1]
         y.append(new_g - g)
         g = new_g
-        if not cn.isfinite(lr) or lr < 1e-16:
+        if not cn.isfinite(lr) or lr < 1e-10:
             if verbose:
                 print("L-BFGS: lr too small, ending iteration.")
             break
@@ -323,4 +325,5 @@ def lbfgs(x0, f, max_iter=100, m=10, gtol=1e-5, args=(), verbose=False):
             s.pop(0)
             y.pop(0)
 
+    assert x.ndim == 1
     return LbfgsResult(x, eval, norm, k + 1, count_f.count)

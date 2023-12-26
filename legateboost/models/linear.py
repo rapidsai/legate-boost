@@ -1,6 +1,6 @@
 import cunumeric as cn
 
-from ..utils import solve_singular
+from ..utils import lbfgs, solve_singular
 from .base_model import BaseModel
 
 
@@ -14,9 +14,15 @@ class Linear(BaseModel):
     It is recommended to normalize the data before fitting. This ensures
     regularisation is evening applied to all features and prevents numerical issues.
 
+    Two solvers are available. A direct numerical solver that can be faster, but
+    uses more memory, and an iterative L-BFGS solver that uses less memory
+    but can be slower.
+
     Parameters
     ----------
     alpha : L2 regularization parameter.
+    optimizer : None or "lbfgs"
+        If None, use a direct solver. If "lbfgs", use the lbfgs solver.
 
     Attributes
     ----------
@@ -26,19 +32,12 @@ class Linear(BaseModel):
         Coefficients of the linear model.
     """
 
-    def __init__(self, alpha: float = 1e-5) -> None:
+    def __init__(self, alpha: float = 1e-5, optimizer=None) -> None:
         self.alpha = alpha
+        self.optimizer = optimizer
 
-    def fit(
-        self,
-        X: cn.ndarray,
-        g: cn.ndarray,
-        h: cn.ndarray,
-    ) -> "Linear":
+    def _fit_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
         num_outputs = g.shape[1]
-        self.bias_ = cn.zeros(num_outputs)
-        self.betas_ = cn.zeros((X.shape[1], num_outputs))
-
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k])
             Xw = cn.ones((X.shape[0], X.shape[1] + 1))
@@ -49,13 +48,51 @@ class Linear(BaseModel):
             XtX = cn.dot(Xw.T, Xw) + diag
             yw = W * (-g[:, k] / h[:, k])
             result = solve_singular(XtX, cn.dot(Xw.T, yw))
-            self.bias_[k] = result[0]
-            self.betas_[:, k] = result[1:]
+            self.betas_[:, k] = result
+
+    def _loss_grad(self, betas_k, X, g, h, k):
+        self.betas_[:, k] = betas_k.reshape(self.betas_[:, k].shape)
+        pred = self.predict(X)
+        loss = (pred[:, k] * (g[:, k] + 0.5 * h[:, k] * pred[:, k])).sum(axis=0)
+        # make sure same type as X, else a copy is made
+        delta = (g[:, k] + h[:, k] * pred[:, k]).astype(X.dtype)
+        grads = cn.empty(self.betas_[:, k].shape, dtype=X.dtype)
+        grads[0] = delta.sum(axis=0)
+        grads[1:] = cn.dot(X.T, delta) + self.alpha * self.betas_[1:, k]
+        grads /= X.shape[0]
+        assert grads.shape == self.betas_[:, k].shape
+        return loss, grads.ravel()
+
+    def _fit_lbfgs(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
+        for k in range(g.shape[1]):
+            lbfgs(
+                self.betas_[:, k].ravel(),
+                self._loss_grad,
+                args=(X, g, h, k),
+                verbose=1,
+                gtol=1e-5,
+                max_iter=100,
+            )
+
+    def fit(
+        self,
+        X: cn.ndarray,
+        g: cn.ndarray,
+        h: cn.ndarray,
+    ) -> "Linear":
+        num_outputs = g.shape[1]
+        self.betas_ = cn.zeros((X.shape[1] + 1, num_outputs))
+
+        if self.optimizer == "lbfgs":
+            self._fit_lbfgs(X, g, h)
+        elif self.optimizer is None:
+            self._fit_solve(X, g, h)
+        else:
+            raise ValueError(f"Unknown optimizer {self.optimizer}")
 
         return self
 
     def clear(self) -> None:
-        self.bias_.fill(0)
         self.betas_.fill(0)
 
     def update(
@@ -67,10 +104,16 @@ class Linear(BaseModel):
         return self.fit(X, g, h)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
-        return self.bias_ + X.dot(self.betas_)
+        return self.betas_[0] + X.dot(self.betas_[1:].astype(X.dtype))
 
     def __str__(self) -> str:
-        return "Bias: " + str(self.bias_) + "\nCoefficients: " + str(self.betas_) + "\n"
+        return (
+            "Bias: "
+            + str(self.betas_[1])
+            + "\nCoefficients: "
+            + str(self.betas_[1:])
+            + "\n"
+        )
 
     def __eq__(self, other: object) -> bool:
         return (other.betas_ == self.betas_).all()
