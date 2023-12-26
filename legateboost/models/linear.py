@@ -50,29 +50,28 @@ class Linear(BaseModel):
             result = solve_singular(XtX, cn.dot(Xw.T, yw))
             self.betas_[:, k] = result
 
-    def _loss_grad(self, betas_k, X, g, h, k):
-        self.betas_[:, k] = betas_k.reshape(self.betas_[:, k].shape)
+    def _loss_grad(self, betas_k, X, g, h):
+        self.betas_ = betas_k.reshape(self.betas_.shape)
         pred = self.predict(X)
-        loss = (pred[:, k] * (g[:, k] + 0.5 * h[:, k] * pred[:, k])).sum(axis=0)
+        loss = (pred * (g + 0.5 * h * pred)).sum(axis=0).mean()
         # make sure same type as X, else a copy is made
-        delta = (g[:, k] + h[:, k] * pred[:, k]).astype(X.dtype)
-        grads = cn.empty(self.betas_[:, k].shape, dtype=X.dtype)
+        delta = (g + h * pred).astype(X.dtype)
+        grads = cn.empty(self.betas_.shape, dtype=X.dtype)
         grads[0] = delta.sum(axis=0)
-        grads[1:] = cn.dot(X.T, delta) + self.alpha * self.betas_[1:, k]
+        grads[1:] = cn.dot(X.T, delta) + self.alpha * self.betas_[1:]
         grads /= X.shape[0]
-        assert grads.shape == self.betas_[:, k].shape
+        assert grads.shape == self.betas_.shape
         return loss, grads.ravel()
 
     def _fit_lbfgs(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
-        for k in range(g.shape[1]):
-            lbfgs(
-                self.betas_[:, k].ravel(),
-                self._loss_grad,
-                args=(X, g, h, k),
-                verbose=1,
-                gtol=1e-5,
-                max_iter=100,
-            )
+        lbfgs(
+            self.betas_.ravel(),
+            self._loss_grad,
+            args=(X, g, h),
+            verbose=1,
+            gtol=1e-5,
+            max_iter=100,
+        )
 
     def fit(
         self,
