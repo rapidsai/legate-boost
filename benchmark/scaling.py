@@ -5,7 +5,7 @@ import pandas as pd
 
 import cunumeric as cn
 import legateboost as lb
-from legate.core import ProcessorKind, get_machine
+from legate.core import TaskTarget, get_legate_runtime
 
 try:
     from tqdm import tqdm
@@ -30,20 +30,22 @@ def train_model(X, y, model_type):
     elif model_type == "linear":
         base_models = (lb.models.Linear(),)
     elif model_type == "krr":
-        base_models = (lb.models.KRR(),)
+        base_models = (lb.models.KRR(sigma=1.0),)
 
-    lb.LBClassifier(base_models=base_models).fit(X, y)
+    model = lb.LBClassifier(base_models=base_models).fit(X, y)
+    # force legate to realise result
+    x = model.predict(X[0:2])[0]  # noqa
 
 
 def benchmark(args):
-    m = get_machine()
-    processors = m.only(ProcessorKind.GPU)
+    m = get_legate_runtime().machine
 
-    if len(processors) == 0:
-        processors = m.only(ProcessorKind.CPU)
+    if m.count(TaskTarget.GPU) == 0:
+        processors = m.only(TaskTarget.CPU)
         print("No GPUs found. Running on {} CPUs.".format(len(processors)))
         processor_kind = "CPU"
     else:
+        processors = m.only(TaskTarget.GPU)
         print("Running on {} GPUs.".format(len(processors)))
         processor_kind = "GPU"
 
