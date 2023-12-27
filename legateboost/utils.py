@@ -197,7 +197,8 @@ def __vlbfgs_recursion(g, s, y):
     # B matrix is small
     B = b.dot(b.T).__array__()
     # elements of B are not allowed to be near 0
-    B[np.abs(B) < 1e-15] = 1e-15
+    B[(B >= 0.0) & (B < 1e-15)] = 1e-15
+    B[(B < 0.0) & (B > -1e-15)] = -1e-15
 
     delta = np.zeros(len(b))
     alpha = np.zeros(len(b))

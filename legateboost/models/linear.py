@@ -50,8 +50,8 @@ class Linear(BaseModel):
             result = solve_singular(XtX, cn.dot(Xw.T, yw))
             self.betas_[:, k] = result
 
-    def _loss_grad(self, betas_k, X, g, h):
-        self.betas_ = betas_k.reshape(self.betas_.shape)
+    def _loss_grad(self, betas, X, g, h):
+        self.betas_ = betas.reshape(self.betas_.shape)
         pred = self.predict(X)
         loss = (pred * (g + 0.5 * h * pred)).sum(axis=0).mean()
         # make sure same type as X, else a copy is made
@@ -64,7 +64,7 @@ class Linear(BaseModel):
         return loss, grads.ravel()
 
     def _fit_lbfgs(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
-        lbfgs(
+        result = lbfgs(
             self.betas_.ravel(),
             self._loss_grad,
             args=(X, g, h),
@@ -72,6 +72,7 @@ class Linear(BaseModel):
             gtol=1e-5,
             max_iter=100,
         )
+        self.betas_ = result.x.reshape(self.betas_.shape)
 
     def fit(
         self,
