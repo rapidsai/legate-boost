@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -175,7 +175,14 @@ def sample_average(
     return (y * sample_weight).sum(axis=0) / sum_w
 
 
-def __line_search(f, eval, g, x, d, args=()):
+def __line_search(
+    f: Callable[..., Tuple[float, Any]],
+    eval: float,
+    g: cn.ndarray,
+    x: cn.ndarray,
+    d: cn.ndarray,
+    args: Tuple[Any, ...] = (),
+) -> Tuple[float, float, cn.ndarray]:
     alpha = 1.0
     c = 1e-4
     rho = 0.5
@@ -187,7 +194,9 @@ def __line_search(f, eval, g, x, d, args=()):
     return alpha, new_eval, new_g
 
 
-def __vlbfgs_recursion(g, s, y):
+def __vlbfgs_recursion(
+    g: cn.ndarray, s: List[cn.ndarray], y: List[cn.ndarray]
+) -> cn.ndarray:
     m = len(s)
     if m == 0:
         return -g
@@ -216,7 +225,9 @@ def __vlbfgs_recursion(g, s, y):
     return cn.dot(delta, b)
 
 
-def __lbfgs_recursion(g, s, y):
+def __lbfgs_recursion(
+    g: cn.ndarray, s: List[cn.ndarray], y: List[cn.ndarray]
+) -> cn.ndarray:
     q = g.copy()
     m = len(s)
     alpha = cn.zeros(m)
@@ -253,14 +264,22 @@ class LbfgsResult:
     num_iter: int
     feval: int
 
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             "L-BFGS Result:\n\teval: {}\n\tnorm: {}\n\tnum_iter:"
             " {}\n\tfeval: {}".format(self.eval, self.norm, self.num_iter, self.feval)
         )
 
 
-def lbfgs(x0, f, max_iter=100, m=10, gtol=1e-5, args=(), verbose=False):
+def lbfgs(
+    x0: cn.array,
+    f: Callable[..., Tuple[float, Any]],
+    max_iter: int = 100,
+    m: int = 10,
+    gtol: float = 1e-5,
+    args: Tuple[Any, ...] = (),
+    verbose: int = 0,
+) -> LbfgsResult:
     """Minimize a function using the L-BFGS algorithm.
 
     Parameters
@@ -294,15 +313,20 @@ def lbfgs(x0, f, max_iter=100, m=10, gtol=1e-5, args=(), verbose=False):
     assert x0.ndim == 1
     x = x0.copy()
 
-    def count_f(x, *args):
-        count_f.count += 1
-        return f(x, *args)
+    class CountF:
+        def __init__(self, func: Callable[..., Tuple[float, Any]]):
+            self.count = 0
+            self.func = func
 
-    count_f.count = 0
+        def __call__(self, *args: Any, **kwargs: Any) -> Tuple[float, Any]:
+            self.count += 1
+            return self.func(*args, **kwargs)
+
+    count_f = CountF(f)
 
     eval, g = count_f(x, *args)
-    s = []
-    y = []
+    s: List[cn.ndarray] = []
+    y: List[cn.ndarray] = []
     norm = 0.0
     for k in range(max_iter):
         r = __vlbfgs_recursion(g, s, y)

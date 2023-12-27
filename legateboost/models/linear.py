@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import cunumeric as cn
 
 from ..utils import lbfgs, solve_singular
@@ -37,6 +39,7 @@ class Linear(BaseModel):
         self.solver = solver
 
     def _fit_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
+        self.betas_ = cn.zeros((X.shape[1] + 1, g.shape[1]))
         num_outputs = g.shape[1]
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k])
@@ -50,7 +53,9 @@ class Linear(BaseModel):
             result = solve_singular(XtX, cn.dot(Xw.T, yw))
             self.betas_[:, k] = result
 
-    def _loss_grad(self, betas, X, g, h):
+    def _loss_grad(
+        self, betas: cn.ndarray, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray
+    ) -> Tuple[float, cn.ndarray]:
         self.betas_ = betas.reshape(self.betas_.shape)
         pred = self.predict(X)
         loss = (pred * (g + 0.5 * h * pred)).sum(axis=0).mean()
@@ -64,6 +69,7 @@ class Linear(BaseModel):
         return loss, grads.ravel()
 
     def _fit_lbfgs(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
+        self.betas_ = cn.zeros((X.shape[1] + 1, g.shape[1]))
         result = lbfgs(
             self.betas_.ravel(),
             self._loss_grad,
@@ -80,9 +86,6 @@ class Linear(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "Linear":
-        num_outputs = g.shape[1]
-        self.betas_ = cn.zeros((X.shape[1] + 1, num_outputs))
-
         if self.solver == "lbfgs":
             self._fit_lbfgs(X, g, h)
         elif self.solver == "direct":

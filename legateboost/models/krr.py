@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Tuple
+
 from scipy.special import lambertw
 
 import cunumeric as cn
@@ -95,7 +97,14 @@ class KRR(BaseModel):
             )[0]
         return self
 
-    def _loss_grad(self, betas, K_nm, K_mm, g, h):
+    def _loss_grad(
+        self,
+        betas: cn.ndarray,
+        K_nm: cn.ndarray,
+        K_mm: cn.ndarray,
+        g: cn.ndarray,
+        h: cn.ndarray,
+    ) -> Tuple[float, cn.ndarray]:
         self.betas_ = betas.reshape(self.betas_.shape)
         pred = K_nm.dot(self.betas_.astype(K_nm.dtype))
         loss = (pred * (g + 0.5 * h * pred)).sum(axis=0).mean()
@@ -105,7 +114,7 @@ class KRR(BaseModel):
         assert grads.shape == self.betas_.shape
         return loss, grads.ravel()
 
-    def _lbfgs_solve(self, X, g, h) -> "KRR":
+    def _lbfgs_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
         self.betas_ = cn.zeros((self.X_train.shape[0], g.shape[1]))
         K_nm = self._apply_kernel(X)
         K_mm = self._apply_kernel(self.X_train)
@@ -141,7 +150,7 @@ class KRR(BaseModel):
             self.sigma = self.opt_sigma(D_2)
         return cn.exp(-D_2 / (2 * self.sigma * self.sigma))
 
-    def _fit_components(self, X, g, h) -> "KRR":
+    def _fit_components(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
         if self.solver == "direct":
             return self._direct_solve(X, g, h)
         elif self.solver == "lbfgs":
