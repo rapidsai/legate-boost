@@ -32,17 +32,18 @@ jobs:
           path: /opt/conda/envs/legate
           # renew cache weekly with legate.core/cunumeric builds
           key:
-            conda--${{
+            conda--internal--${{
             steps.get-date.outputs.week }}
         id: cache
       - name: Checkout legate core
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-            repository: nv-legate/legate.core
-            path: legate.core
-            ref: branch-23.09
+            repository: nv-legate/legate.core.internal
+            path: legate.core.internal
+            token: ${{ secrets.NV_LEGATE_TOKEN }}
+            ref: 40bb28ccd21886e6529dc1393a171039b875fd46
       - name: Install legate core
-        working-directory: ./legate.core
+        working-directory: ./legate.core.internal
         run: |
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
@@ -52,13 +53,14 @@ jobs:
           ./install.py --network ucx --cuda;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-            repository: nv-legate/cunumeric
-            path: cunumeric
-            ref: branch-23.09
+            repository: nv-legate/cunumeric.internal
+            path: cunumeric.internal
+            token: ${{ secrets.NV_LEGATE_TOKEN }}
+            ref: 548f1cd73ac318a3ad2b3f6f239a999db87182c3
       - name: Install cunumeric
-        working-directory: ./cunumeric
+        working-directory: ./cunumeric.internal
         run: |
           ./install.py
           # make the conda directory smaller for easier caching
@@ -66,7 +68,10 @@ jobs:
           mamba clean -all -y
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout legateboost
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      - name: Type check legateboost
+        run: |
+          mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
       - name: Build legateboost
         run: |
           pip install -e .
@@ -75,15 +80,6 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
-      - name: Build legateboost docs
-        working-directory: docs
-        run: |
-          pip install sphinx pydata-sphinx-theme myst-parser
-          # invoke sphinx build using legate
-          make html
-      - uses: actions/upload-pages-artifact@v1
-        with:
-          path: docs/build
 
 
   test:
@@ -106,7 +102,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: /opt/conda/envs/legate
-          key: conda--${{
+          key: conda--internal--${{
             steps.get-date.outputs.today }}
       - uses: actions/download-artifact@v3
         with:
@@ -118,7 +114,7 @@ jobs:
       - name: Run cpu tests
         working-directory: lib/python3.10/site-packages
         run: |
-          legate --sysmem 16000 --module pytest legateboost/test -sv --durations=0
+          legate --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
       - name: Run cpu multi-node tests
         working-directory: lib/python3.10/site-packages
         run: |
@@ -128,11 +124,26 @@ jobs:
       - name: Run gpu tests
         working-directory: lib/python3.10/site-packages
         run: |
-          legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
+          legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
+      - name: Checkout legateboost
+        uses: actions/checkout@v4
+      - name: Build legateboost
+        run: |
+          # build again so we have a local editable install for the purpose of building docs
+          pip install -e .
+      - name: Build legateboost docs
+        working-directory: docs
+        run: |
+          pip install sphinx pydata-sphinx-theme myst-parser
+          # invoke sphinx build using legate
+          legate --run-mode=python --module sphinx.cmd.build source build -b html
+      - uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs/build
 
 
   deploy:
-    needs: build
+    needs: test
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
@@ -156,6 +167,6 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: actions/setup-python@v3
     - uses: pre-commit/action@v3.0.0

@@ -1,9 +1,9 @@
 import math
 from enum import IntEnum
-from typing import Any, Tuple
+from typing import Any
 
 import cunumeric as cn
-from legate.core import Future, Rect, get_legate_runtime, types
+from legate.core import TaskTarget, constant, dimension, get_legate_runtime, types
 
 from ..library import user_context, user_lib
 from ..utils import get_store
@@ -14,15 +14,6 @@ class LegateBoostOpCode(IntEnum):
     BUILD_TREE = user_lib.cffi.BUILD_TREE
     PREDICT = user_lib.cffi.PREDICT
     UPDATE_TREE = user_lib.cffi.UPDATE_TREE
-
-
-# handle the case of 1 input row, where the store can be a future
-# calls to partition_by_tiling will fail
-def partition_if_not_future(array: cn.ndarray, shape: Tuple[int, int]) -> Any:
-    store = get_store(array)
-    if store.kind == Future:
-        return store
-    return store.partition_by_tiling(shape)
 
 
 class Tree(BaseModel):
@@ -71,58 +62,67 @@ class Tree(BaseModel):
         num_outputs = g.shape[1]
         n_rows = X.shape[0]
         num_procs = self.num_procs_to_use(n_rows)
-        use_gpu = get_legate_runtime().machine.preferred_kind == 1
         rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.BUILD_TREE, launch_domain=Rect((num_procs, 1))
+        task = get_legate_runtime().create_manual_task(
+            user_context, LegateBoostOpCode.BUILD_TREE, [num_procs, 1]
         )
-
-        # Defining a projection function (even the identity) prevents legate
-        # from trying to assign empty tiles to workers
-        # in the case where the number of tiles is less than the launch grid
-        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
-            return (x[0], 0)  # everything crashes if this is lambda x: x ????
 
         # inputs
         task.add_scalar_arg(self.max_depth, types.int32)
-
         task.add_input(
-            partition_if_not_future(X, (rows_per_tile, num_features)), proj=proj
+            get_store(X).partition_by_tiling((rows_per_tile, num_features)),
+            projection=(dimension(0), constant(0)),
         )
         task.add_input(
-            partition_if_not_future(g, (rows_per_tile, num_outputs)), proj=proj
+            get_store(g).partition_by_tiling((rows_per_tile, num_outputs)),
+            projection=(dimension(0), constant(0)),
         )
         task.add_input(
-            partition_if_not_future(h, (rows_per_tile, num_outputs)), proj=proj
+            get_store(h).partition_by_tiling((rows_per_tile, num_outputs)),
+            projection=(dimension(0), constant(0)),
         )
         task.add_input(get_store(split_proposals))
 
         # outputs
         # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
         max_nodes = 2 ** (self.max_depth + 1)
-        leaf_value = user_context.create_store(types.float64, (max_nodes, num_outputs))
-        feature = user_context.create_store(types.int32, (max_nodes, 1))
-        split_value = user_context.create_store(types.float64, (max_nodes, 1))
-        gain = user_context.create_store(types.float64, (max_nodes, 1))
-        hessian = user_context.create_store(types.float64, (max_nodes, num_outputs))
+        leaf_value = get_legate_runtime().create_store(
+            types.float64, (max_nodes, num_outputs)
+        )
+        feature = get_legate_runtime().create_store(types.int32, (max_nodes, 1))
+        split_value = get_legate_runtime().create_store(types.float64, (max_nodes, 1))
+        gain = get_legate_runtime().create_store(types.float64, (max_nodes, 1))
+        hessian = get_legate_runtime().create_store(
+            types.float64, (max_nodes, num_outputs)
+        )
 
         # All outputs belong to a single tile on worker 0
         task.add_output(
-            leaf_value.partition_by_tiling((max_nodes, num_outputs)), proj=proj
+            leaf_value.partition_by_tiling((max_nodes, num_outputs)),
+            projection=(dimension(0), constant(0)),
         )
-        task.add_output(feature.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(split_value.partition_by_tiling((max_nodes, 1)), proj=proj)
-        task.add_output(gain.partition_by_tiling((max_nodes, 1)), proj=proj)
         task.add_output(
-            hessian.partition_by_tiling((max_nodes, num_outputs)), proj=proj
+            feature.partition_by_tiling((max_nodes, 1)),
+            projection=(dimension(0), constant(0)),
+        )
+        task.add_output(
+            split_value.partition_by_tiling((max_nodes, 1)),
+            projection=(dimension(0), constant(0)),
+        )
+        task.add_output(
+            gain.partition_by_tiling((max_nodes, 1)),
+            projection=(dimension(0), constant(0)),
+        )
+        task.add_output(
+            hessian.partition_by_tiling((max_nodes, num_outputs)),
+            projection=(dimension(0), constant(0)),
         )
 
-        if num_procs > 1:
-            if use_gpu:
-                task.add_nccl_communicator()
-            else:
-                task.add_cpu_communicator()
+        if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
+            task.add_nccl_communicator()
+        elif get_legate_runtime().machine.count() > 1:
+            task.add_cpu_communicator()
 
         task.execute()
 
@@ -148,44 +148,46 @@ class Tree(BaseModel):
         num_outputs = g.shape[1]
         n_rows = X.shape[0]
         num_procs = self.num_procs_to_use(n_rows)
-        use_gpu = get_legate_runtime().machine.preferred_kind == 1
         rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.UPDATE_TREE, launch_domain=Rect((num_procs, 1))
+        task = get_legate_runtime().create_manual_task(
+            user_context, LegateBoostOpCode.UPDATE_TREE, [num_procs, 1]
         )
 
-        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
-            return (x[0], 0)
-
         task.add_input(
-            partition_if_not_future(X, (rows_per_tile, num_features)), proj=proj
+            get_store(X).partition_by_tiling((rows_per_tile, num_features)),
+            projection=(dimension(0), constant(0)),
         )
         task.add_input(
-            partition_if_not_future(g, (rows_per_tile, num_outputs)), proj=proj
+            get_store(g).partition_by_tiling((rows_per_tile, num_outputs)),
+            projection=(dimension(0), constant(0)),
         )
         task.add_input(
-            partition_if_not_future(h, (rows_per_tile, num_outputs)), proj=proj
+            get_store(h).partition_by_tiling((rows_per_tile, num_outputs)),
+            projection=(dimension(0), constant(0)),
         )
 
         # broadcast the tree structure
         task.add_input(get_store(self.feature))
         task.add_input(get_store(self.split_value))
 
-        leaf_value = user_context.create_store(types.float64, self.leaf_value.shape)
-        hessian = user_context.create_store(types.float64, self.hessian.shape)
+        leaf_value = get_legate_runtime().create_store(
+            types.float64, self.leaf_value.shape
+        )
+        hessian = get_legate_runtime().create_store(types.float64, self.hessian.shape)
 
         # All tree outputs belong to a single tile on worker 0
         task.add_output(
-            leaf_value.partition_by_tiling(self.leaf_value.shape), proj=proj
+            leaf_value.partition_by_tiling(self.leaf_value.shape),
+            projection=(dimension(0), constant(0)),
         )
-        task.add_output(hessian.partition_by_tiling(self.hessian.shape), proj=proj)
+        task.add_output(
+            hessian.partition_by_tiling(self.hessian.shape),
+            projection=(dimension(0), constant(0)),
+        )
 
-        if num_procs > 1:
-            if use_gpu:
-                task.add_nccl_communicator()
-            else:
-                task.add_cpu_communicator()
+        # Update task has only a CPU implementation
+        task.add_cpu_communicator()
 
         task.execute()
         self.leaf_value = cn.array(leaf_value, copy=False)
@@ -198,15 +200,13 @@ class Tree(BaseModel):
         n_outputs = self.leaf_value.shape[1]
         num_procs = self.num_procs_to_use(n_rows)
         rows_per_tile = int(cn.ceil(n_rows / num_procs))
-        task = user_context.create_manual_task(
-            LegateBoostOpCode.PREDICT, Rect((num_procs, 1))
+        task = get_legate_runtime().create_manual_task(
+            user_context, LegateBoostOpCode.PREDICT, [num_procs, 1]
         )
 
-        def proj(x: Tuple[int, int]) -> Tuple[int, int]:
-            return (x[0], 0)
-
         task.add_input(
-            partition_if_not_future(X, (rows_per_tile, n_features)), proj=proj
+            get_store(X).partition_by_tiling((rows_per_tile, n_features)),
+            projection=(dimension(0), constant(0)),
         )
 
         # broadcast the tree structure
@@ -214,11 +214,11 @@ class Tree(BaseModel):
         task.add_input(get_store(self.feature))
         task.add_input(get_store(self.split_value))
 
-        pred = user_context.create_store(types.float64, (n_rows, n_outputs))
+        pred = get_legate_runtime().create_store(types.float64, (n_rows, n_outputs))
         task.add_output(
-            partition_if_not_future(pred, (rows_per_tile, n_outputs)), proj=proj
+            get_store(pred).partition_by_tiling((rows_per_tile, n_outputs)),
+            projection=(dimension(0), constant(0)),
         )
-
         task.execute()
         return cn.array(pred)
 

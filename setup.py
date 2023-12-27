@@ -26,6 +26,7 @@ legate_dir = Path(lg_install_info.libpath).parent.as_posix()
 
 cmake_flags = [
     f"-Dlegate_core_ROOT:STRING={legate_dir}",
+    "-DCMAKE_CUDA_ARCHITECTURES=native",
 ]
 
 env_cmake_args = os.environ.get("CMAKE_ARGS")
@@ -38,6 +39,7 @@ requires = [
     "legate.core",
     "scikit-learn",
     "numpy",
+    "typing_extensions",  # Required by legate.core as well.
 ]
 
 extras_require = {
@@ -49,6 +51,7 @@ extras_require = {
         "nbconvert",
         "seaborn",
         "matplotlib",
+        "mypy",
     ]
 }
 

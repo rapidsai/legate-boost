@@ -1,9 +1,9 @@
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
 import cunumeric as cn
-from legate.core import Store, get_legate_runtime
+from legate.core import LogicalArray, LogicalStore
 
 
 class PickleCunumericMixin:
@@ -39,7 +39,7 @@ def pick_col_by_idx(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
 
 
 def set_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
-    """Alternative implementation for a[cn.arange(b.size), b] = delta"""
+    """Alternative implementation for a[cn.arange(b.size), b] = delta."""
 
     assert a.ndim == 2
     assert b.ndim == 1
@@ -82,7 +82,7 @@ def preround(x: cn.ndarray) -> cn.ndarray:
     return (x + M) - M
 
 
-def get_store(input: Any) -> Store:
+def get_store(input: Any) -> LogicalStore:
     """Extracts a Legate store from any object implementing the legete data
     interface.
 
@@ -90,26 +90,30 @@ def get_store(input: Any) -> Store:
         input (Any): The input object
 
     Returns:
-        Store: The extracted Legate store
+        LogicalStore: The extracted Legate store
     """
-    if isinstance(input, Store):
+    if isinstance(input, LogicalStore):
         return input
+    if isinstance(input, LogicalArray):
+        assert not (input.nullable or input.nested)
+        return input.data
     data = input.__legate_data_interface__["data"]
     field = next(iter(data))
     array = data[field]
-    _, store = array.stores()
+    assert not (array.nullable or array.nested)
+    store = array.data
     return store
 
 
-def solve_singular(a, b):
-    """Solve a singular linear system Ax = b for x.
-    The same as np.linalg.solve, but if A is singular,
-    then we use Algorithm 3.3 from:
+def solve_singular(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
+    """Solve a singular linear system Ax = b for x. The same as
+    np.linalg.solve, but if A is singular, then we use Algorithm 3.3 from:
 
-    Nocedal, Jorge, and Stephen J. Wright, eds.
-    Numerical optimization. New York, NY: Springer New York, 1999.
+    Nocedal, Jorge, and Stephen J. Wright, eds. Numerical optimization.
+    New York, NY: Springer New York, 1999.
 
-    This progressively adds to the diagonal of the matrix until it is non-singular.
+    This progressively adds to the diagonal of the matrix until it is
+    non-singular.
     """
     # ensure we are doing all calculations in float 64 for stability
     a = a.astype(np.float64)
@@ -117,7 +121,6 @@ def solve_singular(a, b):
     # try first without modification
     try:
         res = cn.linalg.solve(a, b)
-        get_legate_runtime().raise_exceptions()
         if np.isnan(res).any():
             raise np.linalg.LinAlgError
         return res
@@ -134,7 +137,6 @@ def solve_singular(a, b):
     while True:
         try:
             res = cn.linalg.solve(a + cn.eye(a.shape[0]) * tau, b)
-            get_legate_runtime().raise_exceptions()
             if np.isnan(res).any():
                 raise np.linalg.LinAlgError
             return res
@@ -145,3 +147,32 @@ def solve_singular(a, b):
                 "Numerical instability in linear model solve. "
                 "Consider normalising your data."
             )
+
+
+def sample_average(
+    y: cn.ndarray, sample_weight: Optional[cn.ndarray] = None
+) -> cn.ndarray:
+    """Compute weighted average on the first axis (usually the sample
+    dimension).
+
+    Returns 0 if sum weight is zero or if the input is empty.
+    """
+    if y.ndim > 2:
+        raise ValueError("Expecting a 1-dim or 2-dim input.")
+    if y.shape[0] == 0:
+        return cn.zeros(shape=(1,))
+    if sample_weight is None:
+        n_columns = y.shape[1:] if y.ndim > 1 else 1
+        return cn.sum(y, axis=0) / cn.full(shape=n_columns, value=float(y.shape[0]))
+    if sample_weight.ndim > 1:
+        raise ValueError("Expecting 1-dim sample weight")
+    sum_w = sample_weight.sum()
+    if y.ndim == 2:
+        sample_weight = sample_weight[:, cn.newaxis]
+    if cn.isclose(sum_w, cn.zeros(shape=(1,))):
+        return 0.0
+    return (y * sample_weight).sum(axis=0) / sum_w
+
+
+# Constant for reducing numerical issues.
+EPS = 1e-6

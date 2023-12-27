@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -22,14 +23,14 @@ sample = rs.choice(X.shape[0], 1000, replace=False)
 X_test = X[sample]
 y_test = y[sample]
 n_estimators = 10
-n_frames = 40
+n_frames = 2 if os.environ.get("CI") else 40
 
 
 def fit_normal_distribution():
     model = lb.LBRegressor(
         verbose=True,
         init="average",
-        max_depth=2,
+        base_models=(lb.models.Tree(max_depth=2),),
         n_estimators=n_estimators,
         learning_rate=0.1,
         random_state=rs,
@@ -44,7 +45,7 @@ quantiles = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
 def fit_quantile_regression():
     model = lb.LBRegressor(
         verbose=True,
-        max_depth=2,
+        base_models=(lb.models.Tree(max_depth=2),),
         n_estimators=n_estimators,
         learning_rate=0.1,
         random_state=rs,

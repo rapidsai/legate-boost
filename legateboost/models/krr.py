@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from scipy.special import lambertw
 
 import cunumeric as cn
@@ -5,7 +7,7 @@ import cunumeric as cn
 from .base_model import BaseModel
 
 
-def l2(X, Y):
+def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     XX = cn.einsum("ij,ij->i", X, X)[:, cn.newaxis]
     YY = cn.einsum("ij,ij->i", Y, Y)
     XY = 2 * cn.dot(X, Y.T)
@@ -54,15 +56,17 @@ class KRR(BaseModel):
         Indices of the training data used to fit the model.
     """
 
-    def __init__(self, n_components=100, alpha=1e-5, sigma=None):
+    def __init__(
+        self, n_components: int = 100, alpha: float = 1e-5, sigma: float | None = None
+    ) -> None:
         self.num_components = n_components
         self.alpha = alpha
         self.sigma = sigma
 
-    def _apply_kernel(self, X):
+    def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
         return self.rbf_kernel(X, self.X_train)
 
-    def _fit_components(self, X, g, h) -> "KRR":
+    def _fit_components(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
         # fit with fixed set of components
         K_nm = self._apply_kernel(X)
         K_mm = self._apply_kernel(self.X_train)
@@ -79,7 +83,7 @@ class KRR(BaseModel):
             )[0]
         return self
 
-    def opt_sigma(self, D_2):
+    def opt_sigma(self, D_2: cn.ndarray) -> cn.ndarray:
         n = D_2.shape[1]
         assert self.X_train.shape[0] > 1, "Need at least 2 components to estimate sigma"
         mins = self.X_train.min(axis=0)
@@ -95,7 +99,7 @@ class KRR(BaseModel):
         sigma = d / cn.sqrt(2) * cn.sqrt(1 - 2 * w_0)
         return sigma
 
-    def rbf_kernel(self, X, Y):
+    def rbf_kernel(self, X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
         D_2 = l2(X, Y)
 
         if self.sigma is None:
@@ -113,7 +117,7 @@ class KRR(BaseModel):
         self.X_train = X[self.indices]
         return self._fit_components(X, g, h)
 
-    def predict(self, X):
+    def predict(self, X: cn.ndarray) -> cn.ndarray:
         K = self._apply_kernel(X)
         return K.dot(self.betas_)
 
@@ -141,6 +145,8 @@ class KRR(BaseModel):
         )
 
     def __eq__(self, other: object) -> bool:
+        if not isinstance(other, KRR):
+            raise NotImplementedError()
         return (other.betas_ == self.betas_).all() and (
             other.X_train == self.X_train
         ).all()

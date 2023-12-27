@@ -8,6 +8,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.exceptions import DataConversionWarning
 from sklearn.utils.validation import check_is_fitted, check_random_state
+from typing_extensions import Self, TypeAlias
 
 import cunumeric as cn
 
@@ -16,6 +17,8 @@ from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
 from .utils import PickleCunumericMixin, preround
+
+EvalResult: TypeAlias = dict[str, dict[str, list[float]]]
 
 
 class LBBase(BaseEstimator, PickleCunumericMixin):
@@ -63,7 +66,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
                 if metric == "default":
                     metric_instances.append(self._objective_instance.metric())
                 else:
-                    metric_instances.append(metrics[metric]())
+                    metric_instances.append(metrics[metric].create())
             elif isinstance(metric, BaseMetric):
                 metric_instances.append(metric)
             else:
@@ -82,7 +85,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         metrics: list[BaseMetric],
         verbose: int,
         eval_set: List[Tuple[cn.ndarray, cn.ndarray, cn.ndarray]],
-        eval_result: dict,
+        eval_result: EvalResult,
     ) -> None:
         # make sure dict is initialised
         if not eval_result:
@@ -124,11 +127,11 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             def format(set_name: str, metric_name: str, value: float) -> str:
                 return "\t{}-{}:".format(set_name, metric_name) + f"{value: 8.4f}"
 
-            str = "[{}]".format(iteration)
+            msg = "[{}]".format(iteration)
             for k, v in eval_result.items():
-                for metric, values in v.items():
-                    str += format(k, metric, values[-1])
-            print(str)
+                for m, values in v.items():
+                    msg += format(k, str(m), values[-1])
+            print(msg)
 
     # check the types of the eval set and add sample weight if none
     def _process_eval_set(
@@ -186,9 +189,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         y: cn.ndarray,
         sample_weight: Optional[cn.ndarray] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
-        eval_result: dict = {},
-    ) -> "LBBase":
-
+        eval_result: EvalResult = {},
+    ) -> Self:
         # check inputs
         X, y = check_X_y(X, y)
         _eval_set = self._process_eval_set(eval_set)
@@ -257,8 +259,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         y: cn.ndarray,
         sample_weight: Optional[cn.ndarray] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
-        eval_result: dict = {},
-    ) -> "LBBase":
+        eval_result: EvalResult = {},
+    ) -> Self:
         """Update a gradient boosting model from the training set (X, y). This
         method does not add any new models to the ensemble, only updates
         existing models to fit the new data.
@@ -344,8 +346,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         y: cn.ndarray,
         sample_weight: cn.ndarray,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
-        eval_result: dict = {},
-    ) -> "LBBase":
+        eval_result: EvalResult = {},
+    ) -> Self:
         """Build a gradient boosting model from the training set (X, y).
 
         Parameters
@@ -501,7 +503,7 @@ class LBRegressor(LBBase, RegressorMixin):
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
-        eval_result: dict = {},
+        eval_result: EvalResult = {},
     ) -> LBBase:
         """This method is used for incremental (online) training of the model.
         An additional `n_estimators` models will be added to the ensemble.
@@ -539,7 +541,7 @@ class LBRegressor(LBBase, RegressorMixin):
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
-        eval_result: dict = {},
+        eval_result: EvalResult = {},
     ) -> "LBRegressor":
         X, y = check_X_y(X, y)
         return super().fit(X, y, sample_weight, eval_set, eval_result)
@@ -648,7 +650,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         classes: Optional[cn.ndarray] = None,
         sample_weight: cn.ndarray = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
-        eval_result: dict = {},
+        eval_result: EvalResult = {},
     ) -> LBBase:
         """This method is used for incremental fitting on a batch of samples.
         Requires the classes to be provided up front, as they may not be
@@ -712,7 +714,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
-        eval_result: dict = {},
+        eval_result: EvalResult = {},
     ) -> "LBClassifier":
         if hasattr(y, "ndim") and y.ndim > 1:
             warnings.warn(

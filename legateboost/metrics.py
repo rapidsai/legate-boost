@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
+from typing_extensions import Self
+
 import cunumeric as cn
 
-from .utils import pick_col_by_idx, set_col_by_idx
+from .utils import EPS, pick_col_by_idx, sample_average, set_col_by_idx
 
 
 class BaseMetric(ABC):
@@ -36,6 +38,10 @@ class BaseMetric(ABC):
             The name of the metric.
         """
         pass
+
+    @classmethod
+    def create(cls) -> Self:
+        return cls()
 
 
 class MSEMetric(BaseMetric):
@@ -82,7 +88,7 @@ class NormalLLMetric(BaseMetric):
     """The mean negative log likelihood of the labels, given mean and variance
     parameters.
 
-    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(p_{i, 1})}))`
+    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(2 p_{i, 1})}))`
 
     Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the log standard deviation.
 
@@ -154,14 +160,13 @@ def norm_pdf(x: cn.ndarray) -> cn.ndarray:
 
 
 class NormalCRPSMetric(BaseMetric):
-    """Continuous Ranked Probability Score for normal distribution. Can be used with
-    :py:class:`~legateboost.objectives.NormalObjective`.
+    """Continuous Ranked Probability Score for normal distribution. Can be used
+    with :py:class:`~legateboost.objectives.NormalObjective`.
 
     References
     ----------
     [1] Tilmann Gneiting, Adrian E. Raftery (2007)
         `Strictly Proper Scoring Rules, Prediction, and Estimation`
-
     """
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
@@ -172,12 +177,29 @@ class NormalCRPSMetric(BaseMetric):
         z = (y - loc) / scale
         # This is negating the definition in [1] to make it a loss.
         v = scale * (z * (2 * norm_cdf(z) - 1) + 2 * norm_pdf(z) - 1 / cn.sqrt(cn.pi))
-
-        v = cn.average(v, weights=w[:, cn.newaxis])
-        return float(v)
+        return sample_average(v, w)
 
     def name(self) -> str:
         return "normal_crps"
+
+
+class GammaDevianceMetric(BaseMetric):
+    """The mean gamma deviance.
+
+    :math:`E = 2[(\\ln{\\frac{p_i}{y_i}} + \\frac{y_i}{p_i} - 1)w_i]`
+    """
+
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        y = y + EPS
+        pred = pred + EPS
+        d = 2.0 * (cn.log(pred / y) + y / pred - 1.0)
+        result = sample_average(d, w)
+        if result.size > 1:
+            result = cn.average(result)
+        return float(result)
+
+    def name(self) -> str:
+        return "deviance_gamma"
 
 
 class QuantileMetric(BaseMetric):
@@ -193,7 +215,7 @@ class QuantileMetric(BaseMetric):
         :class:`legateboost.objectives.QuantileObjective`
     """  # noqa
 
-    def __init__(self, quantiles=cn.array([0.25, 0.5, 0.75])) -> None:
+    def __init__(self, quantiles: cn.ndarray = cn.array([0.25, 0.5, 0.75])) -> None:
         super().__init__()
         assert cn.all(0.0 <= quantiles) and cn.all(quantiles <= 1.0)
         self.quantiles = quantiles
@@ -207,7 +229,7 @@ class QuantileMetric(BaseMetric):
         loss = (self.quantiles[cn.newaxis, :] - indicator) * diff
         return ((loss * w[:, cn.newaxis]).sum() / self.quantiles.size) / w.sum()
 
-    def name(self):
+    def name(self) -> str:
         return "quantile"
 
 
@@ -300,4 +322,5 @@ metrics = {
     "exp": ExponentialMetric,
     "normal_neg_ll": NormalLLMetric,
     "normal_crps": NormalCRPSMetric,
+    "deviance_gamma": GammaDevianceMetric,
 }

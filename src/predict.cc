@@ -21,18 +21,18 @@ namespace legateboost {
 namespace {
 struct predict_fn {
   template <legate::Type::Code CODE>
-  void operator()(legate::TaskContext& context)
+  void operator()(legate::TaskContext context)
   {
-    using T         = legate::legate_type_of<CODE>;
-    auto& X         = context.inputs().at(0);
-    auto X_shape    = context.inputs().at(0).shape<2>();
-    auto X_accessor = context.inputs().at(0).read_accessor<T, 2>();
+    using T         = legate::type_of<CODE>;
+    auto X          = context.input(0).data();
+    auto X_shape    = X.shape<2>();
+    auto X_accessor = X.read_accessor<T, 2>();
 
-    auto leaf_value  = context.inputs().at(1).read_accessor<double, 2>();
-    auto feature     = context.inputs().at(2).read_accessor<int32_t, 1>();
-    auto split_value = context.inputs().at(3).read_accessor<double, 1>();
+    auto leaf_value  = context.input(1).data().read_accessor<double, 2>();
+    auto feature     = context.input(2).data().read_accessor<int32_t, 1>();
+    auto split_value = context.input(3).data().read_accessor<double, 1>();
 
-    auto& pred         = context.outputs().at(0);
+    auto pred          = context.output(0).data();
     auto pred_shape    = pred.shape<2>();
     auto pred_accessor = pred.write_accessor<double, 2>();
     auto n_outputs     = pred.shape<2>().hi[1] - pred.shape<2>().lo[1] + 1;
@@ -41,9 +41,9 @@ struct predict_fn {
     EXPECT_AXIS_ALIGNED(0, X_shape, pred_shape);
 
     // We should have the whole tree
-    EXPECT_IS_BROADCAST(context.inputs().at(1).shape<2>());
-    EXPECT_IS_BROADCAST(context.inputs().at(2).shape<1>());
-    EXPECT_IS_BROADCAST(context.inputs().at(3).shape<1>());
+    EXPECT_IS_BROADCAST(context.input(1).data().shape<2>());
+    EXPECT_IS_BROADCAST(context.input(2).data().shape<1>());
+    EXPECT_IS_BROADCAST(context.input(3).data().shape<1>());
 
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       int pos = 0;
@@ -59,9 +59,9 @@ struct predict_fn {
 };
 }  // namespace
 
-/*static*/ void PredictTask::cpu_variant(legate::TaskContext& context)
+/*static*/ void PredictTask::cpu_variant(legate::TaskContext context)
 {
-  const auto& X = context.inputs().at(0);
+  const auto& X = context.input(0).data();
   type_dispatch_float(X.code(), predict_fn(), context);
 }
 
