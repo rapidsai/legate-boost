@@ -190,7 +190,7 @@ class GammaDevianceMetric(BaseMetric):
     """
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        eps = 1e-15
+        eps = 1e-6
         y = y + eps
         pred = pred + eps
         d = 2.0 * (cn.log(pred / y) + y / pred - 1.0)
