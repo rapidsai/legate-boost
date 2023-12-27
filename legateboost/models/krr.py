@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Set
+
+import numpy as np
 from scipy.special import lambertw
 
 import cunumeric as cn
@@ -106,15 +109,24 @@ class KRR(BaseModel):
             self.sigma = self.opt_sigma(D_2)
         return cn.exp(-D_2 / (2 * self.sigma * self.sigma))
 
+    def _sample_components(self, X: cn.ndarray) -> cn.ndarray:
+        usable_num_components = min(X.shape[0], self.num_components)
+        if usable_num_components == X.shape[0]:
+            return X
+        selected: Set[int] = set()
+        # numpy.choice is not efficient for small number of
+        # samples from large population
+        while len(selected) < usable_num_components:
+            selected.add(self.random_state.randint(0, X.shape[0]))
+        return X[np.fromiter(selected, int, len(selected))]
+
     def fit(
         self,
         X: cn.ndarray,
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "KRR":
-        usable_num_components = min(X.shape[0], self.num_components)
-        self.indices = self.random_state.permutation(X.shape[0])[:usable_num_components]
-        self.X_train = X[self.indices]
+        self.X_train = self._sample_components(X)
         return self._fit_components(X, g, h)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
