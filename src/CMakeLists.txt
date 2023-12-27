@@ -58,16 +58,11 @@ target_compile_options(legateboost
 
 
 if (Legion_USE_CUDA)
-
   # CUDA_ARCH environment variable can override the CMAKE_CUDA_ARCHITECTURES
-  if(DEFINED ENV{CUDA_ARCH} )
+  if(DEFINED ENV{CUDA_ARCH})
     message(STATUS "legateboost: CUDA_ARCH=$ENV{CUDA_ARCH}")
     set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES $ENV{CUDA_ARCH} )
-  else()
-    message(STATUS "legateboost: CUDA_ARCH not set - defaults to 70 (volta)")
-    set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES 70 )
   endif()
-
   target_compile_definitions(legateboost PRIVATE LEGATEBOOST_USE_CUDA)
 endif()
 

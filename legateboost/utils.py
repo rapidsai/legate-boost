@@ -106,7 +106,7 @@ def get_store(input: Any) -> LogicalStore:
     return store
 
 
-def solve_singular(a, b):
+def solve_singular(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
     """Solve a singular linear system Ax = b for x. The same as
     np.linalg.solve, but if A is singular, then we use Algorithm 3.3 from:
 

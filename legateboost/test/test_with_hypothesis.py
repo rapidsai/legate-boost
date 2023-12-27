@@ -29,7 +29,8 @@ def tree_strategy(draw):
 @st.composite
 def linear_strategy(draw):
     alpha = draw(st.floats(0.0, 1.0))
-    return lb.models.Linear(alpha=alpha)
+    solver = draw(st.sampled_from(["direct", "lbfgs"]))
+    return lb.models.Linear(alpha=alpha, solver=solver)
 
 
 @st.composite
@@ -40,7 +41,10 @@ def krr_strategy(draw):
         sigma = None
     alpha = draw(st.floats(0.0, 1.0))
     components = draw(st.integers(2, 10))
-    return lb.models.KRR(n_components=components, alpha=alpha, sigma=sigma)
+    solver = draw(st.sampled_from(["direct", "lbfgs"]))
+    return lb.models.KRR(
+        n_components=components, alpha=alpha, sigma=sigma, solver=solver
+    )
 
 
 @st.composite
