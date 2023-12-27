@@ -21,8 +21,8 @@ class Linear(BaseModel):
     Parameters
     ----------
     alpha : L2 regularization parameter.
-    optimizer : None or "lbfgs"
-        If None, use a direct solver. If "lbfgs", use the lbfgs solver.
+    solver : "direct" or "lbfgs"
+        If "direct", use a direct solver. If "lbfgs", use the lbfgs solver.
 
     Attributes
     ----------
@@ -32,9 +32,9 @@ class Linear(BaseModel):
         Coefficients of the linear model.
     """
 
-    def __init__(self, alpha: float = 1e-5, optimizer=None) -> None:
+    def __init__(self, alpha: float = 1e-5, solver: str = "direct") -> None:
         self.alpha = alpha
-        self.optimizer = optimizer
+        self.solver = solver
 
     def _fit_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
         num_outputs = g.shape[1]
@@ -68,7 +68,7 @@ class Linear(BaseModel):
             self.betas_.ravel(),
             self._loss_grad,
             args=(X, g, h),
-            verbose=1,
+            verbose=0,
             gtol=1e-5,
             max_iter=100,
         )
@@ -82,12 +82,12 @@ class Linear(BaseModel):
         num_outputs = g.shape[1]
         self.betas_ = cn.zeros((X.shape[1] + 1, num_outputs))
 
-        if self.optimizer == "lbfgs":
+        if self.solver == "lbfgs":
             self._fit_lbfgs(X, g, h)
-        elif self.optimizer is None:
+        elif self.solver == "direct":
             self._fit_solve(X, g, h)
         else:
-            raise ValueError(f"Unknown optimizer {self.optimizer}")
+            raise ValueError(f"Unknown solver {self.solver}")
 
         return self
 
