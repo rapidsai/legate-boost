@@ -41,3 +41,15 @@ def test_notebooks(path):
     subprocess.check_call(cmd)
     # import the script to run it in the existing python process
     importlib.import_module(path.stem)
+
+
+benchmark_dir = dirname / "../../benchmark"
+
+
+def test_benchmark():
+    subprocess.run(
+        "legate --cpus 2 scaling.py --nrows 100 --ncols 5",
+        shell=True,
+        check=True,
+        cwd=benchmark_dir,
+    )
