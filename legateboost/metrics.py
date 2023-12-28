@@ -5,7 +5,7 @@ from typing_extensions import Self
 
 import cunumeric as cn
 
-from .utils import EPS, pick_col_by_idx, sample_average, set_col_by_idx
+from .utils import pick_col_by_idx, sample_average, set_col_by_idx
 
 
 class BaseMetric(ABC):
@@ -190,8 +190,9 @@ class GammaDevianceMetric(BaseMetric):
     """
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        y = y + EPS
-        pred = pred + EPS
+        eps = 1e-6
+        y = y + eps
+        pred = pred + eps
         d = 2.0 * (cn.log(pred / y) + y / pred - 1.0)
         result = sample_average(d, w)
         if result.size > 1:

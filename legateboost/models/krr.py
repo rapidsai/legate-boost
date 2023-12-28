@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Tuple
+
 from scipy.special import lambertw
 
 import cunumeric as cn
 
+from ..utils import lbfgs
 from .base_model import BaseModel
 
 
@@ -45,6 +48,9 @@ class KRR(BaseModel):
         Regularization parameter.
     sigma :
         Kernel bandwidth parameter. If None, use the mean squared distance.
+    solver :
+        Solver to use for solving the linear system.
+        Options are , 'lbfgs', and 'direct'.
 
     Attributes
     ----------
@@ -57,8 +63,16 @@ class KRR(BaseModel):
     """
 
     def __init__(
-        self, n_components: int = 100, alpha: float = 1e-5, sigma: float | None = None
-    ) -> None:
+        self,
+        n_components: int = 100,
+        alpha: float = 1e-5,
+        sigma: float | None = None,
+        solver: str = "direct",
+    ):
+        self.num_components = n_components
+        self.alpha = alpha
+        self.sigma = sigma
+        self.solver = solver
         self.num_components = n_components
         self.alpha = alpha
         self.sigma = sigma
@@ -66,7 +80,7 @@ class KRR(BaseModel):
     def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
         return self.rbf_kernel(X, self.X_train)
 
-    def _fit_components(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
+    def _direct_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
         # fit with fixed set of components
         K_nm = self._apply_kernel(X)
         K_mm = self._apply_kernel(self.X_train)
@@ -81,6 +95,36 @@ class KRR(BaseModel):
             self.betas_[:, k] = cn.linalg.lstsq(
                 Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw), rcond=None
             )[0]
+        return self
+
+    def _loss_grad(
+        self,
+        betas: cn.ndarray,
+        K_nm: cn.ndarray,
+        K_mm: cn.ndarray,
+        g: cn.ndarray,
+        h: cn.ndarray,
+    ) -> Tuple[float, cn.ndarray]:
+        self.betas_ = betas.reshape(self.betas_.shape)
+        pred = K_nm.dot(self.betas_.astype(K_nm.dtype))
+        loss = (pred * (g + 0.5 * h * pred)).sum(axis=0).mean()
+        delta = g + h * pred
+        grads = cn.dot(K_nm.T, delta) + self.alpha * K_mm.dot(self.betas_)
+        grads /= K_nm.shape[0]
+        assert grads.shape == self.betas_.shape
+        return loss, grads.ravel()
+
+    def _lbfgs_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
+        self.betas_ = cn.zeros((self.X_train.shape[0], g.shape[1]))
+        K_nm = self._apply_kernel(X)
+        K_mm = self._apply_kernel(self.X_train)
+        result = lbfgs(
+            self.betas_.ravel(),
+            self._loss_grad,
+            args=(K_nm, K_mm, g, h),
+            verbose=0,
+        )
+        self.betas_ = result.x.reshape(self.betas_.shape)
         return self
 
     def opt_sigma(self, D_2: cn.ndarray) -> cn.ndarray:
@@ -106,6 +150,14 @@ class KRR(BaseModel):
             self.sigma = self.opt_sigma(D_2)
         return cn.exp(-D_2 / (2 * self.sigma * self.sigma))
 
+    def _fit_components(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
+        if self.solver == "direct":
+            return self._direct_solve(X, g, h)
+        elif self.solver == "lbfgs":
+            return self._lbfgs_solve(X, g, h)
+        else:
+            raise ValueError(f"Unknown solver {self.solver}")
+
     def fit(
         self,
         X: cn.ndarray,
@@ -119,7 +171,7 @@ class KRR(BaseModel):
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         K = self._apply_kernel(X)
-        return K.dot(self.betas_)
+        return K.dot(self.betas_.astype(K.dtype))
 
     def clear(self) -> None:
         self.betas_.fill(0)
