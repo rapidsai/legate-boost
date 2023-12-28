@@ -188,7 +188,7 @@ def __line_search(
     rho = 0.5
     new_eval, new_g = f(x + alpha * d, *args)
     beta = c * cn.dot(g, d)
-    while new_eval > eval + alpha * beta:
+    while new_eval > eval + alpha * beta and alpha * rho > 1e-15:
         alpha *= rho
         new_eval, new_g = f(x + alpha * d, *args)
     return alpha, new_eval, new_g
@@ -336,10 +336,11 @@ def lbfgs(
         x = x + s[-1]
         y.append(new_g - g)
         g = new_g
-        if not cn.isfinite(lr) or lr < 1e-10:
+        if lr < 1e-10:
             if verbose:
-                print("L-BFGS: lr too small, ending iteration.")
-            break
+                print("L-BFGS: lr too small, restarting iteration.")
+            s = []
+            y = []
         if verbose and k % verbose == 0:
             print(
                 "L-BFGS:\tk={}\tfeval:{:8.5}\tnorm:{:8.5f}".format(k, float(eval), norm)

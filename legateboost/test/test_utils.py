@@ -26,7 +26,7 @@ def test_lbfgs():
     def f(x):
         return optimize.rosen(x), optimize.rosen_der(x)
 
-    rs = np.random.RandomState(0)
+    rs = np.random.RandomState(1)
     test_points = [rs.normal(size=3) for _ in range(10)]
     for x in test_points:
         result = lbfgs(x, f, max_iter=100)
