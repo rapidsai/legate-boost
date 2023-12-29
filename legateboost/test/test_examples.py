@@ -1,3 +1,4 @@
+import doctest
 import importlib
 import os
 import subprocess
@@ -41,3 +42,7 @@ def test_notebooks(path):
     subprocess.check_call(cmd)
     # import the script to run it in the existing python process
     importlib.import_module(path.stem)
+
+
+def test_docstrings():
+    doctest.testfile("../../README.md")

@@ -465,9 +465,9 @@ class LBRegressor(LBBase, RegressorMixin):
     >>> import legateboost as lbst
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.random(X.shape[0])
-    >>> model = lbst.LBRegressor(verbose=1,
-    ... n_estimators=100, random_state=0, max_depth=2).fit(X, y)
-    >>> model.predict(X)
+    >>> model = lbst.LBRegressor(
+    ... n_estimators=100, random_state=0).fit(X, y)
+    >>> pred = model.predict(X)
     """
 
     def __init__(
@@ -616,9 +616,9 @@ class LBClassifier(LBBase, ClassifierMixin):
     >>> import legateboost as lbst
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.randint(0, 2, X.shape[0])
-    >>> model = lbst.LBClassifier(verbose=1, n_estimators=100,
-    ...     random_state=0, max_depth=2).fit(X, y)
-    >>> model.predict(X)
+    >>> model = lbst.LBClassifier(n_estimators=100,
+    ...     random_state=0).fit(X, y)
+    >>> pred = model.predict(X)
     """
 
     def __init__(
