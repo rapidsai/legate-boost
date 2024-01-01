@@ -67,7 +67,7 @@ The second example shows a model combining kernel ridge regression and decision 
 model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max_depth=5),), **params).fit(X, y)
 ```
 
-<img src="examples/kernel_ridge_regression/kernel_ridge_regression.png" alt="drawing" width="800"/>
+<img src="examples/kernel_ridge_regression/kernel_ridge_regression.png" alt="drawing" width="400"/>
 
 ## Installation
 

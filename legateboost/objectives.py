@@ -16,6 +16,8 @@ from .metrics import (
 )
 from .utils import mod_col_by_idx, preround, set_col_by_idx
 
+GradPair = Tuple[cn.ndarray, cn.ndarray]
+
 
 class BaseObjective(ABC):
     """The base class for objective functions.
@@ -24,9 +26,7 @@ class BaseObjective(ABC):
     """
 
     @abstractmethod
-    def gradient(
-        self, y: cn.ndarray, pred: cn.ndarray
-    ) -> Tuple[cn.ndarray, cn.ndarray]:
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         """Computes the functional gradient and hessian of the squared error
         objective function.
 
@@ -90,9 +90,7 @@ class SquaredErrorObjective(BaseObjective):
         :class:`legateboost.metrics.MSEMetric`
     """
 
-    def gradient(
-        self, y: cn.ndarray, pred: cn.ndarray
-    ) -> Tuple[cn.ndarray, cn.ndarray]:
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         return pred - y, cn.ones(pred.shape)
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
@@ -120,17 +118,15 @@ class NormalObjective(BaseObjective):
 
     The objective minimised is the negative log likelihood of the normal distribution.
 
-    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(p_{i, 1})}))`
+    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(2 p_{i, 1})}))`
 
     Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the log standard deviation.
-
-    The variance is clipped to a minimum of 1e-5 to avoid numerical instability.
 
     See also:
         :class:`legateboost.metrics.NormalLLMetric`
     """  # noqa: E501
 
-    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         grad = cn.zeros((y.shape[0], y.shape[1], 2))
         hess = cn.ones((y.shape[0], y.shape[1], 2))
         mean = pred[:, :, 0]
@@ -167,7 +163,7 @@ class NormalObjective(BaseObjective):
         # internally there is no third dimension
         # reshape this nicely for the user so mean and variance have their own dimension
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
-        # don't let the variance go to zero
+        # don't let the sd go to zero
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
 
@@ -195,9 +191,7 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
     The response :math:`y` variable should be positive values.
     """
 
-    def gradient(
-        self, y: cn.ndarray, pred: cn.ndarray
-    ) -> Tuple[cn.ndarray, cn.ndarray]:
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         # p = exp(u)
         #
         # g = dL/du   = 1 - y / exp(u)
@@ -246,7 +240,7 @@ class QuantileObjective(BaseObjective):
         assert cn.all(0.0 < quantiles) and cn.all(quantiles < 1.0)
         self.quantiles = quantiles
 
-    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         diff = y - pred
         indicator = diff <= 0
         # Apply the polyak step size rule for subgradient descent.
@@ -296,9 +290,7 @@ class LogLossObjective(FitInterceptRegMixIn):
         :class:`legateboost.metrics.LogLossMetric`
     """
 
-    def gradient(
-        self, y: cn.ndarray, pred: cn.ndarray
-    ) -> Tuple[cn.ndarray, cn.ndarray]:
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         assert pred.ndim == 2
         # binary case
         if pred.shape[1] == 1:
@@ -354,7 +346,7 @@ class ExponentialObjective(FitInterceptRegMixIn):
     [1] Hastie, Trevor, et al. "Multi-class adaboost." Statistics and its Interface 2.3 (2009): 349-360.
     """  # noqa: E501
 
-    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> cn.ndarray:
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         assert pred.ndim == 2
 
         # binary case

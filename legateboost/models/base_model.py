@@ -97,3 +97,7 @@ class BaseModel(PickleCunumericMixin, ABC):
     @abstractmethod
     def __eq__(self, other: object) -> bool:
         pass
+
+    @abstractmethod
+    def clear(self) -> None:
+        ...

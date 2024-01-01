@@ -11,7 +11,7 @@ sns.set()
 plt.rcParams["font.family"] = "serif"
 
 rs = cn.random.RandomState(42)
-X = cn.linspace(0, 10, 200)[:, cn.newaxis]
+X = cn.linspace((0,), (10,), 200)
 y_true = X[:, 0].copy()
 y_true[X.shape[0] // 2 :] += 3.0
 y = y_true + rs.normal(0, 0.25, X.shape[0])

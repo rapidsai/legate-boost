@@ -1,32 +1,43 @@
 import importlib
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 dirname = Path(__file__).parent
 example_dir = dirname / "../../examples"
-noteboook_dir = example_dir / "../../examples/notebook"
+sys.path.append(str(example_dir))
+noteboook_dir = example_dir / "notebook"
+sys.path.append(str(noteboook_dir))
+
+examples = list(filter(lambda x: "notebook" not in str(x), example_dir.glob("**/*.py")))
 
 
-def test_examples():
-    sys.path.append(str(example_dir))
-    for path in example_dir.glob("*.py"):
-        importlib.import_module(path.stem)
+@pytest.mark.parametrize("path", examples, ids=[str(e.name) for e in examples])
+def test_examples(path):
+    os.environ["CI"] = "1"
+    rel = path.relative_to(example_dir).with_suffix("")
+    rel = str(rel).replace("/", ".")
+    importlib.import_module(rel)
 
 
-def test_notebooks():
-    sys.path.append(str(noteboook_dir))
-    for path in noteboook_dir.glob("*.ipynb"):
-        # use nbconvert to convert notebook to python script
-        cmd = [
-            "jupyter",
-            "nbconvert",
-            "--to",
-            "script",
-            "--RegexRemovePreprocessor.patterns='^%'",
-            str(path),
-        ]
-        subprocess.check_call(cmd)
-        # import the script to run it in the existing python process
-        print("Running notebook: " + path + "\n")
-        importlib.import_module(path.stem)
+notebooks = list(noteboook_dir.glob("*.ipynb"))
+
+
+@pytest.mark.parametrize("path", notebooks, ids=[str(e) for e in notebooks])
+def test_notebooks(path):
+    os.environ["CI"] = "1"
+    # use nbconvert to convert notebook to python script
+    cmd = [
+        "jupyter",
+        "nbconvert",
+        "--to",
+        "script",
+        "--RegexRemovePreprocessor.patterns='^%'",
+        str(path),
+    ]
+    subprocess.check_call(cmd)
+    # import the script to run it in the existing python process
+    importlib.import_module(path.stem)
