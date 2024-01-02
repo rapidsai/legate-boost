@@ -52,5 +52,8 @@ def erf(x: cn.ndarray) -> cn.ndarray:
 
 
 def loggamma(x: cn.ndarray) -> cn.ndarray:
-    """Elementwise log-gamma function. :math:`x` should be greater than 0."""
+    """Elementwise log-gamma function.
+
+    :math:`x` should be greater than 0.
+    """
     return _elementwise_fn(x, _SpecialOpCode.LGAMMA)

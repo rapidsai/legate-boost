@@ -7,7 +7,7 @@ enum LegateBoostOpCode {
   PREDICT       = 2,
   UPDATE_TREE   = 3,
   /* special */
-  ERF = 4,
+  ERF    = 4,
   LGAMMA = 5,
 };
 
