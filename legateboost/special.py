@@ -15,7 +15,7 @@
 from enum import IntEnum
 
 import cunumeric as cn
-from legate.core import LogicalStore, get_legate_runtime, types as ty
+from legate.core import get_legate_runtime, types as ty
 
 from .library import user_context, user_lib
 from .utils import get_store
