@@ -84,7 +84,6 @@ struct SpecialFn {
   template <typename Policy, typename Fn>
   static void Impl(legate::TaskContext& context, Policy& policy, Fn fn)
   {
-    // auto in = context.input(0).data().read_accessor<>();
     auto const& in = context.input(0);
     legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, policy, fn);
   }
