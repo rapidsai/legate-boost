@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 project(legateboost VERSION 1.0 LANGUAGES C CXX CUDA)
 
 option(SANITIZE "Build with address sanitizer" OFF)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
 
 # This is for convenience only when doing
 # editable builds to avoid setting the flag

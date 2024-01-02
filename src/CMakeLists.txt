@@ -1,6 +1,5 @@
 
 legate_cpp_library_template(legateboost TEMPLATE_SOURCES)
-
 if(Legion_USE_CUDA)
   rapids_find_generate_module(NCCL
     HEADER_NAMES  nccl.h
@@ -29,12 +28,14 @@ set(legateboost_srcs
   predict.cc
   utils.h
   utils.cc
+  special.cc
 )
 
 if(Legion_USE_CUDA)
   list(APPEND legateboost_srcs
     predict.cu
     build_tree.cu
+    special.cu
   )
 endif()
 
