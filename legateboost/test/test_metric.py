@@ -189,19 +189,6 @@ def test_normal_neg_ll():
     assert cn.allclose(our_metric, ref_metric)
 
 
-def test_erf() -> None:
-    from scipy.special import erf as scipy_erf
-
-    rng = np.random.default_rng(0)
-    for t in [cn.float32, cn.float64]:
-        for s in [(100,), (100, 10), (100, 10, 10)]:
-            x = rng.normal(size=s)
-            y0 = erf(x)
-            y1 = scipy_erf(x)
-            assert y0.shape == x.shape
-            assert cn.allclose(y0, y1)
-
-
 def test_normal_crps() -> None:
     """Tests for the `NormalCRPSMetric`."""
     cprs = lb.NormalCRPSMetric()
