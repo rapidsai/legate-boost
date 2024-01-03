@@ -8,7 +8,7 @@ from sklearn.metrics import (
 
 import cunumeric as cn
 import legateboost as lb
-from legateboost.metrics import GammaDevianceMetric, erf
+from legateboost.metrics import GammaDevianceMetric
 
 
 def test_multiple_metrics() -> None:
