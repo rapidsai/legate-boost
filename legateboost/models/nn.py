@@ -25,26 +25,16 @@ class NN(BaseModel):
                 activations[i + 1] = self.tanh(activations[i + 1])
         return activations
 
-    def cost(self, pred, y, sample_weight):
-        result = (
-            0.5
-            * cn.square((pred - y.reshape(pred.shape)) * sample_weight).sum(axis=0)
-            / sample_weight.sum(axis=0)
-        )
-        if pred.shape[1] > 1:
-            return result.mean()
-        return result
+    def cost(self, pred, g, h):
+        return (pred * (g + 0.5 * h * pred)).mean()
 
-    def cost_prime(self, pred, y, sample_weight):
-        return (pred - y.reshape(pred.shape)) * sample_weight
+    def cost_prime(self, pred, g, h):
+        return g + h * pred
 
-    def backward(
-        self, X, y, sample_weight, coeff_grads, bias_grads, deltas, activations
-    ):
+    def backward(self, X, g, h, coeff_grads, bias_grads, deltas, activations):
         activations = self.forward(X, activations)
-        cost = self.cost(activations[-1], y, sample_weight)
-        deltas[-1] = self.cost_prime(activations[-1], y, sample_weight)
-        # todo: scale by weight?
+        cost = self.cost(activations[-1], g, h)
+        deltas[-1] = self.cost_prime(activations[-1], g, h)
         coeff_grads[-1] = activations[-2].T.dot(deltas[-1]) / X.shape[0]
         bias_grads[-1] = deltas[-1].mean(axis=0)
         for i in range(len(self.hidden_layer_sizes), 0, -1):
@@ -57,11 +47,11 @@ class NN(BaseModel):
         return cost, bias_grads, coeff_grads
 
     def _loss_grad_lbfgs(
-        self, packed, X, y, sample_weight, coeff_grads, bias_grads, deltas, activations
+        self, packed, X, g, h, coeff_grads, bias_grads, deltas, activations
     ):
         self._unpack(packed)
         loss, bias_grads, coeff_grads = self.backward(
-            X, y, sample_weight, coeff_grads, bias_grads, deltas, activations
+            X, g, h, coeff_grads, bias_grads, deltas, activations
         )
         packed_grad = self._pack(bias_grads + coeff_grads)
         assert packed_grad.shape == packed.shape
@@ -83,9 +73,7 @@ class NN(BaseModel):
             ].reshape(self.coefficients_[i].shape)
             offset += self.coefficients_[i].size
 
-    def _fitlbfgs(self, X, y, sample_weight=None):
-        assert y.ndim == 2
-        assert sample_weight.ndim == 2
+    def _fitlbfgs(self, X, g, h):
         packed = self._pack(self.biases_ + self.coefficients_)
         coeff_grads = [None] * (len(self.hidden_layer_sizes) + 1)
         bias_grads = [None] * (len(self.hidden_layer_sizes) + 1)
@@ -96,8 +84,8 @@ class NN(BaseModel):
             self._loss_grad_lbfgs,
             args=(
                 X,
-                y,
-                sample_weight,
+                g,
+                h,
                 coeff_grads,
                 bias_grads,
                 deltas,
@@ -107,21 +95,6 @@ class NN(BaseModel):
             max_iter=self.max_iter,
             m=self.m,
         )
-        """From scipy.optimize import minimize.
-
-        result = minimize(
-            self._loss_grad_lbfgs,
-            packed,
-            args=(
-                cn.array(X),
-                cn.array(y),
-                cn.array(sample_weight),
-            ),
-            method="L-BFGS-B",
-            jac=True,
-            options={"maxiter": self.max_iter, "disp": self.verbose},
-        )
-        """
         self._unpack(result.x)
         if self.verbose:
             print(result)
@@ -142,8 +115,7 @@ class NN(BaseModel):
                 self.random_state.uniform(-init_bound, init_bound, size=(m,))
             )
 
-        y = -g / h
-        self._fitlbfgs(X, y, sample_weight=h)
+        self._fitlbfgs(X, g, h)
         return self
 
     def predict(self, X):

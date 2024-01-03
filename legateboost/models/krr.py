@@ -73,9 +73,6 @@ class KRR(BaseModel):
         self.alpha = alpha
         self.sigma = sigma
         self.solver = solver
-        self.num_components = n_components
-        self.alpha = alpha
-        self.sigma = sigma
 
     def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
         return self.rbf_kernel(X, self.X_train)
