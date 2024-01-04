@@ -39,7 +39,6 @@ def _elementwise_fn(x: cn.ndarray, fn: _SpecialOpCode) -> cn.ndarray:
 
     output = get_legate_runtime().create_store(dtype=xs.type, shape=xs.shape)
     task.add_output(output)
-    task.add_output(output)
     task.add_alignment(xs, output)
     task.execute()
 
