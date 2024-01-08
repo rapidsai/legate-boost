@@ -1,6 +1,8 @@
 import cunumeric as cn
+from legate.core import get_legate_runtime, types
 
-from ..utils import lbfgs
+from ..library import user_context, user_lib
+from ..utils import get_store, lbfgs
 from .base_model import BaseModel
 
 
@@ -33,6 +35,7 @@ class NN(BaseModel):
 
     def backward(self, X, g, h, coeff_grads, bias_grads, deltas, activations):
         activations = self.forward(X, activations)
+        self.backprop_task(X, g, h)
         cost = self.cost(activations[-1], g, h)
         deltas[-1] = self.cost_prime(activations[-1], g, h)
         coeff_grads[-1] = activations[-2].T.dot(deltas[-1]) / X.shape[0]
@@ -99,13 +102,39 @@ class NN(BaseModel):
         if self.verbose:
             print(result)
 
+    def backprop_task(self, X, g, h):
+        task = get_legate_runtime().create_auto_task(
+            user_context, user_lib.cffi.BUILD_NN
+        )
+        X_ = get_store(X).promote(2, g.shape[1])
+        g_ = get_store(g).promote(1, X.shape[1])
+        h_ = get_store(h).promote(1, X.shape[1])
+        task.add_input(X_)
+        task.add_input(g_)
+        task.add_input(h_)
+        task.add_alignment(g_, h_)
+        task.add_alignment(g_, X_)
+        for c, b in zip(self.coefficients_, self.biases_):
+            task.add_input(get_store(c))
+            task.add_broadcast(get_store(c))
+            task.add_input(get_store(b))
+            task.add_broadcast(get_store(b))
+        f = get_legate_runtime().create_store(types.float64, (1,))
+        task.add_output(f)
+        task.execute()
+        return cn.array(f, copy=False)[0]
+
     def fit(self, X, g, h):
         # init layers with glorot initialization
         self.coefficients_ = []
         self.biases_ = []
         for i in range(0, len(self.hidden_layer_sizes) + 1):
             n = self.hidden_layer_sizes[i - 1] if i > 0 else X.shape[1]
-            m = self.hidden_layer_sizes[i] if i < len(self.hidden_layer_sizes) else 1
+            m = (
+                self.hidden_layer_sizes[i]
+                if i < len(self.hidden_layer_sizes)
+                else g.shape[1]
+            )
             factor = 6.0
             init_bound = cn.sqrt(factor / (n + m))
             self.coefficients_.append(
@@ -132,7 +161,7 @@ class NN(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "NN":
-        return self.fit(X, g, h)
+        return self._fitlbfgs(X, g, h)
 
     def __str__(self) -> str:
         result = "Coefficients:\n"

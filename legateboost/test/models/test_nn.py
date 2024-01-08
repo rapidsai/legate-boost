@@ -14,6 +14,8 @@ def test_nn(random_state, hidden_layer_sizes):
     X, y = fetch_california_housing(return_X_y=True)
     X = X[:1000]
     y = y[:1000]
+    # add some extra outputs to make sure we can handle multiple outputs
+    y = np.tile(y.reshape((-1, 1)), (1, 3))
     X = StandardScaler().fit_transform(X)
     max_iter = 200
     nn = lb.LBRegressor(

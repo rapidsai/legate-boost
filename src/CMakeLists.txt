@@ -26,6 +26,7 @@ set(legateboost_srcs
   legateboost.h
   build_tree.cc
   update_tree.cc
+  build_nn.cc
   predict.cc
   utils.h
   utils.cc
@@ -35,6 +36,7 @@ if(Legion_USE_CUDA)
   list(APPEND legateboost_srcs
     predict.cu
     build_tree.cu
+    build_nn.cu
   )
 endif()
 
