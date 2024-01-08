@@ -1,4 +1,5 @@
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 
@@ -174,5 +175,181 @@ def sample_average(
     return (y * sample_weight).sum(axis=0) / sum_w
 
 
-# Constant for reducing numerical issues.
-EPS = 1e-6
+def __line_search(
+    f: Callable[..., Tuple[float, Any]],
+    eval: float,
+    g: cn.ndarray,
+    x: cn.ndarray,
+    d: cn.ndarray,
+    args: Tuple[Any, ...] = (),
+) -> Tuple[float, float, cn.ndarray]:
+    alpha = 1.0
+    c = 1e-4
+    rho = 0.5
+    new_eval, new_g = f(x + alpha * d, *args)
+    beta = c * cn.dot(g, d)
+    while new_eval > eval + alpha * beta and alpha * rho > 1e-15:
+        alpha *= rho
+        new_eval, new_g = f(x + alpha * d, *args)
+    return alpha, new_eval, new_g
+
+
+def __vlbfgs_recursion(
+    g: cn.ndarray, s: List[cn.ndarray], y: List[cn.ndarray]
+) -> cn.ndarray:
+    m = len(s)
+    if m == 0:
+        return -g
+    b = cn.array(s + y + [g])
+
+    # Perform this computation using numpy to avoid Legate overhead
+    # B matrix is small
+    B = b.dot(b.T).__array__()
+    # elements of B are not allowed to be near 0
+    B[(B >= 0.0) & (B < 1e-15)] = 1e-15
+    B[(B < 0.0) & (B > -1e-15)] = -1e-15
+
+    delta = np.zeros(len(b))
+    alpha = np.zeros(len(b))
+    delta[-1] = -1.0
+    for i in reversed(range(m)):
+        alpha[i] = delta.dot(B[:, i]) / B[i, i + m]
+        delta[m + i] = delta[m + i] - alpha[i]
+
+    delta = delta * B[m - 1, 2 * m - 1] / B[2 * m - 1, 2 * m - 1]
+
+    for i in range(m):
+        beta = delta.dot(B[:, i + m]) / B[i, i + m]
+        delta[i] = delta[i] + (alpha[i] - beta)
+    # Convert back to cunumeric
+    return cn.dot(delta, b)
+
+
+def __lbfgs_recursion(
+    g: cn.ndarray, s: List[cn.ndarray], y: List[cn.ndarray]
+) -> cn.ndarray:
+    q = g.copy()
+    m = len(s)
+    alpha = cn.zeros(m)
+    rho = [1 / cn.dot(y[i], s[i]) for i in range(m)]
+    for i in reversed(range(m)):
+        alpha[i] = rho[i] * cn.dot(s[i], q)
+        q -= alpha[i] * y[i]
+    if s == []:
+        H_k0 = 1
+    else:
+        H_k0 = cn.dot(s[-1], y[-1]) / cn.dot(y[-1], y[-1])
+    r = H_k0 * q
+    for i in range(m):
+        beta = rho[i] * cn.dot(y[i], r)
+        r += s[i] * (alpha[i] - beta)
+    return -r
+
+
+@dataclass
+class LbfgsResult:
+    """Result of L-BFGS optimization.
+
+    Attributes:
+        x: The solution.
+        eval: The final value of the objective function.
+        norm: The norm of the gradient.
+        num_iter: The number of iterations.
+        feval: The number of function evaluations.
+    """
+
+    x: cn.ndarray
+    eval: float
+    norm: float
+    num_iter: int
+    feval: int
+
+    def __str__(self) -> str:
+        return (
+            "L-BFGS Result:\n\teval: {}\n\tnorm: {}\n\tnum_iter:"
+            " {}\n\tfeval: {}".format(self.eval, self.norm, self.num_iter, self.feval)
+        )
+
+
+def lbfgs(
+    x0: cn.array,
+    f: Callable[..., Tuple[float, Any]],
+    max_iter: int = 100,
+    m: int = 10,
+    gtol: float = 1e-5,
+    args: Tuple[Any, ...] = (),
+    verbose: int = 0,
+) -> LbfgsResult:
+    """Minimize a function using the L-BFGS algorithm.
+
+    Parameters
+    ----------
+    x0 : array_like
+        Initial guess for the minimum point.
+    f : callable
+        Objective function to minimize. The function must return the value of
+        the objective function and its gradient at a given point x, i.e.,
+        `f(x, *args) -> (float, array_like)`.
+    max_iter : int, optional
+        Maximum number of iterations.
+    m : int, optional
+        Number of previous iterations to use in the L-BFGS recursion.
+    gtol : float, optional
+        Tolerance for the norm of the gradient.
+    args : tuple, optional
+        Extra arguments to pass to the objective function.
+    verbose : bool, optional
+        Whether to print information about the optimization process.
+
+    Returns
+    -------
+    result : LbfgsResult
+        The optimization result represented as a named tuple with fields:
+        `x` (the minimum point), `eval` (the minimum value of the objective
+        function), `norm` (the norm of the gradient at the minimum point),
+        `num_iter` (the number of iterations performed), and `feval` (the
+        number of function evaluations performed).
+    """
+    assert x0.ndim == 1
+    x = x0.copy()
+
+    class CountF:
+        def __init__(self, func: Callable[..., Tuple[float, Any]]):
+            self.count = 0
+            self.func = func
+
+        def __call__(self, *args: Any, **kwargs: Any) -> Tuple[float, Any]:
+            self.count += 1
+            return self.func(*args, **kwargs)
+
+    count_f = CountF(f)
+
+    eval, g = count_f(x, *args)
+    s: List[cn.ndarray] = []
+    y: List[cn.ndarray] = []
+    norm = 0.0
+    for k in range(max_iter):
+        r = __vlbfgs_recursion(g, s, y)
+        lr, eval, new_g = __line_search(count_f, eval, g, x, r, args=args)
+        norm = cn.linalg.norm(new_g)
+        s.append(lr * r)
+        x = x + s[-1]
+        y.append(new_g - g)
+        g = new_g
+        if lr < 1e-10:
+            if verbose:
+                print("L-BFGS: lr too small, restarting iteration.")
+            s = []
+            y = []
+        if verbose and k % verbose == 0:
+            print(
+                "L-BFGS:\tk={}\tfeval:{:8.5}\tnorm:{:8.5f}".format(k, float(eval), norm)
+            )
+        if norm < gtol:
+            break
+        if len(s) > m:
+            s.pop(0)
+            y.pop(0)
+
+    assert x.ndim == 1
+    return LbfgsResult(x, eval, norm, k + 1, count_f.count)

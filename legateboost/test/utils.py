@@ -32,7 +32,6 @@ def sanity_check_models(model):
 
     for m in linear_models:
         assert cn.isfinite(m.betas_).all()
-        assert cn.isfinite(m.bias_).all()
 
     for m in krr_models:
         assert cn.isfinite(m.betas_).all()
