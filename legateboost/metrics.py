@@ -5,7 +5,7 @@ from typing_extensions import Self
 
 import cunumeric as cn
 
-from .special import erf
+from .special import erf, loggamma
 from .utils import pick_col_by_idx, sample_average, set_col_by_idx
 
 
@@ -135,8 +135,6 @@ class GammaLLMetric(BaseMetric):
         self._p = parameterization
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        from scipy import special
-
         y, pred = check_normal(y, pred)
 
         w_sum = w.sum()
@@ -146,23 +144,16 @@ class GammaLLMetric(BaseMetric):
         if self._p == "shape-scale":
             k = pred[:, :, 0]
             b = pred[:, :, 1]
-            error = (
-                -(k - 1) * cn.log(y)
-                + y / (b + 1e-6)
-                + k * cn.log(b)
-                + special.loggamma(k)
-            )
+            error = -(k - 1) * cn.log(y) + y / (b + 1e-6) + k * cn.log(b) + loggamma(k)
         elif self._p == "canonical":
             m = pred[:, :, 0]
             n = pred[:, :, 1]
             n0p1 = m + 1
-            error = -(
-                m * cn.log(y) + n * y - (special.loggamma(n0p1) - n0p1 * cn.log(-n))
-            )
+            error = -(m * cn.log(y) + n * y - (loggamma(n0p1) - n0p1 * cn.log(-n)))
         else:
             a = pred[:, :, 0]
             b = pred[:, :, 1]
-            error = -((a - 1) * cn.log(y) - b * y + a * cn.log(b) - special.loggamma(a))
+            error = -((a - 1) * cn.log(y) - b * y + a * cn.log(b) - loggamma(a))
 
         return float(sample_average(error, w))
 
