@@ -7,6 +7,7 @@ from hypothesis.extra.numpy import array_shapes
 
 import cunumeric as cn
 from legateboost import special
+from scipy.special import digamma, polygamma
 
 
 def run_erf(
@@ -76,3 +77,15 @@ def test_lgamma_basic(
 
 def test_lgamma_special() -> None:
     run_special(special.loggamma)
+
+
+def test_digamma() -> None:
+    pass
+
+
+def test_trigamma() -> None:
+    pass
+
+
+def test_polygamma() -> None:
+    pass
