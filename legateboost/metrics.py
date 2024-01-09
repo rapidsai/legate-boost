@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Dict, Tuple, Type
 
 from typing_extensions import Self
 
@@ -329,7 +329,7 @@ class ExponentialMetric(BaseMetric):
         return "exp"
 
 
-metrics = {
+metrics: Dict[str, Type[BaseMetric]] = {
     "log_loss": LogLossMetric,
     "mse": MSEMetric,
     "exp": ExponentialMetric,
