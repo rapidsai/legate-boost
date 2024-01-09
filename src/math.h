@@ -40,7 +40,7 @@ __host__ __device__ inline T polevl(const T x, const T A[], size_t len)
  */
 __host__ __device__ inline double calc_digamma(double x)
 {
-  static double PSI_10 = 2.25175258906672110764;
+  constexpr double PSI_10 = 2.25175258906672110764;
   if (x == 0) {
     // As per C++ standard for gamma related functions and SciPy,
     // If the argument is ±0, ±∞ is returned
@@ -72,7 +72,7 @@ __host__ __device__ inline double calc_digamma(double x)
   if (x == 10) { return result + PSI_10; }
 
   // Compute asymptotic digamma
-  static const double A[] = {
+  constexpr double A[] = {
     8.33333333333333333333E-2,
     -2.10927960927960927961E-2,
     7.57575757575757575758E-3,
@@ -97,7 +97,7 @@ __host__ __device__ inline double calc_digamma(double x)
 __host__ __device__ inline float calc_digamma(float x)
 {
   // See [C++ Standard Reference: Gamma Function]
-  static float PSI_10 = 2.25175258906672110764f;
+  constexpr float PSI_10 = 2.25175258906672110764f;
   if (x == 0) {
     // As per C++ standard for gamma related functions and SciPy,
     // If the argument is ±0, ±∞ is returned
@@ -130,7 +130,7 @@ __host__ __device__ inline float calc_digamma(float x)
   if (x == 10) { return result + PSI_10; }
 
   // Compute asymptotic digamma
-  static const float A[] = {
+  constexpr float A[] = {
     8.33333333333333333333E-2f,
     -2.10927960927960927961E-2f,
     7.57575757575757575758E-3f,
@@ -148,43 +148,42 @@ __host__ __device__ inline float calc_digamma(float x)
   return result + logf(x) - (0.5f / x) - y;
 }
 
-/* Expansion coefficients
- * for Euler-Maclaurin summation formula
- * (2k)! / B2k
- * where B2k are Bernoulli numbers
+/*
+ * This function is from the implementation of the zeta function in the Cephes Math
+ * Library. See note [3-Clause BSD License for the Cephes Math Library].
  */
-static double A[] = {
-  12.0,
-  -720.0,
-  30240.0,
-  -1209600.0,
-  47900160.0,
-  -1.8924375803183791606e9, /*1.307674368e12/691 */
-  7.47242496e10,
-  -2.950130727918164224e12,  /*1.067062284288e16/3617 */
-  1.1646782814350067249e14,  /*5.109094217170944e18/43867 */
-  -4.5979787224074726105e15, /*8.028576626982912e20/174611 */
-  1.8152105401943546773e17,  /*1.5511210043330985984e23/854513 */
-  -7.1661652561756670113e18  /*1.6938241367317436694528e27/236364091 */
-};
-
 /* 30 Nov 86 -- error in third coefficient fixed */
-
-inline double zeta(double x, double q)
+__host__ __device__ inline double zeta(double x, double q)
 {
+  /* Expansion coefficients
+   * for Euler-Maclaurin summation formula
+   * (2k)! / B2k
+   * where B2k are Bernoulli numbers
+   */
+  static double A[] = {
+    12.0,
+    -720.0,
+    30240.0,
+    -1209600.0,
+    47900160.0,
+    -1.8924375803183791606e9, /*1.307674368e12/691 */
+    7.47242496e10,
+    -2.950130727918164224e12,  /*1.067062284288e16/3617 */
+    1.1646782814350067249e14,  /*5.109094217170944e18/43867 */
+    -4.5979787224074726105e15, /*8.028576626982912e20/174611 */
+    1.8152105401943546773e17,  /*1.5511210043330985984e23/854513 */
+    -7.1661652561756670113e18  /*1.6938241367317436694528e27/236364091 */
+  };
+
   int i;
   double a, b, k, s, t, w;
 
   if (x == 1.0) { return std::numeric_limits<double>::infinity(); }
 
-  if (x < 1.0) {
-    return std::numeric_limits<double>::quiet_NaN();
-  }
+  if (x < 1.0) { return std::numeric_limits<double>::quiet_NaN(); }
   double MACHEP = 1.11022302462515654042E-16;
   if (q <= 0.0) {
-    if (q == floor(q)) {
-      return std::numeric_limits<double>::infinity();
-    }
+    if (q == floor(q)) { return std::numeric_limits<double>::infinity(); }
     if (x != floor(x)) {
       /* because q^-x not defined */
       return std::numeric_limits<double>::quiet_NaN();
@@ -212,7 +211,7 @@ inline double zeta(double x, double q)
     a += 1.0;
     b = pow(a, -x);
     s += b;
-    if (fabs(b / s) < MACHEP) goto done;
+    if (fabs(b / s) < MACHEP) { return s; }
   }
 
   w = a;
@@ -226,13 +225,12 @@ inline double zeta(double x, double q)
     t = a * b / A[i];
     s = s + t;
     t = fabs(t / s);
-    if (t < MACHEP) goto done;
+    if (t < MACHEP) { return s; }
     k += 1.0;
     a *= x + k;
     b /= w;
     k += 1.0;
   }
-done:
-  return (s);
+  return s;
 }
 }  // namespace legateboost

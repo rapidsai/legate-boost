@@ -155,4 +155,23 @@ class DigammaTask : public Task<DigammaTask, DIGAMMA> {
   static void cpu_variant(legate::TaskContext context);
   static void gpu_variant(legate::TaskContext context);
 };
+
+class ZetaTask : public Task<ZetaTask, ZETA> {
+ public:
+  struct ZetaOp {
+    double x;
+
+    explicit ZetaOp(double x) : x{x} {}
+
+    template <typename T>
+    __host__ __device__ T operator()(T const& q) const
+    {
+      return zeta(x, q);
+    }
+  };
+
+ public:
+  static void cpu_variant(legate::TaskContext context);
+  static void gpu_variant(legate::TaskContext context);
+};
 }  // namespace legateboost

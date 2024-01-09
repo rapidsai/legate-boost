@@ -35,4 +35,11 @@ void DigammaTask::gpu_variant(legate::TaskContext context)
 {
   SpecialFn::Impl(context, thrust::device, DigammaOp{});
 }
+
+void ZetaTask::gpu_variant(legate::TaskContext context)
+{
+  // we convert it to double in Python
+  auto x = context.scalar(0).value<double>();
+  SpecialFn::Impl(context, thrust::device, ZetaOp{x});
+}
 }  // namespace legateboost

@@ -13,6 +13,7 @@
 # limitations under the License.
 #
 from __future__ import annotations
+
 from enum import IntEnum
 
 import cunumeric as cn
@@ -27,6 +28,7 @@ class _SpecialOpCode(IntEnum):
     LGAMMA = user_lib.cffi.LGAMMA
     TGAMMA = user_lib.cffi.TGAMMA
     DIGAMMA = user_lib.cffi.DIGAMMA
+    ZETA = user_lib.cffi.ZETA
 
 
 def _elementwise_fn(x: cn.ndarray, fn: _SpecialOpCode) -> cn.ndarray:
@@ -75,11 +77,28 @@ def digamma(x: cn.ndarray) -> cn.ndarray:
 
 
 def zeta(n: int | float, x: cn.ndarray) -> cn.ndarray:
-    pass
+    """Riemann zeta function of two argumetns."""
+    xs = get_store(x)
+
+    if xs.type not in (ty.float32, ty.float64):
+        raise TypeError(f"{xs.type} is not supported.")
+
+    task = get_legate_runtime().create_auto_task(
+        user_context,
+        _SpecialOpCode.ZETA,
+    )
+    task.add_input(xs)
+    task.add_scalar_arg(float(n), dtype=ty.float64)
+
+    output = get_legate_runtime().create_store(dtype=xs.type, shape=xs.shape)
+    task.add_output(output)
+    task.add_alignment(xs, output)
+    task.execute()
+
+    return cn.array(output)
 
 
 def polygamma(n: int | float, x: cn.ndarray) -> cn.ndarray:
     """Polygamma functions."""
-
-    fac2 = (-1.0) ** (n + 1) * gamma(n + 1.0) * zeta(n + 1, x)
+    fac2 = (-1.0) ** (n + 1) * gamma(cn.asarray([n + 1.0])) * zeta(n + 1, x)
     return cn.where(n == 0, digamma(x), fac2)

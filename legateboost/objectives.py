@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
-from scipy import special
 from scipy.stats import norm
 
 import cunumeric as cn
 
-from . import dist
+from . import dist, special
 from .metrics import (
     BaseMetric,
     ExponentialMetric,
