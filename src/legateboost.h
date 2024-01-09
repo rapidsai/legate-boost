@@ -9,8 +9,9 @@ enum LegateBoostOpCode {
   /* special */
   ERF      = 4,
   LGAMMA   = 5,
-  DIGAMMA  = 6,
-  TRIGAMMA = 7,
+  TGAMMA   = 6,
+  DIGAMMA  = 7,
+  TRIGAMMA = 8,
 };
 
 #endif  // __LEGATEBOOST_C_H__

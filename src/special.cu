@@ -26,6 +26,11 @@ void LgammaTask::gpu_variant(legate::TaskContext context)
   SpecialFn::Impl(context, thrust::device, LgammaOp{});
 }
 
+void TgammaTask::gpu_variant(legate::TaskContext context)
+{
+  SpecialFn::Impl(context, thrust::device, TgammaOp{});
+}
+
 void DigammaTask::gpu_variant(legate::TaskContext context)
 {
   SpecialFn::Impl(context, thrust::device, DigammaOp{});

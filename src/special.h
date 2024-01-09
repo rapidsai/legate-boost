@@ -126,6 +126,21 @@ class LgammaTask : public Task<LgammaTask, LGAMMA> {
   static void gpu_variant(legate::TaskContext context);
 };
 
+class TgammaTask : public Task<TgammaTask, TGAMMA> {
+ public:
+  struct TgammaOp {
+    template <typename T>
+    __host__ __device__ T operator()(T const& v) const
+    {
+      return std::tgamma(v);
+    }
+  };
+
+ public:
+  static void cpu_variant(legate::TaskContext context);
+  static void gpu_variant(legate::TaskContext context);
+};
+
 class DigammaTask : public Task<DigammaTask, DIGAMMA> {
  public:
   struct DigammaOp {
