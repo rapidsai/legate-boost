@@ -27,6 +27,11 @@ void LgammaTask::cpu_variant(legate::TaskContext context)
 {
   SpecialFn::Impl(context, thrust::host, LgammaOp{});
 }
+
+void DigammaTask::cpu_variant(legate::TaskContext context)
+{
+  SpecialFn::Impl(context, thrust::host, DigammaOp{});
+}
 }  // namespace legateboost
 
 namespace  // unnamed
@@ -35,5 +40,6 @@ static void __attribute__((constructor)) register_tasks(void)
 {
   legateboost::ErfTask::register_variants();
   legateboost::LgammaTask::register_variants();
+  legateboost::DigammaTask::register_variants();
 }
 }  // namespace

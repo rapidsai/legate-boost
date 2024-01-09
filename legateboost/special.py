@@ -24,6 +24,7 @@ from .utils import get_store
 class _SpecialOpCode(IntEnum):
     ERF = user_lib.cffi.ERF
     LGAMMA = user_lib.cffi.LGAMMA
+    DIGAMMA = user_lib.cffi.DIGAMMA
 
 
 def _elementwise_fn(x: cn.ndarray, fn: _SpecialOpCode) -> cn.ndarray:
@@ -56,3 +57,11 @@ def loggamma(x: cn.ndarray) -> cn.ndarray:
     :math:`x` should be greater than 0.
     """
     return _elementwise_fn(x, _SpecialOpCode.LGAMMA)
+
+
+def digamma(x: cn.ndarray) -> cn.ndarray:
+    """Elementwise digamma function.
+
+    Only real number is supported.
+    """
+    return _elementwise_fn(x, _SpecialOpCode.DIGAMMA)

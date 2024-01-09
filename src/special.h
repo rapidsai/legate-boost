@@ -25,6 +25,7 @@
 #include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator
 #include <thrust/for_each.h>                    // for for_each_n
 #include <cmath>                                // for lgamma, erf
+#include "math.h"                               // for digamma, trigamma
 
 namespace legateboost {
 /**
@@ -117,6 +118,21 @@ class LgammaTask : public Task<LgammaTask, LGAMMA> {
     __host__ __device__ T operator()(T const& v) const
     {
       return std::lgamma(v);
+    }
+  };
+
+ public:
+  static void cpu_variant(legate::TaskContext context);
+  static void gpu_variant(legate::TaskContext context);
+};
+
+class DigammaTask : public Task<DigammaTask, DIGAMMA> {
+ public:
+  struct DigammaOp {
+    template <typename T>
+    __host__ __device__ T operator()(T const& v) const
+    {
+      return calc_digamma(v);
     }
   };
 

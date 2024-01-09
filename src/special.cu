@@ -25,4 +25,9 @@ void LgammaTask::gpu_variant(legate::TaskContext context)
 {
   SpecialFn::Impl(context, thrust::device, LgammaOp{});
 }
+
+void DigammaTask::gpu_variant(legate::TaskContext context)
+{
+  SpecialFn::Impl(context, thrust::device, DigammaOp{});
+}
 }  // namespace legateboost

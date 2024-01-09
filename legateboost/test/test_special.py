@@ -7,7 +7,6 @@ from hypothesis.extra.numpy import array_shapes
 
 import cunumeric as cn
 from legateboost import special
-from scipy.special import digamma, polygamma
 
 
 def run_erf(
@@ -79,13 +78,19 @@ def test_lgamma_special() -> None:
     run_special(special.loggamma)
 
 
-def test_digamma() -> None:
-    pass
+@given(
+    dtype=st.sampled_from([np.float32, np.float64]),
+    shape=array_shapes(min_dims=1, max_dims=3, min_side=1, max_side=256),
+)
+def test_digamma(
+    dtype: Union[Type[np.float32], Type[np.float64]], shape: Tuple[int, ...]
+) -> None:
+    from scipy.special import digamma as scipy_digamma
 
+    rng = cn.random.default_rng(1)
+    x = rng.uniform(size=shape, low=0.1, high=3.0).astype(dtype)
 
-def test_trigamma() -> None:
-    pass
+    y0 = special.digamma(x)
+    y1 = scipy_digamma(x)
 
-
-def test_polygamma() -> None:
-    pass
+    np.testing.assert_allclose(y0, y1, rtol=1e-6)
