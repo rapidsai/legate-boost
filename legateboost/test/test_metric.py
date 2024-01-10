@@ -252,7 +252,7 @@ def test_gamma_neg_ll() -> None:
     w = cn.ones(1)
 
     metric = lb.GammaLLMetric("shape-scale")
-    param = np.array([3.6, 1.8])
+    param = cn.array([3.6, 1.8])
     y_true = rng.gamma(shape=param[0], scale=param[1], size=1)
     res_0 = float(-stats.gamma.logpdf(y_true, param[0], loc=0.0, scale=param[1]))
     y_pred = param.reshape(1, 2)
