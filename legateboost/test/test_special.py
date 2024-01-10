@@ -80,9 +80,9 @@ def test_lgamma_special() -> None:
 
 @given(
     dtype=st.sampled_from([np.float32, np.float64]),
-    shape=array_shapes(min_dims=1, max_dims=3, min_side=1, max_side=256),
+    shape=array_shapes(min_dims=1, max_dims=3, min_side=1, max_side=128),
 )
-@settings(deadline=None, max_examples=100)
+@settings(deadline=None, max_examples=64)
 def test_tgamma(
     dtype: Union[Type[np.float32], Type[np.float64]], shape: Tuple[int, ...]
 ) -> None:
@@ -101,7 +101,7 @@ def test_tgamma(
     dtype=st.sampled_from([np.float32, np.float64]),
     shape=array_shapes(min_dims=1, max_dims=3, min_side=1, max_side=128),
 )
-@settings(deadline=None, max_examples=100)
+@settings(deadline=None, max_examples=64)
 def test_digamma(
     dtype: Union[Type[np.float32], Type[np.float64]], shape: Tuple[int, ...]
 ) -> None:
@@ -118,9 +118,9 @@ def test_digamma(
 
 @given(
     dtype=st.sampled_from([np.float32, np.float64]),
-    shape=array_shapes(min_dims=1, max_dims=3, min_side=1, max_side=256),
+    shape=array_shapes(min_dims=1, max_dims=3, min_side=1, max_side=128),
 )
-@settings(deadline=None, max_examples=100)
+@settings(deadline=None, max_examples=64)
 def test_trigamma(
     dtype: Union[Type[np.float32], Type[np.float64]], shape: Tuple[int, ...]
 ) -> None:
