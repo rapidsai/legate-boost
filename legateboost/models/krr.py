@@ -86,13 +86,12 @@ class KRR(BaseModel):
         K_nm = self._apply_kernel(X)
         K_mm = self._apply_kernel(self.X_train)
         num_outputs = g.shape[1]
-        self.betas_ = cn.zeros((self.X_train.shape[0], num_outputs))
+        self.betas_ = cn.zeros((self.X_train.shape[0], num_outputs), dtype=X.dtype)
 
         for k in range(num_outputs):
-            W = cn.sqrt(h[:, k])
-            # Make sure we are working in 64 bit for numerical stability
-            Kw = K_nm.astype(cn.float64) * W[:, cn.newaxis]
-            yw = W * (-g[:, k] / h[:, k])
+            W = cn.sqrt(h[:, k]).astype(X.dtype)
+            Kw = K_nm * W[:, cn.newaxis]
+            yw = W * (-g[:, k] / h[:, k]).astype(X.dtype)
             self.betas_[:, k] = cn.linalg.lstsq(
                 Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw), rcond=None
             )[0]

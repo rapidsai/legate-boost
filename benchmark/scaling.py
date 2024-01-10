@@ -28,9 +28,9 @@ def train_model(X, y, model_type):
     if model_type == "tree":
         base_models = (lb.models.Tree(max_depth=12),)
     elif model_type == "linear":
-        base_models = (lb.models.Linear(),)
+        base_models = (lb.models.Linear(solver="lbfgs"),)
     elif model_type == "krr":
-        base_models = (lb.models.KRR(sigma=1.0),)
+        base_models = (lb.models.KRR(sigma=1.0, n_components=50),)
 
     model = lb.LBClassifier(base_models=base_models).fit(X, y)
     # force legate to realise result
