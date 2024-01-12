@@ -121,9 +121,7 @@ class NormalLLMetric(BaseMetric):
 
 class GammaLLMetric(BaseMetric):
     """The mean negative log likelihood of the labels, given parameters
-    predicted by the model.
-
-    """
+    predicted by the model."""
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
         y, pred = check_dist_param(y, pred)

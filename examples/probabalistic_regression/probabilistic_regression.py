@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import cunumeric as cn
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,6 +12,7 @@ from matplotlib.figure import Figure
 from scipy.stats import gamma, norm
 from sklearn.datasets import fetch_california_housing
 
+import cunumeric as cn
 import legateboost as lb
 
 sns.set()

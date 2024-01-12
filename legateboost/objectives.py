@@ -282,9 +282,7 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
 
 class GammaObjective(FitInterceptRegMixIn, Forecast):
     """Regression with the :math:`\\Gamma` distribution function using the shape scale
-    parameterization.
-
-    """
+    parameterization."""
 
     @override
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
