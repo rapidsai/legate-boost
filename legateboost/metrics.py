@@ -75,7 +75,7 @@ class MSEMetric(BaseMetric):
         return "mse"
 
 
-def check_normal(y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
+def check_dist_param(y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
     """Checks for normal distribution inputs."""
     if y.size * 2 != pred.size:
         raise ValueError("Expected pred to contain mean and sd for each y_i")
@@ -98,7 +98,7 @@ class NormalLLMetric(BaseMetric):
     """  # noqa: E501
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        y, pred = check_normal(y, pred)
+        y, pred = check_dist_param(y, pred)
         w_sum = w.sum()
         if w_sum == 0:
             return 0
@@ -123,37 +123,18 @@ class GammaLLMetric(BaseMetric):
     """The mean negative log likelihood of the labels, given parameters
     predicted by the model.
 
-    Parameters
-    ----------
-
-    parameterization :
-        How to parameterize the :math:`\\Gamma`-distribution. See
-        :py:class:`legateboost.dist.Gamma` for details.
     """
 
-    def __init__(self, parameterization: str) -> None:
-        self._p = parameterization
-
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        y, pred = check_normal(y, pred)
+        y, pred = check_dist_param(y, pred)
 
         w_sum = w.sum()
         if w_sum == 0:
             return 0
 
-        if self._p == "shape-scale":
-            k = pred[:, :, 0]
-            b = pred[:, :, 1]
-            error = -(k - 1) * cn.log(y) + y / (b + 1e-6) + k * cn.log(b) + loggamma(k)
-        elif self._p == "canonical":
-            m = pred[:, :, 0]
-            n = pred[:, :, 1]
-            n0p1 = m + 1
-            error = -(m * cn.log(y) + n * y - (loggamma(n0p1) - n0p1 * cn.log(-n)))
-        else:
-            a = pred[:, :, 0]
-            b = pred[:, :, 1]
-            error = -((a - 1) * cn.log(y) - b * y + a * cn.log(b) - loggamma(a))
+        k = pred[:, :, 0]
+        b = pred[:, :, 1]
+        error = -(k - 1) * cn.log(y) + y / (b + 1e-6) + k * cn.log(b) + loggamma(k)
 
         return float(sample_average(error, w))
 

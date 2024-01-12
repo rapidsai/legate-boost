@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import cunumeric as cn
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -45,7 +46,7 @@ def fit_normal_distribution() -> tuple[lb.LBRegressor, list]:
     ]
 
 
-def fit_gamma_distribution() -> tuple[lb.LBRegressor, list]:
+def fit_gamma_distribution() -> tuple[lb.LBRegressor, list[cn.ndarray]]:
     obj = lb.GammaObjective(parameterization="shape-scale")
     model = lb.LBRegressor(
         verbose=True,
@@ -56,9 +57,7 @@ def fit_gamma_distribution() -> tuple[lb.LBRegressor, list]:
         random_state=rs,
         objective=obj,
     )
-    return model, [
-        obj.to_dist(model.partial_fit(X, y).predict(X_test)) for _ in range(n_frames)
-    ]
+    return model, [model.partial_fit(X, y).predict(X_test) for _ in range(n_frames)]
 
 
 quantiles = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
@@ -123,13 +122,14 @@ def animate(i: int) -> tuple[Figure]:
     # Plot the gamma distribution
     ax[1].cla()
     ax[1].set_title("Gamma Distribution - 95% Confidence Interval")
+    gamma_obj = lb.GammaObjective()
     data = pd.DataFrame(
         {
             feature_name: X_test[:, 0],
             "y": y_test,
-            "Predicted house value": gamma_preds[i].mean(),
-            "shape": gamma_preds[i].shape(),
-            "scale": gamma_preds[i].scale(),
+            "Predicted house value": gamma_obj.mean(gamma_preds[i]),
+            "shape": gamma_obj.shape(gamma_preds[i]),
+            "scale": gamma_obj.scale(gamma_preds[i]),
         }
     ).sort_values(by=feature_name)
     sns.lineplot(
