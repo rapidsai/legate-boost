@@ -30,7 +30,7 @@ n_estimators = 10
 n_frames = 2 if os.environ.get("CI") else 40
 
 
-def fit_normal_distribution() -> tuple[lb.LBRegressor, list]:
+def fit_normal_distribution() -> tuple[lb.LBRegressor, list[cn.ndarray]]:
     obj = lb.NormalObjective()
     model = lb.LBRegressor(
         verbose=True,
@@ -41,9 +41,7 @@ def fit_normal_distribution() -> tuple[lb.LBRegressor, list]:
         random_state=rs,
         objective=obj,
     )
-    return model, [
-        obj.to_dist(model.partial_fit(X, y).predict(X_test)) for _ in range(n_frames)
-    ]
+    return model, [model.partial_fit(X, y).predict(X_test) for _ in range(n_frames)]
 
 
 def fit_gamma_distribution() -> tuple[lb.LBRegressor, list[cn.ndarray]]:
@@ -94,12 +92,13 @@ def animate(i: int) -> tuple[Figure]:
     # Plot the normal distribution
     ax[0].cla()
     ax[0].set_title("Normal Distribution - 95% Confidence Interval")
+    norm_obj = lb.NormalObjective()
     data = pd.DataFrame(
         {
             feature_name: X_test[:, 0],
             "y": y_test,
-            "Predicted house value": normal_preds[i].mean(),
-            "sigma": normal_preds[i].var(),
+            "Predicted house value": norm_obj.mean(normal_preds[i]),
+            "sigma": norm_obj.var(normal_preds[i]),
         }
     ).sort_values(by=feature_name)
     sns.lineplot(

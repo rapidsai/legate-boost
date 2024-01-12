@@ -2,10 +2,11 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 
 from scipy.stats import norm
+from typing_extensions import override
 
 import cunumeric as cn
 
-from . import dist, special
+from . import special
 from .metrics import (
     BaseMetric,
     ExponentialMetric,
@@ -113,7 +114,17 @@ class SquaredErrorObjective(BaseObjective):
             return cn.zeros(y.shape[1])
 
 
-class NormalObjective(BaseObjective):
+class Forecast:
+    @abstractmethod
+    def mean(self, param: cn.ndarray) -> cn.ndarray:
+        pass
+
+    @abstractmethod
+    def var(self, param: cn.ndarray) -> cn.ndarray:
+        pass
+
+
+class NormalObjective(BaseObjective, Forecast):
     """The normal distribution objective function for regression problems.
 
     This objective fits both mean and variance parameters, where :class:`SquaredErrorObjective` only fits the mean.
@@ -128,6 +139,7 @@ class NormalObjective(BaseObjective):
         :class:`legateboost.metrics.NormalLLMetric`
     """  # noqa: E501
 
+    @override
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         grad = cn.zeros((y.shape[0], y.shape[1], 2))
         hess = cn.ones((y.shape[0], y.shape[1], 2))
@@ -143,9 +155,11 @@ class NormalObjective(BaseObjective):
         hess[:, :, 1] = 2  # fisher information
         return grad.reshape(grad.shape[0], -1), hess.reshape(hess.shape[0], -1)
 
+    @override
     def metric(self) -> NormalLLMetric:
         return NormalLLMetric()
 
+    @override
     def initialise_prediction(
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
     ) -> cn.ndarray:
@@ -161,6 +175,7 @@ class NormalObjective(BaseObjective):
             pred[:, 1] = cn.log(var) / 2
         return pred.reshape(-1)
 
+    @override
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         # internally there is no third dimension
         # reshape this nicely for the user so mean and variance have their own dimension
@@ -169,8 +184,15 @@ class NormalObjective(BaseObjective):
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
 
-    def to_dist(self, pred: cn.ndarray) -> dist.Dist:
-        return dist.Normal(pred)
+    @override
+    def mean(self, param: cn.ndarray) -> cn.ndarray:
+        """Return the mean for the Normal distribution."""
+        return param[:, 0]
+
+    @override
+    def var(self, param: cn.ndarray) -> cn.ndarray:
+        """Return the variance for the Normal distribution."""
+        return cn.exp(param[:, 1])
 
 
 class FitInterceptRegMixIn(BaseObjective):
@@ -256,12 +278,13 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
         )
 
 
-class GammaObjective(FitInterceptRegMixIn):
+class GammaObjective(FitInterceptRegMixIn, Forecast):
     """Regression with the :math:`\\Gamma` distribution function using the shape scale
     parameterization.
 
     """
 
+    @override
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         grad = cn.empty((y.shape[0], y.shape[1], 2))
         fisher = cn.empty((y.shape[0], y.shape[1], 2))
@@ -278,14 +301,17 @@ class GammaObjective(FitInterceptRegMixIn):
         assert fisher.ndim == 2
         return grad.reshape(grad.shape[0], -1), fisher
 
+    @override
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
         assert pred.ndim == 3
         return cn.exp(pred)
 
+    @override
     def metric(self) -> GammaLLMetric:
         return GammaLLMetric()
 
+    @override
     def initialise_prediction(
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
     ) -> cn.ndarray:
@@ -324,11 +350,13 @@ class GammaObjective(FitInterceptRegMixIn):
         n0, n1 = param
         return n1
 
+    @override
     def mean(self, param: cn.ndarray) -> cn.ndarray:
         """Return the mean for the Gamma distribution."""
         n0, n1 = param
         return n0 * n1
 
+    @override
     def var(self, param: cn.ndarray) -> cn.ndarray:
         """Return the variance for the Gamma distribution."""
         n0, n1 = param
