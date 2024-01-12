@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 
 from scipy.stats import norm
-from typing_extensions import override
+from typing_extensions import TypeAlias, override
 
 import cunumeric as cn
 
@@ -19,7 +19,7 @@ from .metrics import (
 )
 from .utils import mod_col_by_idx, preround, sample_average, set_col_by_idx
 
-GradPair = Tuple[cn.ndarray, cn.ndarray]
+GradPair: TypeAlias = Tuple[cn.ndarray, cn.ndarray]
 
 
 class BaseObjective(ABC):
@@ -114,7 +114,9 @@ class SquaredErrorObjective(BaseObjective):
             return cn.zeros(y.shape[1])
 
 
-class Forecast:
+class Forecast(ABC):
+    """Abstract class for forecasting objectives."""
+
     @abstractmethod
     def mean(self, param: cn.ndarray) -> cn.ndarray:
         pass
@@ -342,25 +344,22 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
 
     def shape(self, param: cn.ndarray) -> cn.ndarray:
         """Return the shape parameter for the Gamma distribution."""
-        n0, n1 = param
-        return n0
+        return param[:, 0]
 
     def scale(self, param: cn.ndarray) -> cn.ndarray:
         """Return the scale parameter for the Gamma distribution."""
-        n0, n1 = param
-        return n1
+        return param[:, 1]
 
     @override
     def mean(self, param: cn.ndarray) -> cn.ndarray:
         """Return the mean for the Gamma distribution."""
-        n0, n1 = param
+        n0, n1 = param[:, 0], param[:, 1]
         return n0 * n1
 
     @override
     def var(self, param: cn.ndarray) -> cn.ndarray:
         """Return the variance for the Gamma distribution."""
-        n0, n1 = param
-        return self.mean(param) * n1
+        return self.mean(param) * param[:, 1]
 
 
 class QuantileObjective(BaseObjective):

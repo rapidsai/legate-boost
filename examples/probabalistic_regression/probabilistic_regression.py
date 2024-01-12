@@ -45,7 +45,7 @@ def fit_normal_distribution() -> tuple[lb.LBRegressor, list[cn.ndarray]]:
 
 
 def fit_gamma_distribution() -> tuple[lb.LBRegressor, list[cn.ndarray]]:
-    obj = lb.GammaObjective(parameterization="shape-scale")
+    obj = lb.GammaObjective()
     model = lb.LBRegressor(
         verbose=True,
         init="average",

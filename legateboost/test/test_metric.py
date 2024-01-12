@@ -251,21 +251,10 @@ def test_gamma_neg_ll() -> None:
     rng = cn.random.default_rng(0)
     w = cn.ones(1)
 
-    metric = lb.GammaLLMetric("shape-scale")
+    metric = lb.GammaLLMetric()
     param = cn.array([3.6, 1.8])
     y_true = rng.gamma(shape=param[0], scale=param[1], size=1)
     res_0 = float(-stats.gamma.logpdf(y_true, param[0], loc=0.0, scale=param[1]))
     y_pred = param.reshape(1, 2)
-    res_1 = metric.metric(y_true, y_pred, w)
-    np.testing.assert_allclose(res_0, res_1, rtol=1e-4)
-
-    metric = lb.GammaLLMetric("shape-rate")
-    y_pred[0, 1] = 1.0 / y_pred[0, 1]
-    res_1 = metric.metric(y_true, y_pred, w)
-    np.testing.assert_allclose(res_0, res_1, rtol=1e-4)
-
-    metric = lb.GammaLLMetric("canonical")
-    y_pred[0, 0] = y_pred[0, 0] - 1.0
-    y_pred[0, 1] = -y_pred[0, 1]
     res_1 = metric.metric(y_true, y_pred, w)
     np.testing.assert_allclose(res_0, res_1, rtol=1e-4)
