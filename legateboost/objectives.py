@@ -117,12 +117,10 @@ class SquaredErrorObjective(BaseObjective):
 class Forecast(ABC):
     r"""Abstract class for forecasting objectives.
 
-    The names of the forecasting objectives don't necessarily describe various
-    parameterization accurately. This is due to the fact that probabilistic
-    distributions usually have constraints on their parameters and some extra
-    transformations are employed to satisfy these constraints. For instance, the raw
-    prediction output of Normal distribution forecasting consists of the mean and the
-    log-variance. We later transform the log-variance via :math:`exp` to ensure that
+    Probabilistic distributions usually have constraints on their parameters and some
+    extra transformations are employed to satisfy these constraints. For instance, the
+    raw prediction output of Normal distribution forecasting consists of the mean and
+    the log-variance. We later transform the log-variance via :math:`exp` to ensure that
     it's a positive value. The :math:`\Gamma`-distribution follows a similar pattern for
     constrained optimization.
 
@@ -143,7 +141,6 @@ class Forecast(ABC):
        \theta = g^{-1}(\mu)
 
        I_{new}(\mu) = I_{old}(\theta) \cdot (\frac{d{g^{-1}(\mu)}}{d\mu})^2
-
     """
 
     @abstractmethod
