@@ -11,4 +11,3 @@ Python API Reference
    metrics
    objectives
    models
-   dists

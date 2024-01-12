@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Tuple, Type
 
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 import cunumeric as cn
 
@@ -123,6 +123,7 @@ class GammaLLMetric(BaseMetric):
     """The mean negative log likelihood of the labels, given parameters
     predicted by the model."""
 
+    @override
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
         y, pred = check_dist_param(y, pred)
 
@@ -136,6 +137,7 @@ class GammaLLMetric(BaseMetric):
 
         return float(sample_average(error, w))
 
+    @override
     def name(self) -> str:
         return "gamma_neg_ll"
 
@@ -161,7 +163,7 @@ class NormalCRPSMetric(BaseMetric):
     """
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        y, pred = check_normal(y, pred)
+        y, pred = check_dist_param(y, pred)
         loc = pred[:, :, 0]
         # `NormalObjective` outputs variance instead of scale.
         scale = cn.sqrt(pred[:, :, 1])
