@@ -7,8 +7,11 @@ enum LegateBoostOpCode {
   PREDICT       = 2,
   UPDATE_TREE   = 3,
   /* special */
-  ERF    = 4,
-  LGAMMA = 5,
+  ERF     = 4,
+  LGAMMA  = 5,
+  TGAMMA  = 6,
+  DIGAMMA = 7,
+  ZETA    = 8,
 };
 
 #endif  // __LEGATEBOOST_C_H__

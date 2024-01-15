@@ -166,7 +166,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         point summation.
         """
         # check input dimensions are consistent
-        assert y.ndim == pred.ndim == 2
+        assert y.ndim == pred.ndim == 2, (y.shape, pred.shape)
         g, h = self._objective_instance.gradient(
             y, self._objective_instance.transform(pred)
         )
