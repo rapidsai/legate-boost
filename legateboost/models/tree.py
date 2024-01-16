@@ -6,7 +6,7 @@ import cunumeric as cn
 from legate.core import TaskTarget, constant, dimension, get_legate_runtime, types
 
 from ..library import user_context, user_lib
-from ..utils import get_store
+from ..utils import gather, get_store
 from .base_model import BaseModel
 
 
@@ -55,9 +55,12 @@ class Tree(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "Tree":
-        # choose possible splits
-        sample_rows = self.random_state.randint(0, X.shape[0], self.max_depth)
-        split_proposals = X[sample_rows]  # may not be efficient, maybe write new task
+        # dont let legate create a future - make sure at least 2 sample rows
+        sample_rows = cn.array(
+            self.random_state.randint(0, X.shape[0], max(2, self.max_depth))
+        )
+        split_proposals = gather(X, sample_rows)
+
         num_features = X.shape[1]
         num_outputs = g.shape[1]
         n_rows = X.shape[0]

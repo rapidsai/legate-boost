@@ -17,6 +17,7 @@
 #pragma once
 #include "legate_library.h"
 #include <core/type/type_info.h>
+#include "core/comm/coll.h"
 
 namespace legateboost {
 
@@ -54,9 +55,6 @@ template <typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f, Fnargs&&... args)
 {
   switch (code) {
-    case legate::Type::Code::FLOAT16: {
-      return f.template operator()<legate::Type::Code::FLOAT16>(std::forward<Fnargs>(args)...);
-    }
     case legate::Type::Code::FLOAT32: {
       return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
     }
@@ -69,6 +67,30 @@ constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f,
   return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
 }
 
-void SumAllReduce(legate::TaskContext context, double* x, int count);
+template <typename T>
+void SumAllReduce(legate::TaskContext context, T* x, int count)
+{
+  auto domain      = context.get_launch_domain();
+  size_t num_ranks = domain.get_volume();
+  EXPECT(num_ranks == 1 || context.num_communicators() > 0,
+         "Expected a CPU communicator for multi-rank task.");
+  if (count == 0 || context.num_communicators() == 0) return;
+  auto comm = context.communicator(0);
+  std::vector<T> gather_result(num_ranks * count);
+  legate::comm::coll::CollDataType type;
+  if (std::is_same<T, float>::value)
+    type = legate::comm::coll::CollDataType::CollFloat;
+  else if (std::is_same<T, double>::value)
+    type = legate::comm::coll::CollDataType::CollDouble;
+  else
+    EXPECT(false, "Unsupported type.");
+  auto result = legate::comm::coll::collAllgather(
+    x, gather_result.data(), count, type, comm.get<legate::comm::coll::CollComm>());
+  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
+  for (std::size_t j = 0; j < count; j++) { x[j] = 0.0; }
+  for (std::size_t i = 0; i < num_ranks; i++) {
+    for (std::size_t j = 0; j < count; j++) { x[j] += gather_result[i * count + j]; }
+  }
+}
 
 }  // namespace legateboost

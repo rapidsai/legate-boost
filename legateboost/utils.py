@@ -4,7 +4,15 @@ from typing import Any, Callable, List, Optional, Tuple
 import numpy as np
 
 import cunumeric as cn
-from legate.core import LogicalArray, LogicalStore
+from legate.core import (
+    LogicalArray,
+    LogicalStore,
+    TaskTarget,
+    get_legate_runtime,
+    types as ty,
+)
+
+from .library import user_context, user_lib
 
 
 class PickleCunumericMixin:
@@ -353,3 +361,29 @@ def lbfgs(
 
     assert x.ndim == 1
     return LbfgsResult(x, eval, norm, k + 1, count_f.count)
+
+
+def gather(X: cn.array, samples: cn.array):
+    samples = samples.astype(cn.int64)
+    if samples.shape[0] == 0:
+        return cn.empty(shape=(0, X.shape[1]), dtype=X.dtype)
+    if samples.size == 1:
+        return X[samples[0]].reshape(1, -1)
+    task = get_legate_runtime().create_auto_task(
+        user_context,
+        user_lib.cffi.GATHER,
+    )
+    task.add_input(get_store(X))
+    task.add_input(get_store(samples))
+    task.add_broadcast(get_store(samples))
+    task.add_scalar_arg(int(X.shape[1]), ty.int32)
+    output = get_legate_runtime().create_store(
+        dtype=get_store(X).type, shape=(samples.shape[0], X.shape[1])
+    )
+    task.add_output(output)
+    if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
+        task.add_nccl_communicator()
+    elif get_legate_runtime().machine.count() > 1:
+        task.add_cpu_communicator()
+    task.execute()
+    return cn.array(output, copy=False)
