@@ -35,32 +35,21 @@ struct gather_fn {
     auto sample_rows_shape    = sample_rows.shape<1>();
     auto sample_rows_accessor = sample_rows.read_accessor<int64_t, 1>();
     auto n_samples            = sample_rows_shape.hi[0] - sample_rows_shape.lo[0] + 1;
-    auto n_features           = context.scalar(0).value<int>();
-    auto split_proposals_tmp  = legate::create_buffer<T, 2>({n_samples, n_features});
+    auto split_proposals      = context.reduction(0).data();
+    EXPECT_IS_BROADCAST(split_proposals.shape<2>());
+    auto n_features = split_proposals.shape<2>().hi[1] - split_proposals.shape<2>().lo[1] + 1;
+    auto split_proposals_accessor =
+      split_proposals.reduce_accessor<legate::SumReduction<T>, true, 2>();
 
     for (int i = sample_rows_shape.lo[0]; i <= sample_rows_shape.hi[0]; i++) {
       auto row = sample_rows_accessor[i];
       for (int j = 0; j < n_features; j++) {
         if (row >= X_shape.lo[0] && row <= X_shape.hi[0] && j >= X_shape.lo[1] &&
             j <= X_shape.hi[1]) {
-          split_proposals_tmp[{i, j}] = X_accessor[{row, j}];
-        } else {
-          split_proposals_tmp[{i, j}] = 0;
+          split_proposals_accessor.reduce({i, j}, X_accessor[{row, j}]);
         }
       }
     }
-    SumAllReduce(context, split_proposals_tmp.ptr({0, 0}), n_samples * n_features);
-
-    auto split_proposals          = context.output(0).data();
-    auto split_proposals_shape    = split_proposals.shape<2>();
-    auto split_proposals_accessor = split_proposals.write_accessor<T, 2>();
-    for (legate::PointInRectIterator<2> it(split_proposals_shape, false /*fortran_order*/);
-         it.valid();
-         ++it) {
-      auto p                      = *it;
-      split_proposals_accessor[p] = split_proposals_tmp[p];
-    }
-    split_proposals_tmp.destroy();
   }
 };
 

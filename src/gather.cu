@@ -37,33 +37,22 @@ struct gather_fn {
     auto sample_rows_shape    = sample_rows.shape<1>();
     auto sample_rows_accessor = sample_rows.read_accessor<int64_t, 1>();
     auto n_samples            = sample_rows_shape.hi[0] - sample_rows_shape.lo[0] + 1;
-    auto n_features           = context.scalar(0).value<int32_t>();
-    auto split_proposals_tmp  = legate::create_buffer<T, 2>({n_samples, n_features});
-    auto stream               = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    auto split_proposals      = context.reduction(0).data();
+    EXPECT_IS_BROADCAST(split_proposals.shape<2>());
+    auto n_features = split_proposals.shape<2>().hi[1] - split_proposals.shape<2>().lo[1] + 1;
+    auto split_proposals_accessor =
+      split_proposals.reduce_accessor<legate::SumReduction<T>, true, 2>();
+    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
     LaunchN(n_features * n_samples, stream, [=] __device__(auto idx) {
-      auto sample_idx  = idx / n_features;
-      auto feature_idx = idx % n_features;
-      auto row         = sample_rows_accessor[sample_idx];
-      if (row >= X_shape.lo[0] && row <= X_shape.hi[0] && feature_idx >= X_shape.lo[1] &&
-          feature_idx <= X_shape.hi[1]) {
-        split_proposals_tmp[{sample_idx, feature_idx}] = X_accessor[{row, feature_idx}];
-      } else {
-        split_proposals_tmp[{sample_idx, feature_idx}] = 0;
+      auto i   = idx / n_features;
+      auto j   = idx % n_features;
+      auto row = sample_rows_accessor[i];
+      if (row >= X_shape.lo[0] && row <= X_shape.hi[0] && j >= X_shape.lo[1] &&
+          j <= X_shape.hi[1]) {
+        split_proposals_accessor.reduce({i, j}, X_accessor[{row, j}]);
       }
     });
 
-    SumAllReduce(context, split_proposals_tmp.ptr({0, 0}), n_features * n_samples, stream);
-
-    auto split_proposals          = context.output(0).data();
-    auto split_proposals_shape    = split_proposals.shape<2>();
-    auto split_proposals_accessor = split_proposals.write_accessor<T, 2>();
-    LaunchN(split_proposals_shape.volume(), stream, [=] __device__(auto idx) {
-      int width = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
-      legate::Point<2> p(idx / width + split_proposals_shape.lo[0],
-                         idx % width + split_proposals_shape.lo[1]);
-      split_proposals_accessor[p] = split_proposals_tmp[p];
-    });
-    split_proposals_tmp.destroy();
     CHECK_CUDA_STREAM(stream);
   }
 };
