@@ -212,7 +212,9 @@ def classification_dataset_strategy(draw):
     classification_param_strategy,
     classification_dataset_strategy(),
 )
-def test_classifier(model_params, classification_params, classification_dataset):
+def test_classifier(
+    model_params: dict, classification_params: dict, classification_dataset: tuple
+) -> None:
     X, y, w, name = classification_dataset
     eval_result = {}
     model_params["n_estimators"] = 3

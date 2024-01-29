@@ -1,5 +1,5 @@
 Metrics
-====================
+=======
 
 .. autoclass:: legateboost.BaseMetric
     :members:
@@ -14,6 +14,9 @@ Metrics
     :members:
 
 .. autoclass:: legateboost.GammaDevianceMetric
+    :members:
+
+.. autoclass:: legateboost.GammaLLMetric
     :members:
 
 .. autoclass:: legateboost.QuantileMetric

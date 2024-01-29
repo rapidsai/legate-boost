@@ -362,7 +362,7 @@ def lbfgs(
     return LbfgsResult(x, eval, norm, k + 1, count_f.count)
 
 
-def gather(X: cn.array, samples: cn.array):
+def gather(X: cn.array, samples: cn.array) -> cn.array:
     samples = samples.astype(cn.int64)
     if samples.shape[0] == 0:
         return cn.empty(shape=(0, X.shape[1]), dtype=X.dtype)

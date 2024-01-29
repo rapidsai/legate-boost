@@ -27,6 +27,23 @@ void LgammaTask::cpu_variant(legate::TaskContext context)
 {
   SpecialFn::Impl(context, thrust::host, LgammaOp{});
 }
+
+void TgammaTask::cpu_variant(legate::TaskContext context)
+{
+  SpecialFn::Impl(context, thrust::host, TgammaOp{});
+}
+
+void DigammaTask::cpu_variant(legate::TaskContext context)
+{
+  SpecialFn::Impl(context, thrust::host, DigammaOp{});
+}
+
+void ZetaTask::cpu_variant(legate::TaskContext context)
+{
+  // we convert it to double in Python
+  auto x = context.scalar(0).value<double>();
+  SpecialFn::Impl(context, thrust::host, ZetaOp{x});
+}
 }  // namespace legateboost
 
 namespace  // unnamed
@@ -35,5 +52,8 @@ static void __attribute__((constructor)) register_tasks(void)
 {
   legateboost::ErfTask::register_variants();
   legateboost::LgammaTask::register_variants();
+  legateboost::TgammaTask::register_variants();
+  legateboost::DigammaTask::register_variants();
+  legateboost::ZetaTask::register_variants();
 }
 }  // namespace

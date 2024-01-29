@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Dict, Tuple, Type
 
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 import cunumeric as cn
 
-from .special import erf
+from .special import erf, loggamma
 from .utils import pick_col_by_idx, sample_average, set_col_by_idx
 
 
@@ -78,7 +78,7 @@ class MSEMetric(BaseMetric):
         return "mse"
 
 
-def check_normal(y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
+def check_dist_param(y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
     """Checks for normal distribution inputs."""
     if y.size * 2 != pred.size:
         raise ValueError("Expected pred to contain mean and sd for each y_i")
@@ -101,7 +101,7 @@ class NormalLLMetric(BaseMetric):
     """  # noqa: E501
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        y, pred = check_normal(y, pred)
+        y, pred = check_dist_param(y, pred)
         w_sum = w.sum()
         if w_sum == 0:
             return 0
@@ -120,6 +120,29 @@ class NormalLLMetric(BaseMetric):
 
     def name(self) -> str:
         return "normal_neg_ll"
+
+
+class GammaLLMetric(BaseMetric):
+    """The mean negative log likelihood of the labels, given parameters
+    predicted by the model."""
+
+    @override
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        y, pred = check_dist_param(y, pred)
+
+        w_sum = w.sum()
+        if w_sum == 0:
+            return 0
+
+        k = pred[:, :, 0]
+        b = pred[:, :, 1]
+        error = -(k - 1) * cn.log(y) + y / (b + 1e-6) + k * cn.log(b) + loggamma(k)
+
+        return float(sample_average(error, w))
+
+    @override
+    def name(self) -> str:
+        return "gamma_neg_ll"
 
 
 def norm_cdf(x: cn.ndarray) -> cn.ndarray:
@@ -143,7 +166,7 @@ class NormalCRPSMetric(BaseMetric):
     """
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        y, pred = check_normal(y, pred)
+        y, pred = check_dist_param(y, pred)
         loc = pred[:, :, 0]
         # `NormalObjective` outputs variance instead of scale.
         scale = cn.sqrt(pred[:, :, 1])
@@ -290,11 +313,12 @@ class ExponentialMetric(BaseMetric):
         return "exp"
 
 
-metrics = {
+metrics: Dict[str, Type[BaseMetric]] = {
     "log_loss": LogLossMetric,
     "mse": MSEMetric,
     "exp": ExponentialMetric,
     "normal_neg_ll": NormalLLMetric,
+    "gamma_neg_ll": GammaLLMetric,
     "normal_crps": NormalCRPSMetric,
     "deviance_gamma": GammaDevianceMetric,
 }
