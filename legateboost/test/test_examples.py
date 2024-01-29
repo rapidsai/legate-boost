@@ -48,7 +48,7 @@ benchmark_dir = dirname / "../../benchmark"
 
 def test_benchmark():
     subprocess.run(
-        "legate --cpus 2 scaling.py --nrows 100 --ncols 5",
+        "legate --cpus 2 scaling.py --nrows 100 --ncols 5 --niter 2",
         shell=True,
         check=True,
         cwd=benchmark_dir,

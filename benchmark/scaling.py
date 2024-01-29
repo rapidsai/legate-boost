@@ -92,7 +92,7 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="",
+        default="scaling.csv",
         help="Output file name. Automatically generated if not specified.",
     )
     parser.add_argument(
