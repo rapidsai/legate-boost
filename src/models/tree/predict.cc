@@ -13,13 +13,8 @@
  * limitations under the License.
  *
  */
-#include "legate_library.h"
-#include "legateboost.h"
-#include "core/utilities/dispatch.h"
-#include "cuda_help.h"
-#include "kernel_helper.cuh"
-#include "utils.h"
 #include "predict.h"
+#include "../../cpp_utils/cpp_utils.h"
 
 namespace legateboost {
 
@@ -29,12 +24,10 @@ struct predict_fn {
   void operator()(legate::TaskContext context)
   {
     using T         = legate::type_of<CODE>;
-    const auto& X   = context.input(0).data();
+    auto X          = context.input(0).data();
     auto X_shape    = X.shape<2>();
     auto X_accessor = X.read_accessor<T, 2>();
 
-    // The tree structure stores all have 1 extra 'dummy' dimension
-    // due to broadcasting
     auto leaf_value  = context.input(1).data().read_accessor<double, 2>();
     auto feature     = context.input(2).data().read_accessor<int32_t, 1>();
     auto split_value = context.input(3).data().read_accessor<double, 1>();
@@ -52,35 +45,32 @@ struct predict_fn {
     EXPECT_IS_BROADCAST(context.input(2).data().shape<1>());
     EXPECT_IS_BROADCAST(context.input(3).data().shape<1>());
 
-    // rowwise kernel
-    auto prediction_lambda = [=] __device__(size_t idx) {
-      int64_t pos              = 0;
-      legate::Point<2> x_point = {X_shape.lo[0] + (int64_t)idx, 0};
-
+    for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
+      int pos = 0;
       // Use a max depth of 100 to avoid infinite loops
       for (int depth = 0; depth < 100; depth++) {
         if (feature[pos] == -1) break;
-        x_point[1]   = feature[pos];
-        double X_val = X_accessor[x_point];
-        pos          = X_val <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
+        auto x = X_accessor[{i, feature[pos]}];
+        pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
       }
-      for (int64_t j = 0; j < n_outputs; j++) {
-        pred_accessor[{X_shape.lo[0] + (int64_t)idx, j}] = leaf_value[{pos, j}];
-      }
-    };
-
-    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
-    LaunchN(X_shape.hi[0] - X_shape.lo[0] + 1, stream, prediction_lambda);
-
-    CHECK_CUDA_STREAM(stream);
+      for (int64_t j = 0; j < n_outputs; j++) { pred_accessor[{i, j}] = leaf_value[{pos, j}]; }
+    }
   }
 };
 }  // namespace
 
-/*static*/ void PredictTask::gpu_variant(legate::TaskContext context)
+/*static*/ void PredictTask::cpu_variant(legate::TaskContext context)
 {
-  auto X = context.input(0).data();
+  const auto& X = context.input(0).data();
   type_dispatch_float(X.code(), predict_fn(), context);
 }
 
 }  // namespace legateboost
+
+namespace  // unnamed
+{
+static void __attribute__((constructor)) register_tasks(void)
+{
+  legateboost::PredictTask::register_variants();
+}
+}  // namespace

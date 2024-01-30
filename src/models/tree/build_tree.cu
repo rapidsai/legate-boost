@@ -15,11 +15,10 @@
  */
 #include "legate_library.h"
 #include "legateboost.h"
-#include "utils.h"
+#include "../../cpp_utils/cpp_utils.h"
+#include "../../cpp_utils/cpp_utils.cuh"
 #include "core/comm/coll.h"
 #include "build_tree.h"
-#include "cuda_help.h"
-#include "kernel_helper.cuh"
 #include <numeric>
 
 #include <cub/device/device_radix_sort.cuh>

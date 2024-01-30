@@ -16,11 +16,9 @@
  */
 #include "legate_library.h"
 #include "legateboost.h"
-#include "cuda_help.h"
-#include "kernel_helper.cuh"
-#include "utils.h"
+#include "../cpp_utils/cpp_utils.cuh"
+#include "../cpp_utils/cpp_utils.h"
 #include "gather.h"
-#include "linalg.h"
 
 namespace legateboost {
 

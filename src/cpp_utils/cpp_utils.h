@@ -1,4 +1,4 @@
-/* Copyright 2024, NVIDIA Corporation
+/* Copyright 2023 NVIDIA Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,18 +13,101 @@
  * limitations under the License.
  *
  */
-#pragma once
 
-#include <cstddef>                           // for size_t
-#include <cstdint>                           // for int32_t
-#include <tuple>                             // for tuple
-#include <utility>                           // for tuple_size_v, index_sequence
-#include <legate/core/utilities/typedefs.h>  // for coord_t
-#include <thrust/detail/config.h>            // for __host__ __device__
-#include <legate/core/type/type_info.h>      // for Type
-#include <legate/core/task/exception.h>      // for TaskException
+#pragma once
+#include "legate_library.h"
+#include <core/type/type_info.h>
+#include "core/comm/coll.h"
 
 namespace legateboost {
+
+extern Legion::Logger logger;
+
+inline void expect(bool condition, std::string message, std::string file, int line)
+{
+  if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }
+}
+#define EXPECT(condition, message) (expect(condition, message, __FILE__, __LINE__))
+
+template <int AXIS, typename ShapeAT, typename ShapeBT>
+void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, std::string file, int line)
+{
+  expect((a.lo[AXIS] == b.lo[AXIS]) && (a.hi[AXIS] == b.hi[AXIS]),
+         "Inconsistent axis alignment.",
+         file,
+         line);
+}
+#define EXPECT_AXIS_ALIGNED(axis, shape_a, shape_b) \
+  (expect_axis_aligned<axis>(shape_a, shape_b, __FILE__, __LINE__))
+
+template <typename ShapeT>
+void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
+{
+  for (int i = 0; i < sizeof(shape.lo.x) / sizeof(shape.lo[0]); i++) {
+    std::stringstream ss;
+    ss << "Expected a broadcast store. Got shape: " << shape << ".";
+    expect(shape.lo[i] == 0, ss.str(), file, line);
+  }
+}
+#define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
+
+template <typename Functor, typename... Fnargs>
+constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f, Fnargs&&... args)
+{
+  switch (code) {
+    case legate::Type::Code::FLOAT32: {
+      return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
+    }
+    case legate::Type::Code::FLOAT64: {
+      return f.template operator()<legate::Type::Code::FLOAT64>(std::forward<Fnargs>(args)...);
+    }
+    default: break;
+  }
+  EXPECT(false, "Expected floating point data.");
+  return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
+}
+
+template <typename Fn>
+constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Fn&& f)
+{
+  switch (code) {
+    case legate::Type::Code::FLOAT32: {
+      return f(float{});
+    }
+    case legate::Type::Code::FLOAT64: {
+      return f(double{});
+    }
+    default: throw legate::TaskException{"Invalid type."}; break;
+  }
+  return f(float{});
+}
+
+template <typename T>
+void SumAllReduce(legate::TaskContext context, T* x, int count)
+{
+  auto domain      = context.get_launch_domain();
+  size_t num_ranks = domain.get_volume();
+  EXPECT(num_ranks == 1 || context.num_communicators() > 0,
+         "Expected a CPU communicator for multi-rank task.");
+  if (count == 0 || context.num_communicators() == 0) return;
+  auto comm = context.communicator(0);
+  std::vector<T> gather_result(num_ranks * count);
+  legate::comm::coll::CollDataType type;
+  if (std::is_same<T, float>::value)
+    type = legate::comm::coll::CollDataType::CollFloat;
+  else if (std::is_same<T, double>::value)
+    type = legate::comm::coll::CollDataType::CollDouble;
+  else
+    EXPECT(false, "Unsupported type.");
+  auto result = legate::comm::coll::collAllgather(
+    x, gather_result.data(), count, type, comm.get<legate::comm::coll::CollComm>());
+  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
+  for (std::size_t j = 0; j < count; j++) { x[j] = 0.0; }
+  for (std::size_t i = 0; i < num_ranks; i++) {
+    for (std::size_t j = 0; j < count; j++) { x[j] += gather_result[i * count + j]; }
+  }
+}
+
 namespace detail {
 template <typename Tuple, std::size_t... idx, std::int32_t kDim = std::tuple_size_v<Tuple>>
 __host__ __device__ auto ToPointImpl(Tuple const& tup, std::index_sequence<idx...>)
@@ -159,26 +242,5 @@ __host__ __device__ auto UnravelIndex(std::size_t idx, std::int64_t const (&shap
   } else {
     return detail::UnravelImpl<std::uint32_t, D>(static_cast<uint32_t>(idx), shape);
   }
-}
-
-/**
- * @brief Dispatch floating-point types.
- *
- * @param code Legate type code
- * @param f    Function that accepts a default value of dispatched type.
- */
-template <typename Fn>
-constexpr decltype(auto) dispatch_dtype_float(legate::Type::Code code, Fn&& f)
-{
-  switch (code) {
-    case legate::Type::Code::FLOAT32: {
-      return f(float{});
-    }
-    case legate::Type::Code::FLOAT64: {
-      return f(double{});
-    }
-    default: throw legate::TaskException{"Invalid type."}; break;
-  }
-  return f(float{});
 }
 }  // namespace legateboost

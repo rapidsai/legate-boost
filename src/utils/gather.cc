@@ -17,7 +17,7 @@
 #include "legate.h"
 #include "legate_library.h"
 #include "legateboost.h"
-#include "utils.h"
+#include "../cpp_utils/cpp_utils.h"
 #include "gather.h"
 
 namespace legateboost {
