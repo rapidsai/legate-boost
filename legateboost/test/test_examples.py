@@ -48,5 +48,5 @@ def test_benchmark():
         "legate --cpus 2 scaling.py --nrows 100 --ncols 5 --niter 2",
         shell=True,
         check=True,
-        cwd="benchmark",
+        cwd=sys.path[0] + "/benchmark",
     )
