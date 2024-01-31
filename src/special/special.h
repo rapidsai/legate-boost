@@ -263,37 +263,40 @@ __host__ __device__ inline double zeta(double x, double q)
  * @brief Implementation for elementwise special functions.
  */
 struct SpecialFn {
-  template <typename Policy, std::int32_t kDim, typename DType, typename Fn>
-  static void DispatchDType(legate::TaskContext& context,
-                            legate::PhysicalArray const& in,
-                            Policy& policy,
-                            Fn fn)
-  {
-    legate::PhysicalArray out = context.output(0);
-    if (out.dim() != in.dim()) { throw legate::TaskException{"Dimension mismatch."}; }
+  template <std::int32_t kDim, typename Policy, typename Fn>
+  struct DispatchTypeOp {
+    template <typename T>
+    void operator()(legate::TaskContext& context,
+                    legate::PhysicalArray const& in,
+                    Policy& policy,
+                    Fn fn)
+    {
+      legate::PhysicalArray out = context.output(0);
+      if (out.dim() != in.dim()) { throw legate::TaskException{"Dimension mismatch."}; }
 
-    auto in_accessor  = in.data().read_accessor<DType, kDim>();
-    auto out_accessor = out.data().write_accessor<DType, kDim>();
+      auto in_accessor  = in.data().read_accessor<T, kDim>();
+      auto out_accessor = out.data().write_accessor<T, kDim>();
 
-    auto in_shape  = in.shape<kDim>();
-    auto out_shape = out.shape<kDim>();
+      auto in_shape  = in.shape<kDim>();
+      auto out_shape = out.shape<kDim>();
 
-    auto v = out_shape.volume();
+      auto v = out_shape.volume();
 
-    // If we use `in_accessor.ptr(in_shape)` instead of accessors, there's an
-    // error from legate when repeating tests with high dimension inputs:
-    //
-    // ERROR: Illegal request for pointer of non-dense rectangle
-    auto cnt = thrust::make_counting_iterator(static_cast<std::int64_t>(0));
-    std::int64_t shape[kDim];
-    detail::ToExtents<kDim>(in_shape, shape);
-    thrust::for_each_n(policy, cnt, v, [=] __host__ __device__(std::int64_t i) {
-      auto idx = UnravelIndex<kDim>(i, shape);
-      static_assert(std::tuple_size_v<decltype(idx)> == kDim);
-      out_accessor[detail::ToPoint(idx) + out_shape.lo] =
-        fn(in_accessor[detail::ToPoint(idx) + in_shape.lo]);
-    });
-  }
+      // If we use `in_accessor.ptr(in_shape)` instead of accessors, there's an
+      // error from legate when repeating tests with high dimension inputs:
+      //
+      // ERROR: Illegal request for pointer of non-dense rectangle
+      auto cnt = thrust::make_counting_iterator(static_cast<std::int64_t>(0));
+      std::int64_t shape[kDim];
+      detail::ToExtents<kDim>(in_shape, shape);
+      thrust::for_each_n(policy, cnt, v, [=] __host__ __device__(std::int64_t i) {
+        auto idx = UnravelIndex<kDim>(i, shape);
+        static_assert(std::tuple_size_v<decltype(idx)> == kDim);
+        out_accessor[detail::ToPoint(idx) + out_shape.lo] =
+          fn(in_accessor[detail::ToPoint(idx) + in_shape.lo]);
+      });
+    }
+  };
 
   struct DispatchDimOp {
     template <std::int32_t kDim, typename Policy, typename Fn>
@@ -302,14 +305,8 @@ struct SpecialFn {
                     Policy& policy,
                     Fn fn)
     {
-      type_dispatch_float(in.type().code(), [&](auto t) {
-        using T = decltype(t);
-        if constexpr (std::is_same_v<T, __half>) {
-          throw legate::TaskException{"half is not supported."};
-        } else {
-          DispatchDType<Policy, kDim, T>(context, in, policy, fn);
-        }
-      });
+      type_dispatch_float(
+        in.type().code(), DispatchTypeOp<kDim, Policy, Fn>{}, context, in, policy, fn);
     }
   };
 

@@ -51,35 +51,23 @@ void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
 }
 #define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
 
-template <typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor f, Fnargs&&... args)
+template <typename... Types, typename Functor, typename... Fnargs>
+constexpr decltype(auto) type_dispatch(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
-  switch (code) {
-    case legate::Type::Code::FLOAT32: {
-      return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
+  auto f_ = [&](auto type) {
+    using T = decltype(type);
+    if (code == legate::type_code_of<T>) {
+      f.template operator()<T>(std::forward<Fnargs>(args)...);
     }
-    case legate::Type::Code::FLOAT64: {
-      return f.template operator()<legate::Type::Code::FLOAT64>(std::forward<Fnargs>(args)...);
-    }
-    default: break;
-  }
-  EXPECT(false, "Expected floating point data.");
-  return f.template operator()<legate::Type::Code::FLOAT32>(std::forward<Fnargs>(args)...);
+  };
+  std::tuple<Types...> t;
+  std::apply([&](auto&... x) { (..., f_(x)); }, t);
 }
 
-template <typename Fn>
-constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Fn&& f)
+template <typename Functor, typename... Fnargs>
+constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
-  switch (code) {
-    case legate::Type::Code::FLOAT32: {
-      return f(float{});
-    }
-    case legate::Type::Code::FLOAT64: {
-      return f(double{});
-    }
-    default: throw legate::TaskException{"Invalid type."}; break;
-  }
-  return f(float{});
+  type_dispatch<float, double>(code, f, std::forward<Fnargs>(args)...);
 }
 
 template <typename T>

@@ -20,10 +20,9 @@
 namespace legateboost {
 
 struct update_tree_fn {
-  template <legate::Type::Code CODE>
+  template <typename T>
   void operator()(legate::TaskContext context)
   {
-    using T           = legate::type_of<CODE>;
     const auto& X     = context.input(0).data();
     auto X_shape      = X.shape<2>();
     auto X_accessor   = X.read_accessor<T, 2>();
