@@ -38,7 +38,11 @@ def test_notebooks(path):
         "--RegexRemovePreprocessor.patterns='^%'",
         str(path),
     ]
-    subprocess.check_call(cmd)
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(e.stderr.decode())
+        raise e
     # import the script to run it in the existing python process
     importlib.import_module(path.stem)
 
