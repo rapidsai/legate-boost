@@ -111,6 +111,8 @@ jobs:
         run: |
           mamba activate legate
           pip install $(find -name legateboost*.whl)[test] --prefix .
+      - name: Checkout legateboost
+        uses: actions/checkout@v4
       - name: Run cpu tests
         run: |
           legate --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
@@ -122,8 +124,6 @@ jobs:
       - name: Run gpu tests
         run: |
           legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
-      - name: Checkout legateboost
-        uses: actions/checkout@v4
       - name: Build legateboost
         run: |
           # build again so we have a local editable install for the purpose of building docs
