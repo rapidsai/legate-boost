@@ -259,147 +259,63 @@ __host__ __device__ inline double zeta(double x, double q)
 
 };  // namespace
 
-/**
- * @brief Implementation for elementwise special functions.
- */
-struct SpecialFn {
-  template <std::int32_t kDim, typename Policy, typename Fn>
-  struct DispatchTypeOp {
-    template <typename T>
-    void operator()(legate::TaskContext& context,
-                    legate::PhysicalArray const& in,
-                    Policy& policy,
-                    Fn fn)
-    {
-      legate::PhysicalArray out = context.output(0);
-      if (out.dim() != in.dim()) { throw legate::TaskException{"Dimension mismatch."}; }
-
-      auto in_accessor  = in.data().read_accessor<T, kDim>();
-      auto out_accessor = out.data().write_accessor<T, kDim>();
-
-      auto in_shape  = in.shape<kDim>();
-      auto out_shape = out.shape<kDim>();
-
-      auto v = out_shape.volume();
-
-      // If we use `in_accessor.ptr(in_shape)` instead of accessors, there's an
-      // error from legate when repeating tests with high dimension inputs:
-      //
-      // ERROR: Illegal request for pointer of non-dense rectangle
-      auto cnt = thrust::make_counting_iterator(static_cast<std::int64_t>(0));
-      std::int64_t shape[kDim];
-      detail::ToExtents<kDim>(in_shape, shape);
-      thrust::for_each_n(policy, cnt, v, [=] __host__ __device__(std::int64_t i) {
-        auto idx = UnravelIndex<kDim>(i, shape);
-        static_assert(std::tuple_size_v<decltype(idx)> == kDim);
-        out_accessor[detail::ToPoint(idx) + out_shape.lo] =
-          fn(in_accessor[detail::ToPoint(idx) + in_shape.lo]);
-      });
-    }
-  };
-
-  struct DispatchDimOp {
-    template <std::int32_t kDim, typename Policy, typename Fn>
-    void operator()(legate::TaskContext& context,
-                    legate::PhysicalArray const& in,
-                    Policy& policy,
-                    Fn fn)
-    {
-      type_dispatch_float(
-        in.type().code(), DispatchTypeOp<kDim, Policy, Fn>{}, context, in, policy, fn);
-    }
-  };
-
-  template <typename Policy, typename Fn>
-  static void Impl(legate::TaskContext& context, Policy& policy, Fn fn)
+struct ErfOp {
+  using ArgsT = std::tuple<>;
+  template <typename T>
+  __host__ __device__ T operator()(T const& v) const
   {
-    auto const& in = context.input(0);
-    legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, policy, fn);
+    return std::erf(v);
   }
-};  // namespace
-
-/**
- * @brief Task for calculating erf function on ndarray.
- */
-class ErfTask : public Task<ErfTask, ERF> {
- public:
-  struct ErfOp {
-    template <typename T>
-    __host__ __device__ T operator()(T const& v) const
-    {
-      return std::erf(v);
-    }
-  };
-
- public:
-  static void cpu_variant(legate::TaskContext context);
-  static void gpu_variant(legate::TaskContext context);
 };
 
-/**
- * @brief Task for calculating log-gamma function on ndarray.
- */
-class LgammaTask : public Task<LgammaTask, LGAMMA> {
- public:
-  struct LgammaOp {
-    template <typename T>
-    __host__ __device__ T operator()(T const& v) const
-    {
-      return std::lgamma(v);
-    }
-  };
+using ErfTask = UnaryOpTask<ErfOp, ERF>;
 
- public:
-  static void cpu_variant(legate::TaskContext context);
-  static void gpu_variant(legate::TaskContext context);
+struct LgammaOp {
+  using ArgsT = std::tuple<>;
+  template <typename T>
+  __host__ __device__ T operator()(T const& v) const
+  {
+    return std::lgamma(v);
+  }
 };
 
-class TgammaTask : public Task<TgammaTask, TGAMMA> {
- public:
-  struct TgammaOp {
-    template <typename T>
-    __host__ __device__ T operator()(T const& v) const
-    {
-      return std::tgamma(v);
-    }
-  };
+using LgammaTask = UnaryOpTask<LgammaOp, LGAMMA>;
 
- public:
-  static void cpu_variant(legate::TaskContext context);
-  static void gpu_variant(legate::TaskContext context);
+struct TgammaOp {
+  using ArgsT = std::tuple<>;
+  template <typename T>
+  __host__ __device__ T operator()(T const& v) const
+  {
+    return std::tgamma(v);
+  }
 };
 
-class DigammaTask : public Task<DigammaTask, DIGAMMA> {
- public:
-  struct DigammaOp {
-    template <typename T>
-    __host__ __device__ T operator()(T const& v) const
-    {
-      return calc_digamma(v);
-    }
-  };
+using TgammaTask = UnaryOpTask<TgammaOp, TGAMMA>;
 
- public:
-  static void cpu_variant(legate::TaskContext context);
-  static void gpu_variant(legate::TaskContext context);
+struct DigammaOp {
+  using ArgsT = std::tuple<>;
+  template <typename T>
+  __host__ __device__ T operator()(T const& v) const
+  {
+    return calc_digamma(v);
+  }
 };
 
-class ZetaTask : public Task<ZetaTask, ZETA> {
- public:
-  struct ZetaOp {
-    double x;
+using DigammaTask = UnaryOpTask<DigammaOp, DIGAMMA>;
 
-    explicit ZetaOp(double x) : x{x} {}
+struct ZetaOp {
+  using ArgsT = std::tuple<double>;
+  double x;
 
-    template <typename T>
-    __host__ __device__ T operator()(T const& q) const
-    {
-      return zeta(x, q);
-    }
-  };
+  explicit ZetaOp(double x) : x{x} {}
 
- public:
-  static void cpu_variant(legate::TaskContext context);
-  static void gpu_variant(legate::TaskContext context);
+  template <typename T>
+  __host__ __device__ T operator()(T const& q) const
+  {
+    return zeta(x, q);
+  }
 };
+
+using ZetaTask = UnaryOpTask<ZetaOp, ZETA>;
+
 }  // namespace legateboost

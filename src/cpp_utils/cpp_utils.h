@@ -18,6 +18,9 @@
 #include "legate_library.h"
 #include <core/type/type_info.h>
 #include "core/comm/coll.h"
+#include <thrust/for_each.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/execution_policy.h>  // for host
 
 namespace legateboost {
 
@@ -239,4 +242,72 @@ __host__ __device__ auto UnravelIndex(std::size_t idx, std::int64_t const (&shap
     return detail::UnravelImpl<std::uint32_t, D>(static_cast<uint32_t>(idx), shape);
   }
 }
+
+template <size_t I = 0, typename... Tp>
+void extract_scalars(std::tuple<Tp...>& t, legate::TaskContext context)
+{
+  using T        = typename std::tuple_element<I, std::tuple<Tp...>>::type;
+  std::get<I>(t) = context.scalar(I).value<T>();
+  if constexpr (I + 1 != sizeof...(Tp)) extract_scalars<I + 1>(t);
+}
+inline void extract_scalars(std::tuple<>& t, legate::TaskContext context) {}
+
+template <typename F, int OpCode>
+class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
+ public:
+  template <std::int32_t kDim, typename Policy>
+  struct DispatchTypeOp {
+    template <typename T>
+    void operator()(legate::TaskContext& context, legate::PhysicalArray const& in, Policy& policy)
+    {
+      typename F::ArgsT op_args;
+      extract_scalars(op_args, context);
+      auto f                    = std::make_from_tuple<F>(op_args);
+      legate::PhysicalArray out = context.output(0);
+      if (out.dim() != in.dim()) { throw legate::TaskException{"Dimension mismatch."}; }
+
+      auto in_accessor  = in.data().read_accessor<T, kDim>();
+      auto out_accessor = out.data().write_accessor<T, kDim>();
+
+      auto in_shape  = in.shape<kDim>();
+      auto out_shape = out.shape<kDim>();
+
+      auto v = out_shape.volume();
+
+      // If we use `in_accessor.ptr(in_shape)` instead of accessors, there's an
+      // error from legate when repeating tests with high dimension inputs:
+      //
+      // ERROR: Illegal request for pointer of non-dense rectangle
+      auto cnt = thrust::make_counting_iterator(static_cast<std::int64_t>(0));
+      std::int64_t shape[kDim];
+      detail::ToExtents<kDim>(in_shape, shape);
+      thrust::for_each_n(policy, cnt, v, [=] __host__ __device__(std::int64_t i) {
+        auto idx = UnravelIndex<kDim>(i, shape);
+        static_assert(std::tuple_size_v<decltype(idx)> == kDim);
+        out_accessor[detail::ToPoint(idx) + out_shape.lo] =
+          f(in_accessor[detail::ToPoint(idx) + in_shape.lo]);
+      });
+    }
+  };
+  struct DispatchDimOp {
+    template <std::int32_t kDim, typename Policy>
+    void operator()(legate::TaskContext& context, legate::PhysicalArray const& in, Policy& policy)
+    {
+      type_dispatch_float(in.type().code(), DispatchTypeOp<kDim, Policy>{}, context, in, policy);
+    }
+  };
+  static void cpu_variant(legate::TaskContext context)
+  {
+    auto const& in = context.input(0);
+    legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, thrust::host);
+  }
+#ifdef __CUDACC__
+  static void gpu_variant(legate::TaskContext context)
+  {
+    auto const& in = context.input(0);
+    legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, thrust::device);
+  }
+#endif
+};
+
 }  // namespace legateboost

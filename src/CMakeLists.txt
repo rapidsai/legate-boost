@@ -29,7 +29,6 @@ set(legateboost_srcs
   models/tree/predict.cc
   cpp_utils/cpp_utils.h
   cpp_utils/cpp_utils.cc
-  special/special.cc
   utils/gather.cc
 )
 

@@ -13,33 +13,14 @@
  * limitations under the License.
  */
 #include "special.h"
-#include <thrust/execution_policy.h>  // for device
-
-namespace legateboost {
-void ErfTask::gpu_variant(legate::TaskContext context)
+namespace  // unnamed
 {
-  SpecialFn::Impl(context, thrust::device, ErfOp{});
-}
-
-void LgammaTask::gpu_variant(legate::TaskContext context)
+static void __attribute__((constructor)) register_tasks(void)
 {
-  SpecialFn::Impl(context, thrust::device, LgammaOp{});
+  legateboost::ErfTask::register_variants();
+  legateboost::LgammaTask::register_variants();
+  legateboost::TgammaTask::register_variants();
+  legateboost::DigammaTask::register_variants();
+  legateboost::ZetaTask::register_variants();
 }
-
-void TgammaTask::gpu_variant(legate::TaskContext context)
-{
-  SpecialFn::Impl(context, thrust::device, TgammaOp{});
-}
-
-void DigammaTask::gpu_variant(legate::TaskContext context)
-{
-  SpecialFn::Impl(context, thrust::device, DigammaOp{});
-}
-
-void ZetaTask::gpu_variant(legate::TaskContext context)
-{
-  // we convert it to double in Python
-  auto x = context.scalar(0).value<double>();
-  SpecialFn::Impl(context, thrust::device, ZetaOp{x});
-}
-}  // namespace legateboost
+}  // namespace
