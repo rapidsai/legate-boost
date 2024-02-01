@@ -51,17 +51,25 @@ void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
 }
 #define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
 
+template <typename Functor, typename... Fnargs>
+constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+{
+  throw std::runtime_error("Unsupported type.");
+}
+
+template <typename T, typename... Types, typename Functor, typename... Fnargs>
+constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+{
+  if (code == legate::type_code_of<T>) {
+    return f.template operator()<T>(std::forward<Fnargs>(args)...);
+  }
+  return type_dispatch_impl<Types...>(code, f, std::forward<Fnargs>(args)...);
+}
+
 template <typename... Types, typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
-  auto f_ = [&](auto type) {
-    using T = decltype(type);
-    if (code == legate::type_code_of<T>) {
-      f.template operator()<T>(std::forward<Fnargs>(args)...);
-    }
-  };
-  std::tuple<Types...> t;
-  std::apply([&](auto&... x) { (..., f_(x)); }, t);
+  return type_dispatch_impl<Types...>(code, f, std::forward<Fnargs>(args)...);
 }
 
 template <typename Functor, typename... Fnargs>
