@@ -69,6 +69,8 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout legateboost
         uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Type check legateboost
         run: |
           mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
@@ -113,6 +115,8 @@ jobs:
           pip install $(find -name legateboost*.whl)[test] --prefix .
       - name: Checkout legateboost
         uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Build legateboost
         run: |
           # build again so we have a local editable install for the purpose of building docs
