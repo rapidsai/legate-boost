@@ -34,3 +34,4 @@ def test_improving_with_depth(num_outputs):
         metrics.append(loss)
 
     assert non_increasing(metrics)
+    assert metrics[-1] < metrics[0]

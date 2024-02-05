@@ -12,6 +12,8 @@ enum LegateBoostOpCode {
   TGAMMA  = 6,
   DIGAMMA = 7,
   ZETA    = 8,
+  /**/
+  GATHER = 9,
 };
 
 #endif  // __LEGATEBOOST_C_H__

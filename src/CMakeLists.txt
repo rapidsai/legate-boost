@@ -29,6 +29,7 @@ set(legateboost_srcs
   utils.h
   utils.cc
   special.cc
+  gather.cc
 )
 
 if(Legion_USE_CUDA)
@@ -36,6 +37,7 @@ if(Legion_USE_CUDA)
     predict.cu
     build_tree.cu
     special.cu
+    gather.cu
   )
 endif()
 

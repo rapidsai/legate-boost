@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Set, Tuple
 
+import numpy as np
 from scipy.special import lambertw
 
 import cunumeric as cn
 
-from ..utils import lbfgs
+from ..utils import gather, lbfgs
 from .base_model import BaseModel
 
 
@@ -85,13 +86,12 @@ class KRR(BaseModel):
         K_nm = self._apply_kernel(X)
         K_mm = self._apply_kernel(self.X_train)
         num_outputs = g.shape[1]
-        self.betas_ = cn.zeros((self.X_train.shape[0], num_outputs))
+        self.betas_ = cn.zeros((self.X_train.shape[0], num_outputs), dtype=X.dtype)
 
         for k in range(num_outputs):
-            W = cn.sqrt(h[:, k])
-            # Make sure we are working in 64 bit for numerical stability
-            Kw = K_nm.astype(cn.float64) * W[:, cn.newaxis]
-            yw = W * (-g[:, k] / h[:, k])
+            W = cn.sqrt(h[:, k]).astype(X.dtype)
+            Kw = K_nm * W[:, cn.newaxis]
+            yw = W * (-g[:, k] / h[:, k]).astype(X.dtype)
             self.betas_[:, k] = cn.linalg.lstsq(
                 Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw), rcond=None
             )[0]
@@ -150,6 +150,17 @@ class KRR(BaseModel):
             self.sigma = self.opt_sigma(D_2)
         return cn.exp(-D_2 / (2 * self.sigma * self.sigma))
 
+    def _sample_components(self, X: cn.ndarray) -> cn.ndarray:
+        usable_num_components = min(X.shape[0], self.num_components)
+        if usable_num_components == X.shape[0]:
+            return X
+        selected: Set[int] = set()
+        # numpy.choice is not efficient for small number of
+        # samples from large population
+        while len(selected) < usable_num_components:
+            selected.add(self.random_state.randint(0, X.shape[0]))
+        return gather(X, cn.array(np.fromiter(selected, int, len(selected))))
+
     def _fit_components(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
         if self.solver == "direct":
             return self._direct_solve(X, g, h)
@@ -164,9 +175,7 @@ class KRR(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "KRR":
-        usable_num_components = min(X.shape[0], self.num_components)
-        self.indices = self.random_state.permutation(X.shape[0])[:usable_num_components]
-        self.X_train = X[self.indices]
+        self.X_train = self._sample_components(X)
         return self._fit_components(X, g, h)
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:

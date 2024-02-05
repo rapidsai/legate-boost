@@ -171,9 +171,6 @@ template <typename Fn>
 constexpr decltype(auto) dispatch_dtype_float(legate::Type::Code code, Fn&& f)
 {
   switch (code) {
-    case legate::Type::Code::FLOAT16: {
-      return f(__half{});
-    }
     case legate::Type::Code::FLOAT32: {
       return f(float{});
     }
