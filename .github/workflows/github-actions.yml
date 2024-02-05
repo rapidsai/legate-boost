@@ -48,7 +48,7 @@ jobs:
           python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
-          mamba install -y build scikit-learn hypothesis pytest notebook;
+          mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
           pip install matplotlib seaborn xgboost
           ./install.py --network ucx --cuda;
         if: steps.cache.outputs.cache-hit != 'true'
@@ -69,6 +69,8 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout legateboost
         uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Type check legateboost
         run: |
           mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
@@ -111,26 +113,25 @@ jobs:
         run: |
           mamba activate legate
           pip install $(find -name legateboost*.whl)[test] --prefix .
+      - name: Checkout legateboost
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Build legateboost
+        run: |
+          # build again so we have a local editable install for the purpose of building docs
+          pip install -e .
       - name: Run cpu tests
-        working-directory: lib/python3.10/site-packages
         run: |
           legate --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
       - name: Run cpu multi-node tests
-        working-directory: lib/python3.10/site-packages
         run: |
           # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
           OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 legate --launcher mpirun --ranks-per-node 2 --module pytest legateboost/test -sv --durations=0 -k 'not sklearn'
         if: ${{ false }} # disabled due to issue #5
       - name: Run gpu tests
-        working-directory: lib/python3.10/site-packages
         run: |
           legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
-      - name: Checkout legateboost
-        uses: actions/checkout@v4
-      - name: Build legateboost
-        run: |
-          # build again so we have a local editable install for the purpose of building docs
-          pip install -e .
       - name: Build legateboost docs
         working-directory: docs
         run: |
