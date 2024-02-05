@@ -8,10 +8,10 @@ from sklearn.metrics import (
 
 import cunumeric as cn
 import legateboost as lb
-from legateboost.metrics import GammaDevianceMetric, erf
+from legateboost.metrics import GammaDevianceMetric
 
 
-def test_multiple_metrics():
+def test_multiple_metrics() -> None:
     np.random.seed(0)
     X = np.random.random((10, 1))
     y = np.random.randint(0, 2, size=X.shape[0])
@@ -189,19 +189,6 @@ def test_normal_neg_ll():
     assert cn.allclose(our_metric, ref_metric)
 
 
-def test_erf() -> None:
-    from scipy.special import erf as scipy_erf
-
-    rng = np.random.default_rng(0)
-    for t in [cn.float32, cn.float64]:
-        for s in [(100,), (100, 10), (100, 10, 10)]:
-            x = rng.normal(size=s)
-            y0 = erf(x)
-            y1 = scipy_erf(x)
-            assert y0.shape == x.shape
-            assert cn.allclose(y0, y1)
-
-
 def test_normal_crps() -> None:
     """Tests for the `NormalCRPSMetric`."""
     cprs = lb.NormalCRPSMetric()
@@ -256,3 +243,18 @@ def test_gamma_deviance() -> None:
     d1 = skl_gamma_deviance(y, p, sample_weight=w)
 
     assert cn.allclose(d0, d1, rtol=1e-3)
+
+
+def test_gamma_neg_ll() -> None:
+    from scipy import stats
+
+    rng = cn.random.default_rng(0)
+    w = cn.ones(1)
+
+    metric = lb.GammaLLMetric()
+    param = cn.array([3.6, 1.8])
+    y_true = rng.gamma(shape=param[0], scale=param[1], size=1)
+    res_0 = float(-stats.gamma.logpdf(y_true, param[0], loc=0.0, scale=param[1]))
+    y_pred = param.reshape(1, 2)
+    res_1 = metric.metric(y_true, y_pred, w)
+    np.testing.assert_allclose(res_0, res_1, rtol=1e-4)

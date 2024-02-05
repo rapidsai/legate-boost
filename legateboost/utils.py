@@ -1,9 +1,12 @@
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 
 import cunumeric as cn
-from legate.core import LogicalArray, LogicalStore
+from legate.core import LogicalArray, LogicalStore, ReductionOp, get_legate_runtime
+
+from .library import user_context, user_lib
 
 
 class PickleCunumericMixin:
@@ -65,6 +68,11 @@ def mod_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
     return
 
 
+one = cn.array(1.0, dtype=cn.float64)
+two = cn.array(2.0, dtype=cn.float64)
+eps = cn.finfo(cn.float64).eps
+
+
 def preround(x: cn.ndarray) -> cn.ndarray:
     """Apply this function to grad/hess ensure reproducible floating point
     summation.
@@ -77,8 +85,8 @@ def preround(x: cn.ndarray) -> cn.ndarray:
     assert x.dtype == cn.float32 or x.dtype == cn.float64
     m = cn.sum(cn.abs(x))
     n = x.size
-    delta = cn.floor(m / (1 - 2 * n * cn.finfo(x.dtype).eps))
-    M = 2 ** cn.ceil(cn.log2(delta))
+    delta = cn.floor(m / (one - two * n * eps))
+    M = two ** cn.ceil(cn.log2(delta))
     return (x + M) - M
 
 
@@ -105,7 +113,7 @@ def get_store(input: Any) -> LogicalStore:
     return store
 
 
-def solve_singular(a, b):
+def solve_singular(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
     """Solve a singular linear system Ax = b for x. The same as
     np.linalg.solve, but if A is singular, then we use Algorithm 3.3 from:
 
@@ -174,5 +182,202 @@ def sample_average(
     return (y * sample_weight).sum(axis=0) / sum_w
 
 
-# Constant for reducing numerical issues.
-EPS = 1e-6
+def __line_search(
+    f: Callable[..., Tuple[float, Any]],
+    eval: float,
+    g: cn.ndarray,
+    x: cn.ndarray,
+    d: cn.ndarray,
+    args: Tuple[Any, ...] = (),
+) -> Tuple[float, float, cn.ndarray]:
+    alpha = 1.0
+    c = 1e-4
+    rho = 0.5
+    new_eval, new_g = f(x + alpha * d, *args)
+    beta = c * cn.dot(g, d)
+    while new_eval > eval + alpha * beta and alpha * rho > 1e-15:
+        alpha *= rho
+        new_eval, new_g = f(x + alpha * d, *args)
+    return alpha, new_eval, new_g
+
+
+def __vlbfgs_recursion(
+    g: cn.ndarray, s: List[cn.ndarray], y: List[cn.ndarray]
+) -> cn.ndarray:
+    m = len(s)
+    if m == 0:
+        return -g
+    b = cn.array(s + y + [g])
+
+    # Perform this computation using numpy to avoid Legate overhead
+    # B matrix is small
+    B = b.dot(b.T).__array__()
+    # elements of B are not allowed to be near 0
+    B[(B >= 0.0) & (B < 1e-15)] = 1e-15
+    B[(B < 0.0) & (B > -1e-15)] = -1e-15
+
+    delta = np.zeros(len(b))
+    alpha = np.zeros(len(b))
+    delta[-1] = -1.0
+    for i in reversed(range(m)):
+        alpha[i] = delta.dot(B[:, i]) / B[i, i + m]
+        delta[m + i] = delta[m + i] - alpha[i]
+
+    delta = delta * B[m - 1, 2 * m - 1] / B[2 * m - 1, 2 * m - 1]
+
+    for i in range(m):
+        beta = delta.dot(B[:, i + m]) / B[i, i + m]
+        delta[i] = delta[i] + (alpha[i] - beta)
+    # Convert back to cunumeric
+    return cn.dot(delta, b)
+
+
+def __lbfgs_recursion(
+    g: cn.ndarray, s: List[cn.ndarray], y: List[cn.ndarray]
+) -> cn.ndarray:
+    q = g.copy()
+    m = len(s)
+    alpha = cn.zeros(m)
+    rho = [1 / cn.dot(y[i], s[i]) for i in range(m)]
+    for i in reversed(range(m)):
+        alpha[i] = rho[i] * cn.dot(s[i], q)
+        q -= alpha[i] * y[i]
+    if s == []:
+        H_k0 = 1
+    else:
+        H_k0 = cn.dot(s[-1], y[-1]) / cn.dot(y[-1], y[-1])
+    r = H_k0 * q
+    for i in range(m):
+        beta = rho[i] * cn.dot(y[i], r)
+        r += s[i] * (alpha[i] - beta)
+    return -r
+
+
+@dataclass
+class LbfgsResult:
+    """Result of L-BFGS optimization.
+
+    Attributes:
+        x: The solution.
+        eval: The final value of the objective function.
+        norm: The norm of the gradient.
+        num_iter: The number of iterations.
+        feval: The number of function evaluations.
+    """
+
+    x: cn.ndarray
+    eval: float
+    norm: float
+    num_iter: int
+    feval: int
+
+    def __str__(self) -> str:
+        return (
+            "L-BFGS Result:\n\teval: {}\n\tnorm: {}\n\tnum_iter:"
+            " {}\n\tfeval: {}".format(self.eval, self.norm, self.num_iter, self.feval)
+        )
+
+
+def lbfgs(
+    x0: cn.array,
+    f: Callable[..., Tuple[float, Any]],
+    max_iter: int = 100,
+    m: int = 10,
+    gtol: float = 1e-5,
+    args: Tuple[Any, ...] = (),
+    verbose: int = 0,
+) -> LbfgsResult:
+    """Minimize a function using the L-BFGS algorithm.
+
+    Parameters
+    ----------
+    x0 : array_like
+        Initial guess for the minimum point.
+    f : callable
+        Objective function to minimize. The function must return the value of
+        the objective function and its gradient at a given point x, i.e.,
+        `f(x, *args) -> (float, array_like)`.
+    max_iter : int, optional
+        Maximum number of iterations.
+    m : int, optional
+        Number of previous iterations to use in the L-BFGS recursion.
+    gtol : float, optional
+        Tolerance for the norm of the gradient.
+    args : tuple, optional
+        Extra arguments to pass to the objective function.
+    verbose : bool, optional
+        Whether to print information about the optimization process.
+
+    Returns
+    -------
+    result : LbfgsResult
+        The optimization result represented as a named tuple with fields:
+        `x` (the minimum point), `eval` (the minimum value of the objective
+        function), `norm` (the norm of the gradient at the minimum point),
+        `num_iter` (the number of iterations performed), and `feval` (the
+        number of function evaluations performed).
+    """
+    assert x0.ndim == 1
+    x = x0.copy()
+
+    class CountF:
+        def __init__(self, func: Callable[..., Tuple[float, Any]]):
+            self.count = 0
+            self.func = func
+
+        def __call__(self, *args: Any, **kwargs: Any) -> Tuple[float, Any]:
+            self.count += 1
+            return self.func(*args, **kwargs)
+
+    count_f = CountF(f)
+
+    eval, g = count_f(x, *args)
+    s: List[cn.ndarray] = []
+    y: List[cn.ndarray] = []
+    norm = 0.0
+    for k in range(max_iter):
+        r = __vlbfgs_recursion(g, s, y)
+        lr, eval, new_g = __line_search(count_f, eval, g, x, r, args=args)
+        norm = cn.linalg.norm(new_g)
+        s.append(lr * r)
+        x = x + s[-1]
+        y.append(new_g - g)
+        g = new_g
+        if lr < 1e-10:
+            if verbose:
+                print("L-BFGS: lr too small, restarting iteration.")
+            s = []
+            y = []
+        if verbose and k % verbose == 0:
+            print(
+                "L-BFGS:\tk={}\tfeval:{:8.5}\tnorm:{:8.5f}".format(k, float(eval), norm)
+            )
+        if norm < gtol:
+            break
+        if len(s) > m:
+            s.pop(0)
+            y.pop(0)
+
+    assert x.ndim == 1
+    return LbfgsResult(x, eval, norm, k + 1, count_f.count)
+
+
+def gather(X: cn.array, samples: cn.array) -> cn.array:
+    samples = samples.astype(cn.int64)
+    if samples.shape[0] == 0:
+        return cn.empty(shape=(0, X.shape[1]), dtype=X.dtype)
+    if samples.size == 1:
+        return X[samples[0]].reshape(1, -1)
+    task = get_legate_runtime().create_auto_task(
+        user_context,
+        user_lib.cffi.GATHER,
+    )
+
+    output = cn.zeros(shape=(samples.shape[0], X.shape[1]), dtype=X.dtype)
+    task.add_input(get_store(X))
+    task.add_input(get_store(samples))
+    task.add_broadcast(get_store(samples))
+    task.add_reduction(get_store(output), ReductionOp.ADD)
+    task.add_broadcast(get_store(output))
+    task.execute()
+    return output

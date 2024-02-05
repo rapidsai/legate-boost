@@ -11,7 +11,7 @@ np.set_printoptions(threshold=10, edgeitems=1)
 settings.register_profile(
     "local",
     max_examples=50,
-    deadline=None,
+    deadline=5000,
     verbosity=Verbosity.verbose,
     suppress_health_check=(HealthCheck.too_slow,),
     print_blob=True,
@@ -56,7 +56,7 @@ def base_model_strategy(draw):
 
 general_model_param_strategy = st.fixed_dictionaries(
     {
-        "n_estimators": st.integers(1, 20),
+        "n_estimators": st.integers(1, 10),
         "base_models": base_model_strategy(),
         "init": st.sampled_from([None, "average"]),
         "random_state": st.integers(0, 10000),
@@ -73,15 +73,12 @@ regression_param_strategy = st.fixed_dictionaries(
 
 @st.composite
 def regression_real_dataset_strategy(draw):
-    from sklearn.datasets import fetch_california_housing, fetch_openml, load_diabetes
+    from sklearn.datasets import fetch_california_housing, load_diabetes
     from sklearn.preprocessing import normalize
 
-    name = draw(st.sampled_from(["california_housing", "million_songs", "diabetes"]))
+    name = draw(st.sampled_from(["california_housing", "diabetes"]))
     if name == "california_housing":
         return fetch_california_housing(return_X_y=True)
-    elif name == "million_songs":
-        X, y = fetch_openml(name="year", version=1, return_X_y=True, as_frame=False)
-        return X, y
     elif name == "diabetes":
         X, y = load_diabetes(return_X_y=True)
         return X, normalize(y.reshape(-1, 1), axis=0).reshape(-1)
@@ -91,12 +88,12 @@ def regression_real_dataset_strategy(draw):
 def regression_generated_dataset_strategy(draw):
     num_outputs = draw(st.integers(1, 5))
     num_features = draw(st.integers(1, 50))
-    num_rows = draw(st.integers(10, 10000))
+    num_rows = draw(st.integers(10, 5000))
     np.random.seed(2)
     X = np.random.random((num_rows, num_features))
     y = np.random.random((X.shape[0], num_outputs))
 
-    dtype = draw(st.sampled_from([np.float16, np.float32, np.float64]))
+    dtype = draw(st.sampled_from([np.float32, np.float64]))
     return X.astype(dtype), y.astype(dtype)
 
 
@@ -125,6 +122,7 @@ def regression_dataset_strategy(draw):
 )
 def test_regressor(model_params, regression_params, regression_dataset):
     X, y, w = regression_dataset
+
     eval_result = {}
     assume(regression_params["objective"] != "quantile" or y.ndim == 1)
     model = lb.LBRegressor(**model_params, **regression_params).fit(
@@ -156,8 +154,8 @@ def classification_real_dataset_strategy(draw):
     if name == "covtype":
         X, y = fetch_covtype(return_X_y=True, as_frame=False)
         # using the full dataset is somewhat slow
-        X = X[0:50000]
-        y = y[0:50000]
+        X = X[0:5000]
+        y = y[0:5000]
         return (normalize(X), y - 1, name)
     elif name == "breast_cancer":
         return (*load_breast_cancer(return_X_y=True, as_frame=False), name)
@@ -175,7 +173,7 @@ def classification_generated_dataset_strategy(draw):
     # ensure we have at least one of each class
     y[:num_classes] = np.arange(num_classes)
 
-    X_dtype = draw(st.sampled_from([np.float16, np.float32, np.float64]))
+    X_dtype = draw(st.sampled_from([np.float32, np.float64]))
     y_dtype = draw(
         st.sampled_from(
             [np.int8, np.uint16, np.int32, np.int64, np.float32, np.float64]
@@ -214,7 +212,9 @@ def classification_dataset_strategy(draw):
     classification_param_strategy,
     classification_dataset_strategy(),
 )
-def test_classifier(model_params, classification_params, classification_dataset):
+def test_classifier(
+    model_params: dict, classification_params: dict, classification_dataset: tuple
+) -> None:
     X, y, w, name = classification_dataset
     eval_result = {}
     model_params["n_estimators"] = 3

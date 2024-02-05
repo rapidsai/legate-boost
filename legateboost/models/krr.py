@@ -1,11 +1,17 @@
+from __future__ import annotations
+
+from typing import Set, Tuple
+
+import numpy as np
 from scipy.special import lambertw
 
 import cunumeric as cn
 
+from ..utils import gather, lbfgs
 from .base_model import BaseModel
 
 
-def l2(X, Y):
+def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     XX = cn.einsum("ij,ij->i", X, X)[:, cn.newaxis]
     YY = cn.einsum("ij,ij->i", Y, Y)
     XY = 2 * cn.dot(X, Y.T)
@@ -43,6 +49,9 @@ class KRR(BaseModel):
         Regularization parameter.
     sigma :
         Kernel bandwidth parameter. If None, use the mean squared distance.
+    solver :
+        Solver to use for solving the linear system.
+        Options are , 'lbfgs', and 'direct'.
 
     Attributes
     ----------
@@ -54,32 +63,71 @@ class KRR(BaseModel):
         Indices of the training data used to fit the model.
     """
 
-    def __init__(self, n_components=100, alpha=1e-5, sigma=None):
+    def __init__(
+        self,
+        n_components: int = 100,
+        alpha: float = 1e-5,
+        sigma: float | None = None,
+        solver: str = "direct",
+    ):
+        self.num_components = n_components
+        self.alpha = alpha
+        self.sigma = sigma
+        self.solver = solver
         self.num_components = n_components
         self.alpha = alpha
         self.sigma = sigma
 
-    def _apply_kernel(self, X):
+    def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
         return self.rbf_kernel(X, self.X_train)
 
-    def _fit_components(self, X, g, h) -> "KRR":
+    def _direct_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
         # fit with fixed set of components
         K_nm = self._apply_kernel(X)
         K_mm = self._apply_kernel(self.X_train)
         num_outputs = g.shape[1]
-        self.betas_ = cn.zeros((self.X_train.shape[0], num_outputs))
+        self.betas_ = cn.zeros((self.X_train.shape[0], num_outputs), dtype=X.dtype)
 
         for k in range(num_outputs):
-            W = cn.sqrt(h[:, k])
-            # Make sure we are working in 64 bit for numerical stability
-            Kw = K_nm.astype(cn.float64) * W[:, cn.newaxis]
-            yw = W * (-g[:, k] / h[:, k])
+            W = cn.sqrt(h[:, k]).astype(X.dtype)
+            Kw = K_nm * W[:, cn.newaxis]
+            yw = W * (-g[:, k] / h[:, k]).astype(X.dtype)
             self.betas_[:, k] = cn.linalg.lstsq(
                 Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw), rcond=None
             )[0]
         return self
 
-    def opt_sigma(self, D_2):
+    def _loss_grad(
+        self,
+        betas: cn.ndarray,
+        K_nm: cn.ndarray,
+        K_mm: cn.ndarray,
+        g: cn.ndarray,
+        h: cn.ndarray,
+    ) -> Tuple[float, cn.ndarray]:
+        self.betas_ = betas.reshape(self.betas_.shape)
+        pred = K_nm.dot(self.betas_.astype(K_nm.dtype))
+        loss = (pred * (g + 0.5 * h * pred)).sum(axis=0).mean()
+        delta = g + h * pred
+        grads = cn.dot(K_nm.T, delta) + self.alpha * K_mm.dot(self.betas_)
+        grads /= K_nm.shape[0]
+        assert grads.shape == self.betas_.shape
+        return loss, grads.ravel()
+
+    def _lbfgs_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
+        self.betas_ = cn.zeros((self.X_train.shape[0], g.shape[1]))
+        K_nm = self._apply_kernel(X)
+        K_mm = self._apply_kernel(self.X_train)
+        result = lbfgs(
+            self.betas_.ravel(),
+            self._loss_grad,
+            args=(K_nm, K_mm, g, h),
+            verbose=0,
+        )
+        self.betas_ = result.x.reshape(self.betas_.shape)
+        return self
+
+    def opt_sigma(self, D_2: cn.ndarray) -> cn.ndarray:
         n = D_2.shape[1]
         assert self.X_train.shape[0] > 1, "Need at least 2 components to estimate sigma"
         mins = self.X_train.min(axis=0)
@@ -95,12 +143,31 @@ class KRR(BaseModel):
         sigma = d / cn.sqrt(2) * cn.sqrt(1 - 2 * w_0)
         return sigma
 
-    def rbf_kernel(self, X, Y):
+    def rbf_kernel(self, X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
         D_2 = l2(X, Y)
 
         if self.sigma is None:
             self.sigma = self.opt_sigma(D_2)
         return cn.exp(-D_2 / (2 * self.sigma * self.sigma))
+
+    def _sample_components(self, X: cn.ndarray) -> cn.ndarray:
+        usable_num_components = min(X.shape[0], self.num_components)
+        if usable_num_components == X.shape[0]:
+            return X
+        selected: Set[int] = set()
+        # numpy.choice is not efficient for small number of
+        # samples from large population
+        while len(selected) < usable_num_components:
+            selected.add(self.random_state.randint(0, X.shape[0]))
+        return gather(X, cn.array(np.fromiter(selected, int, len(selected))))
+
+    def _fit_components(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
+        if self.solver == "direct":
+            return self._direct_solve(X, g, h)
+        elif self.solver == "lbfgs":
+            return self._lbfgs_solve(X, g, h)
+        else:
+            raise ValueError(f"Unknown solver {self.solver}")
 
     def fit(
         self,
@@ -108,14 +175,12 @@ class KRR(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "KRR":
-        usable_num_components = min(X.shape[0], self.num_components)
-        self.indices = self.random_state.permutation(X.shape[0])[:usable_num_components]
-        self.X_train = X[self.indices]
+        self.X_train = self._sample_components(X)
         return self._fit_components(X, g, h)
 
-    def predict(self, X):
+    def predict(self, X: cn.ndarray) -> cn.ndarray:
         K = self._apply_kernel(X)
-        return K.dot(self.betas_)
+        return K.dot(self.betas_.astype(K.dtype))
 
     def clear(self) -> None:
         self.betas_.fill(0)
@@ -141,6 +206,8 @@ class KRR(BaseModel):
         )
 
     def __eq__(self, other: object) -> bool:
+        if not isinstance(other, KRR):
+            raise NotImplementedError()
         return (other.betas_ == self.betas_).all() and (
             other.X_train == self.X_train
         ).all()

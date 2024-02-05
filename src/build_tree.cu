@@ -276,22 +276,6 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
 namespace {
 
-void SumAllReduce(legate::TaskContext context, double* x, int count, cudaStream_t stream)
-{
-  auto domain      = context.get_launch_domain();
-  size_t num_ranks = domain.get_volume();
-  EXPECT(num_ranks == 1 || context.num_communicators() > 0,
-         "Expected a GPU communicator for multi-rank task.");
-  if (context.num_communicators() == 0) return;
-  auto comm             = context.communicator(0);
-  ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();
-
-  if (num_ranks > 1) {
-    CHECK_NCCL(ncclAllReduce(x, x, count, ncclDouble, ncclSum, *nccl_comm, stream));
-    CHECK_CUDA_STREAM(stream);
-  }
-}
-
 struct Tree {
   Tree(int max_nodes, int num_outputs, cudaStream_t stream)
     : num_outputs(num_outputs), max_nodes(max_nodes), stream(stream)

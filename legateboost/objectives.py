@@ -2,21 +2,24 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 
 from scipy.stats import norm
+from typing_extensions import TypeAlias, override
 
 import cunumeric as cn
 
+from . import special
 from .metrics import (
     BaseMetric,
     ExponentialMetric,
     GammaDevianceMetric,
+    GammaLLMetric,
     LogLossMetric,
     MSEMetric,
     NormalLLMetric,
     QuantileMetric,
 )
-from .utils import mod_col_by_idx, preround, set_col_by_idx
+from .utils import mod_col_by_idx, preround, sample_average, set_col_by_idx
 
-GradPair = Tuple[cn.ndarray, cn.ndarray]
+GradPair: TypeAlias = Tuple[cn.ndarray, cn.ndarray]
 
 
 class BaseObjective(ABC):
@@ -24,6 +27,9 @@ class BaseObjective(ABC):
 
     Implement this class to create custom objectives.
     """
+
+    # utility constant
+    one = cn.ones(1, dtype=cn.float64)
 
     @abstractmethod
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
@@ -111,23 +117,60 @@ class SquaredErrorObjective(BaseObjective):
             return cn.zeros(y.shape[1])
 
 
-class NormalObjective(BaseObjective):
+class Forecast(ABC):
+    r"""Abstract class for forecasting objectives.
+
+    Probabilistic distributions usually have constraints on their parameters and some
+    extra transformations are employed to satisfy these constraints. For instance, the
+    raw prediction output of Normal distribution forecasting consists of the mean and
+    the log-variance. We later transform the log-variance via :math:`exp` to ensure that
+    it's a positive value. The :math:`\Gamma`-distribution follows a similar pattern for
+    constrained optimization.
+
+    Due to the use of Newton's method for optimization, the Hessian returned by the
+    objective needs to be strictly positive. However, the Hessian value derived from the
+    negative log-likelihood might not be as nice as one would like. As a workaround, we
+    sometimes use the Fisher information as a proxy for Hessian, which is defined as the
+    expected value of Hessian.
+
+    Fisher information is not invariant to re-parameterization. Luckily, once we have
+    the transformation function for the re-parameterization and the Fisher info for the
+    original parameterization, the new Fisher information can be easily calculated. Let
+    :math:`\theta` be the original parameter, and :math:`\mu = g(\theta)` be the new
+    parameter.
+
+    .. math::
+
+       \theta = g^{-1}(\mu)
+
+       I_{new}(\mu) = I_{old}(\theta) \cdot (\frac{d{g^{-1}(\mu)}}{d\mu})^2
+    """
+
+    @abstractmethod
+    def mean(self, param: cn.ndarray) -> cn.ndarray:
+        pass
+
+    @abstractmethod
+    def var(self, param: cn.ndarray) -> cn.ndarray:
+        pass
+
+
+class NormalObjective(BaseObjective, Forecast):
     """The normal distribution objective function for regression problems.
 
     This objective fits both mean and variance parameters, where :class:`SquaredErrorObjective` only fits the mean.
 
     The objective minimised is the negative log likelihood of the normal distribution.
 
-    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(p_{i, 1})}))`
+    :math:`L(y_i, p_i) = -log(\\frac{1}{\\sqrt{2\\pi exp(p_{i, 1})}} exp(-\\frac{(y_i - p_{i, 0})^2}{2 exp(2 p_{i, 1})}))`
 
     Where :math:`p_{i, 0}` is the mean and :math:`p_{i, 1}` is the log standard deviation.
-
-    The variance is clipped to a minimum of 1e-5 to avoid numerical instability.
 
     See also:
         :class:`legateboost.metrics.NormalLLMetric`
     """  # noqa: E501
 
+    @override
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         grad = cn.zeros((y.shape[0], y.shape[1], 2))
         hess = cn.ones((y.shape[0], y.shape[1], 2))
@@ -143,9 +186,11 @@ class NormalObjective(BaseObjective):
         hess[:, :, 1] = 2  # fisher information
         return grad.reshape(grad.shape[0], -1), hess.reshape(hess.shape[0], -1)
 
+    @override
     def metric(self) -> NormalLLMetric:
         return NormalLLMetric()
 
+    @override
     def initialise_prediction(
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
     ) -> cn.ndarray:
@@ -161,29 +206,67 @@ class NormalObjective(BaseObjective):
             pred[:, 1] = cn.log(var) / 2
         return pred.reshape(-1)
 
+    @override
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         # internally there is no third dimension
         # reshape this nicely for the user so mean and variance have their own dimension
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
-        # don't let the variance go to zero
+        # don't let the sd go to zero
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
+
+    @override
+    def mean(self, param: cn.ndarray) -> cn.ndarray:
+        """Return the mean for the Normal distribution."""
+        return param[:, 0]
+
+    @override
+    def var(self, param: cn.ndarray) -> cn.ndarray:
+        """Return the variance for the Normal distribution."""
+        return cn.exp(param[:, 1])
 
 
 class FitInterceptRegMixIn(BaseObjective):
     def one_step_newton(
-        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool, n_targets: int
+        self,
+        y: cn.ndarray,
+        w: cn.ndarray,
+        boost_from_average: bool,
+        init: cn.ndarray,
     ) -> cn.ndarray:
+        """Run one Newton step for initialiszing the prediction.
+
+        Parameters
+        ----------
+        y :
+            Label.
+        w :
+            Sample weight.
+        boost_from_average :
+            Skip if False.
+        n_targets :
+            Number of targets for the current objective.
+        init :
+            The starting point. Use zero if None.
+
+        Returns
+        -------
+        A single sample prediction.
+        """
         if boost_from_average:
-            # take 1 newton step (we could iterate here to get a better estimate)
-            g, h = self.gradient(
-                y,
-                self.transform(cn.zeros((y.shape[0], n_targets))),
-            )
+            assert init.shape[0] == 1
+            # Construct the initial prediction array for gradient.
+            pred = cn.repeat(init, y.shape[0], axis=0)
+
+            # Take 1 newton step (we could iterate here to get a better estimate)
+            g, h = self.gradient(y, pred)
             g = g * w[:, None]
             h = h * w[:, None]
-            return -preround(g).sum(axis=0) / preround(h).sum(axis=0)
-        return cn.zeros(n_targets)
+            # Unregularised Newton.
+            delta = g.sum(axis=0) / h.sum(axis=0)
+            # Update step.
+            return (init - delta).reshape(-1)
+        return init.reshape(-1)
 
 
 class GammaDevianceObjective(FitInterceptRegMixIn):
@@ -199,7 +282,7 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
         # g = dL/du   = 1 - y / exp(u)
         # h = d^2L/du = y / exp(u)
         h = y / pred
-        g = 1.0 - h
+        g = self.one - h
         return g, h
 
     def metric(self) -> GammaDevianceMetric:
@@ -218,7 +301,92 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
             n_targets = 1
         else:
             n_targets = y.shape[1]
-        return self.one_step_newton(y, w, boost_from_average, n_targets)
+        return self.one_step_newton(
+            y,
+            w,
+            boost_from_average,
+            self.transform(cn.zeros(shape=(1, n_targets), dtype=cn.float64)),
+        )
+
+
+class GammaObjective(FitInterceptRegMixIn, Forecast):
+    """Regression with the :math:`\\Gamma` distribution function using the
+    shape scale parameterization."""
+
+    @override
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
+        grad = cn.empty((y.shape[0], y.shape[1], 2))
+        fisher = cn.empty((y.shape[0], y.shape[1], 2))
+
+        shape = pred[:, :, 0]
+        scale = pred[:, :, 1]
+        grad[:, :, 0] = shape * (special.digamma(shape) + cn.log(scale) - cn.log(y))
+        grad[:, :, 1] = shape - (1 / scale * y)
+
+        fisher[:, :, 0] = special.polygamma(1, shape) * shape**2
+        fisher[:, :, 1] = shape
+
+        fisher = fisher.reshape(fisher.shape[0], -1)
+        assert fisher.ndim == 2
+        return grad.reshape(grad.shape[0], -1), fisher
+
+    @override
+    def transform(self, pred: cn.ndarray) -> cn.ndarray:
+        pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
+        assert pred.ndim == 3
+        return cn.exp(pred)
+
+    @override
+    def metric(self) -> GammaLLMetric:
+        return GammaLLMetric()
+
+    @override
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        assert y.ndim == 2
+        if not (y > 0.0).all():
+            raise ValueError("y is expected to be positive.")
+        if y.shape[1] > 1:
+            raise ValueError("multi-target is not yet supported.")
+
+        # Just pick a valid number to get things started, no special meaning.
+        # shape-scale s.t
+        # k > 0
+        # theta > 0
+        pred = cn.ones(shape=(2,))
+
+        if not boost_from_average:
+            return pred.reshape(-1)
+
+        # No close solution, scipy has a more complicated fit method.
+        init = self.one_step_newton(
+            y, w, boost_from_average, init=pred.reshape(1, 1, 2)
+        )
+        mean = sample_average(y, w)
+        pred[0] = init[0]
+        pred[1] = max(mean / pred[0], 0.0)
+
+        return pred
+
+    def shape(self, param: cn.ndarray) -> cn.ndarray:
+        """Return the shape parameter for the Gamma distribution."""
+        return param[:, 0]
+
+    def scale(self, param: cn.ndarray) -> cn.ndarray:
+        """Return the scale parameter for the Gamma distribution."""
+        return param[:, 1]
+
+    @override
+    def mean(self, param: cn.ndarray) -> cn.ndarray:
+        """Return the mean for the Gamma distribution."""
+        n0, n1 = param[:, 0], param[:, 1]
+        return n0 * n1
+
+    @override
+    def var(self, param: cn.ndarray) -> cn.ndarray:
+        """Return the variance for the Gamma distribution."""
+        return self.mean(param) * param[:, 1]
 
 
 class QuantileObjective(BaseObjective):
@@ -239,7 +407,7 @@ class QuantileObjective(BaseObjective):
 
     def __init__(self, quantiles: cn.ndarray = cn.array([0.25, 0.5, 0.75])) -> None:
         super().__init__()
-        assert cn.all(0.0 < quantiles) and cn.all(quantiles < 1.0)
+        assert cn.all(0.0 < quantiles) and cn.all(quantiles < self.one)
         self.quantiles = quantiles
 
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
@@ -286,7 +454,7 @@ class LogLossObjective(FitInterceptRegMixIn):
 
     This objective function computes the log loss between the predicted and true labels.
 
-    :math:`L(y_i, p_i) = -y_i log(p_i) - (1 - y_i) log(1 - p_i)`
+    :math:`L(y_i, p_i) = -y_i \\log(p_i) - (1 - y_i) \\log(1 - p_i)`
 
     See also:
         :class:`legateboost.metrics.LogLossMetric`
@@ -296,20 +464,20 @@ class LogLossObjective(FitInterceptRegMixIn):
         assert pred.ndim == 2
         # binary case
         if pred.shape[1] == 1:
-            return pred - y, pred * (1.0 - pred)
+            return pred - y, pred * (self.one - pred)
 
         # multi-class case
         label = y.astype(cn.int32).squeeze()
-        h = pred * (1.0 - pred)
+        h = pred * (self.one - pred)
         g = pred.copy()
-        mod_col_by_idx(g, label, -1.0)
+        mod_col_by_idx(g, label, -self.one)
         # g[cn.arange(y.size), label] -= 1.0
         return g, h
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         assert len(pred.shape) == 2
         if pred.shape[1] == 1:
-            return 1.0 / (1.0 + cn.exp(-pred))
+            return self.one / (self.one + cn.exp(-pred))
         # softmax function
         s = cn.max(pred, axis=1)
         e_x = cn.exp(pred - s[:, cn.newaxis])
@@ -326,7 +494,8 @@ class LogLossObjective(FitInterceptRegMixIn):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
         n_targets = num_class if num_class > 2 else 1
-        return self.one_step_newton(y, w, boost_from_average, n_targets)
+        init = self.transform(cn.zeros((1, n_targets), dtype=cn.float64))
+        return self.one_step_newton(y, w, boost_from_average, init)
 
 
 class ExponentialObjective(FitInterceptRegMixIn):
@@ -353,7 +522,7 @@ class ExponentialObjective(FitInterceptRegMixIn):
 
         # binary case
         if pred.shape[1] == 1:
-            adjusted_y = 2 * y - 1.0
+            adjusted_y = 2 * y - self.one
             f = 0.5 * cn.log(pred / (1 - pred))  # undo sigmoid
             exp = cn.exp(-f * adjusted_y)
             return -adjusted_y * exp, exp
@@ -361,9 +530,9 @@ class ExponentialObjective(FitInterceptRegMixIn):
         # multi-class case
         K = pred.shape[1]  # number of classes
         f = cn.log(pred) * (K - 1)  # undo softmax
-        y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
+        y_k = cn.full((y.size, K), -self.one / (K - self.one))
         labels = y.astype(cn.int32).squeeze()
-        set_col_by_idx(y_k, labels, 1.0)
+        set_col_by_idx(y_k, labels, self.one)
         # y_k[cn.arange(y.size), labels] = 1.0
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
 
@@ -389,7 +558,8 @@ class ExponentialObjective(FitInterceptRegMixIn):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
         n_targets = num_class if num_class > 2 else 1
-        return self.one_step_newton(y, w, boost_from_average, n_targets)
+        init = self.transform(cn.zeros((1, n_targets), dtype=cn.float64))
+        return self.one_step_newton(y, w, boost_from_average, init)
 
 
 objectives = {
@@ -399,4 +569,5 @@ objectives = {
     "exp": ExponentialObjective,
     "quantile": QuantileObjective,
     "gamma_deviance": GammaDevianceObjective,
+    "gamma": GammaObjective,
 }

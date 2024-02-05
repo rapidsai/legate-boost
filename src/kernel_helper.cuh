@@ -15,6 +15,7 @@
  */
 
 #include <cuda_help.h>
+#include <utils.h>
 
 namespace legateboost {
 
@@ -34,6 +35,29 @@ inline void LaunchN(size_t n, cudaStream_t stream, L lambda)
   const int GRID_SIZE = static_cast<int>((n + ITEMS_PER_THREAD * THREADS_PER_BLOCK - 1) /
                                          (ITEMS_PER_THREAD * THREADS_PER_BLOCK));
   LaunchNKernel<<<GRID_SIZE, THREADS_PER_BLOCK, 0, stream>>>(n, lambda);
+}
+
+template <typename T>
+void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t stream)
+{
+  auto domain      = context.get_launch_domain();
+  size_t num_ranks = domain.get_volume();
+  EXPECT(num_ranks == 1 || context.num_communicators() > 0,
+         "Expected a GPU communicator for multi-rank task.");
+  if (context.num_communicators() == 0) return;
+  auto comm             = context.communicator(0);
+  ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();
+
+  if (num_ranks > 1) {
+    if (std::is_same<T, float>::value) {
+      CHECK_NCCL(ncclAllReduce(x, x, count, ncclFloat, ncclSum, *nccl_comm, stream));
+    } else if (std::is_same<T, double>::value) {
+      CHECK_NCCL(ncclAllReduce(x, x, count, ncclDouble, ncclSum, *nccl_comm, stream));
+    } else {
+      EXPECT(false, "Unsupported type for all reduce.");
+    }
+    CHECK_CUDA_STREAM(stream);
+  }
 }
 
 }  // namespace legateboost

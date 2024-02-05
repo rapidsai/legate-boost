@@ -1,6 +1,5 @@
 
 legate_cpp_library_template(legateboost TEMPLATE_SOURCES)
-
 if(Legion_USE_CUDA)
   rapids_find_generate_module(NCCL
     HEADER_NAMES  nccl.h
@@ -29,12 +28,16 @@ set(legateboost_srcs
   predict.cc
   utils.h
   utils.cc
+  special.cc
+  gather.cc
 )
 
 if(Legion_USE_CUDA)
   list(APPEND legateboost_srcs
     predict.cu
     build_tree.cu
+    special.cu
+    gather.cu
   )
 endif()
 
@@ -58,16 +61,11 @@ target_compile_options(legateboost
 
 
 if (Legion_USE_CUDA)
-
   # CUDA_ARCH environment variable can override the CMAKE_CUDA_ARCHITECTURES
-  if(DEFINED ENV{CUDA_ARCH} )
+  if(DEFINED ENV{CUDA_ARCH})
     message(STATUS "legateboost: CUDA_ARCH=$ENV{CUDA_ARCH}")
     set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES $ENV{CUDA_ARCH} )
-  else()
-    message(STATUS "legateboost: CUDA_ARCH not set - defaults to 70 (volta)")
-    set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES 70 )
   endif()
-
   target_compile_definitions(legateboost PRIVATE LEGATEBOOST_USE_CUDA)
 endif()
 

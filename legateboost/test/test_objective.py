@@ -37,6 +37,22 @@ def test_gamma_deviance() -> None:
     assert non_increasing(eval_result["train"]["deviance_gamma"])
 
 
+def test_gamma() -> None:
+    import numpy as np
+
+    n_samples = 8196
+    np.random.seed(1)
+    rng = cn.random.default_rng(1)
+    X = rng.normal(size=(n_samples, 32))
+    y = rng.gamma(shape=2.0, size=n_samples)
+
+    obj = lb.GammaObjective()
+    eval_result: dict[str, dict[str, list[float]]] = {}
+    reg = lb.LBRegressor(objective=obj, n_estimators=64, init="average")
+    reg.fit(X, y, eval_set=[(X, y)], eval_result=eval_result)
+    assert non_increasing(eval_result["train"]["gamma_neg_ll"])
+
+
 def test_log_loss() -> None:
     obj = lb.LogLossObjective()
     # binary

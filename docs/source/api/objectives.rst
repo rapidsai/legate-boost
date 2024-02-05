@@ -13,6 +13,9 @@ Objectives
 .. autoclass:: legateboost.GammaDevianceObjective
     :members:
 
+.. autoclass:: legateboost.GammaObjective
+    :members:
+
 .. autoclass:: legateboost.QuantileObjective
     :members:
 
