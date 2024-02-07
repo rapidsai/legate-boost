@@ -86,24 +86,6 @@ void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t str
   }
 }
 
-#if __CUDA_ARCH__ < 600
-__device__ inline double atomicAdd(double* address, double val)
-{
-  unsigned long long int* address_as_ull = (unsigned long long int*)address;
-  unsigned long long int old             = *address_as_ull, assumed;
-
-  do {
-    assumed = old;
-    old =
-      atomicCAS(address_as_ull, assumed, __double_as_longlong(val + __longlong_as_double(assumed)));
-
-    // Note: uses integer comparison to avoid hang in case of NaN (since NaN != NaN)
-  } while (assumed != old);
-
-  return __longlong_as_double(old);
-}
-#endif
-
 #if THRUST_VERSION >= 101600
 #define DEFAULT_POLICY thrust::cuda::par_nosync
 #else
@@ -123,5 +105,15 @@ class ThrustAllocator : public legate::ScopedAllocator {
 
   void deallocate(char* ptr, size_t n) { ScopedAllocator::deallocate(ptr); }
 };
+
+template <typename F, int OpCode>
+void UnaryOpTask<F, OpCode>::gpu_variant(legate::TaskContext context)
+{
+  auto const& in          = context.input(0);
+  auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
+  auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
+  auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
+  legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, thrust_exec_policy);
+}
 
 }  // namespace legateboost
