@@ -50,7 +50,7 @@ jobs:
           mamba activate legate;
           mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
           pip install matplotlib seaborn xgboost
-          ./install.py --network ucx --cuda;
+          ./install.py --cuda --arch volta;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v4
