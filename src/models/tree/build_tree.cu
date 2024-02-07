@@ -15,11 +15,10 @@
  */
 #include "legate_library.h"
 #include "legateboost.h"
-#include "utils.h"
+#include "../../cpp_utils/cpp_utils.h"
+#include "../../cpp_utils/cpp_utils.cuh"
 #include "core/comm/coll.h"
 #include "build_tree.h"
-#include "cuda_help.h"
-#include "kernel_helper.cuh"
 #include <numeric>
 
 #include <cub/device/device_radix_sort.cuh>
@@ -345,26 +344,28 @@ struct Tree {
                                stream));
   }
 
-  template <typename T, int DIM>
-  void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, DIM> x)
+  template <typename T, int DIM, typename ThrustPolicyT>
+  void WriteOutput(legate::PhysicalStore out,
+                   const legate::Buffer<T, DIM> x,
+                   const ThrustPolicyT& policy)
   {
     // Write a tile of x to the output
     const legate::Rect<DIM> out_shape = out.shape<DIM>();
     auto out_acc                      = out.write_accessor<T, DIM>();
-    LaunchN(out_shape.volume(), stream, [=] __device__(size_t idx) {
-      legate::PointInRectIterator<DIM> it(out_shape);
-      for (int i = 0; i < idx; i++) { it++; }
-      out_acc[*it] = x[*it];
-    });
+    thrust::for_each_n(policy,
+                       UnravelIter(out_shape),
+                       out_shape.volume(),
+                       [=] __host__ __device__(const legate::Point<DIM>& p) { out_acc[p] = x[p]; });
   }
 
-  void WriteTreeOutput(legate::TaskContext context)
+  template <typename ThrustPolicyT>
+  void WriteTreeOutput(legate::TaskContext context, const ThrustPolicyT& policy)
   {
-    WriteOutput(context.output(0).data(), leaf_value);
-    WriteOutput(context.output(1).data(), feature);
-    WriteOutput(context.output(2).data(), split_value);
-    WriteOutput(context.output(3).data(), gain);
-    WriteOutput(context.output(4).data(), hessian);
+    WriteOutput(context.output(0).data(), leaf_value, policy);
+    WriteOutput(context.output(1).data(), feature, policy);
+    WriteOutput(context.output(2).data(), split_value, policy);
+    WriteOutput(context.output(3).data(), gain, policy);
+    WriteOutput(context.output(4).data(), hessian, policy);
     CHECK_CUDA_STREAM(stream);
   }
 
@@ -598,10 +599,9 @@ void ReduceBaseSums(legate::Buffer<double> base_sums,
 }
 
 struct build_tree_fn {
-  template <legate::Type::Code CODE>
+  template <typename T>
   void operator()(legate::TaskContext context)
   {
-    using T           = legate::type_of<CODE>;
     const auto X      = context.input(0).data();
     auto X_shape      = X.shape<3>();
     auto X_accessor   = X.read_accessor<T, 3>();
@@ -676,7 +676,7 @@ struct build_tree_fn {
       tree_state.PerformBestSplit(tree, split_proposal_accessor, eps);
     }
 
-    tree.WriteTreeOutput(context);
+    tree.WriteTreeOutput(context, thrust_exec_policy);
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
     CHECK_CUDA_STREAM(stream);

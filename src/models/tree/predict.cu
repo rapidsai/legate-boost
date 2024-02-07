@@ -16,19 +16,17 @@
 #include "legate_library.h"
 #include "legateboost.h"
 #include "core/utilities/dispatch.h"
-#include "cuda_help.h"
-#include "kernel_helper.cuh"
-#include "utils.h"
+#include "../../cpp_utils/cpp_utils.cuh"
+#include "../../cpp_utils/cpp_utils.h"
 #include "predict.h"
 
 namespace legateboost {
 
 namespace {
 struct predict_fn {
-  template <legate::Type::Code CODE>
+  template <typename T>
   void operator()(legate::TaskContext context)
   {
-    using T         = legate::type_of<CODE>;
     const auto& X   = context.input(0).data();
     auto X_shape    = X.shape<3>();
     auto X_accessor = X.read_accessor<T, 3>();

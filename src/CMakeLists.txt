@@ -23,21 +23,21 @@ endif()
 set(legateboost_srcs
   legateboost
   legateboost.h
-  build_tree.cc
-  update_tree.cc
-  predict.cc
-  utils.h
-  utils.cc
-  special.cc
-  gather.cc
+
+  models/tree/build_tree.cc
+  models/tree/update_tree.cc
+  models/tree/predict.cc
+  cpp_utils/cpp_utils.h
+  cpp_utils/cpp_utils.cc
+  utils/gather.cc
 )
 
 if(Legion_USE_CUDA)
   list(APPEND legateboost_srcs
-    predict.cu
-    build_tree.cu
-    special.cu
-    gather.cu
+    models/tree/predict.cu
+    models/tree/build_tree.cu
+    special/special.cu
+    utils/gather.cu
   )
 endif()
 

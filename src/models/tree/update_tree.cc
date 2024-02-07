@@ -15,7 +15,7 @@
  */
 #include "legate_library.h"
 #include "legateboost.h"
-#include "utils.h"
+#include "../../cpp_utils/cpp_utils.h"
 
 namespace legateboost {
 
@@ -28,10 +28,9 @@ void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, DIM>& x)
 }
 
 struct update_tree_fn {
-  template <legate::Type::Code CODE>
+  template <typename T>
   void operator()(legate::TaskContext context)
   {
-    using T           = legate::type_of<CODE>;
     const auto& X     = context.input(0).data();
     auto X_shape      = X.shape<3>();  // 3rd dimension is unused
     auto X_accessor   = X.read_accessor<T, 3>();

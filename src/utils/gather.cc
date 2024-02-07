@@ -14,23 +14,20 @@
  * limitations under the License.
  *
  */
+#include "legate.h"
 #include "legate_library.h"
 #include "legateboost.h"
-#include "cuda_help.h"
-#include "kernel_helper.cuh"
-#include "utils.h"
+#include "../cpp_utils/cpp_utils.h"
 #include "gather.h"
-#include "linalg.h"
 
 namespace legateboost {
 
 namespace {
 struct gather_fn {
-  template <legate::Type::Code CODE>
+  template <typename T>
   void operator()(legate::TaskContext context)
   {
-    using T                   = legate::type_of<CODE>;
-    const auto& X             = context.input(0).data();
+    auto X                    = context.input(0).data();
     auto X_shape              = X.shape<2>();
     auto X_accessor           = X.read_accessor<T, 2>();
     auto sample_rows          = context.input(1).data();
@@ -42,26 +39,33 @@ struct gather_fn {
     auto n_features = split_proposals.shape<2>().hi[1] - split_proposals.shape<2>().lo[1] + 1;
     auto split_proposals_accessor =
       split_proposals.reduce_accessor<legate::SumReduction<T>, true, 2>();
-    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
-    LaunchN(n_features * n_samples, stream, [=] __device__(auto idx) {
-      auto i   = idx / n_features;
-      auto j   = idx % n_features;
-      auto row = sample_rows_accessor[i];
-      if (row >= X_shape.lo[0] && row <= X_shape.hi[0] && j >= X_shape.lo[1] &&
-          j <= X_shape.hi[1]) {
-        split_proposals_accessor.reduce({i, j}, X_accessor[{row, j}]);
-      }
-    });
 
-    CHECK_CUDA_STREAM(stream);
+    for (int i = sample_rows_shape.lo[0]; i <= sample_rows_shape.hi[0]; i++) {
+      auto row = sample_rows_accessor[i];
+      for (int j = 0; j < n_features; j++) {
+        if (row >= X_shape.lo[0] && row <= X_shape.hi[0] && j >= X_shape.lo[1] &&
+            j <= X_shape.hi[1]) {
+          split_proposals_accessor.reduce({i, j}, X_accessor[{row, j}]);
+        }
+      }
+    }
   }
 };
+
 }  // namespace
 
-/*static*/ void GatherTask::gpu_variant(legate::TaskContext context)
+/*static*/ void GatherTask::cpu_variant(legate::TaskContext context)
 {
-  auto X = context.input(0).data();
+  const auto& X = context.input(0).data();
   type_dispatch_float(X.code(), gather_fn(), context);
 }
 
 }  // namespace legateboost
+
+namespace  // unnamed
+{
+static void __attribute__((constructor)) register_tasks(void)
+{
+  legateboost::GatherTask::register_variants();
+}
+}  // namespace

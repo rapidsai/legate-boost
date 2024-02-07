@@ -1,13 +1,36 @@
-/*
- * Code from PyTorch, which comes from cephes. See thirdparty/LICENSES/LICENSE.pytorch
+/* Copyright 2024, NVIDIA Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 #pragma once
 
-#include <cmath>                   // for copysign, modf, trunc, log, tan, sinf
-#include <limits>                  // for numeric_limits
-#include <thrust/detail/config.h>  // for __host__ __device__
+#include <cstdint>                              // for int32_t
+#include <type_traits>                          // for is_same_v
+#include <legate/core/task/task_context.h>      // for TaskContext
+#include <legate/core/task/exception.h>         // for TaskException
+#include <legate/core/data/physical_array.h>    // for PhysicalArray
+#include "legateboost.h"                        // for ERF
+#include "legate_library.h"                     // for Task
+#include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator
+#include <thrust/for_each.h>                    // for for_each_n
+#include <cmath>                                // for lgamma, erf
+#include "../cpp_utils/cpp_utils.h"
 
 namespace legateboost {
+namespace {
+/*
+ * Code from PyTorch, which comes from cephes. See thirdparty/LICENSES/LICENSE.pytorch
+ */
 // M_PI macro in glibc, translated into C++ template variable.
 inline constexpr double m_PI = 3.14159265358979323846;
 
@@ -233,4 +256,66 @@ __host__ __device__ inline double zeta(double x, double q)
   }
   return s;
 }
+
+};  // namespace
+
+struct ErfOp {
+  using ArgsT = std::tuple<>;
+  template <typename T>
+  __host__ __device__ T operator()(T const& v) const
+  {
+    return std::erf(v);
+  }
+};
+
+using ErfTask = UnaryOpTask<ErfOp, ERF>;
+
+struct LgammaOp {
+  using ArgsT = std::tuple<>;
+  template <typename T>
+  __host__ __device__ T operator()(T const& v) const
+  {
+    return std::lgamma(v);
+  }
+};
+
+using LgammaTask = UnaryOpTask<LgammaOp, LGAMMA>;
+
+struct TgammaOp {
+  using ArgsT = std::tuple<>;
+  template <typename T>
+  __host__ __device__ T operator()(T const& v) const
+  {
+    return std::tgamma(v);
+  }
+};
+
+using TgammaTask = UnaryOpTask<TgammaOp, TGAMMA>;
+
+struct DigammaOp {
+  using ArgsT = std::tuple<>;
+  template <typename T>
+  __host__ __device__ T operator()(T const& v) const
+  {
+    return calc_digamma(v);
+  }
+};
+
+using DigammaTask = UnaryOpTask<DigammaOp, DIGAMMA>;
+
+struct ZetaOp {
+  using ArgsT = std::tuple<double>;
+  double x;
+
+  explicit ZetaOp(double x) : x{x} {}
+
+  template <typename T>
+  __host__ __device__ T operator()(T const& q) const
+  {
+    return zeta(x, q);
+  }
+};
+
+using ZetaTask = UnaryOpTask<ZetaOp, ZETA>;
+
 }  // namespace legateboost
