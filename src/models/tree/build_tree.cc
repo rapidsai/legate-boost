@@ -82,16 +82,18 @@ struct Tree {
 template <typename T>
 void WriteOutput(legate::PhysicalStore out, const std::vector<T>& x)
 {
-  auto shape = out.shape<3>();
-  auto write = out.write_accessor<T, 3>();
-  for (auto i = shape.lo[0]; i <= shape.hi[0]; ++i) { write[{i, 0, 0}] = x[i]; }
+  auto shape = out.shape<1>();
+  auto write = out.write_accessor<T, 1>();
+  for (auto i = shape.lo[0]; i <= shape.hi[0]; ++i) { write[i] = x[i]; }
 }
-void WriteOutput(legate::PhysicalStore out, const legate::Buffer<double, 2>& x)
+
+template <typename T>
+void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, 2>& x)
 {
-  auto shape = out.shape<3>();
-  auto write = out.write_accessor<double, 3>();
+  auto shape = out.shape<2>();
+  auto write = out.write_accessor<T, 2>();
   for (auto i = shape.lo[0]; i <= shape.hi[0]; ++i) {
-    for (int j = shape.lo[1]; j <= shape.hi[1]; ++j) { write[{i, j, 0}] = x[{i, j}]; }
+    for (int j = shape.lo[1]; j <= shape.hi[1]; ++j) { write[{i, j}] = x[{i, j}]; }
   }
 }
 
