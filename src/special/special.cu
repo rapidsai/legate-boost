@@ -12,40 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <legate/core/task/task_context.h>  // for TaskContext
-#include <thrust/execution_policy.h>        // for host
-
 #include "special.h"
-
-namespace legateboost {
-void ErfTask::cpu_variant(legate::TaskContext context)
-{
-  SpecialFn::Impl(context, thrust::host, ErfOp{});
-}
-
-void LgammaTask::cpu_variant(legate::TaskContext context)
-{
-  SpecialFn::Impl(context, thrust::host, LgammaOp{});
-}
-
-void TgammaTask::cpu_variant(legate::TaskContext context)
-{
-  SpecialFn::Impl(context, thrust::host, TgammaOp{});
-}
-
-void DigammaTask::cpu_variant(legate::TaskContext context)
-{
-  SpecialFn::Impl(context, thrust::host, DigammaOp{});
-}
-
-void ZetaTask::cpu_variant(legate::TaskContext context)
-{
-  // we convert it to double in Python
-  auto x = context.scalar(0).value<double>();
-  SpecialFn::Impl(context, thrust::host, ZetaOp{x});
-}
-}  // namespace legateboost
-
 namespace  // unnamed
 {
 static void __attribute__((constructor)) register_tasks(void)
