@@ -41,7 +41,7 @@ jobs:
             repository: nv-legate/legate.core.internal
             path: legate.core.internal
             token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: 40bb28ccd21886e6529dc1393a171039b875fd46
+            ref: aadaae211e90b31527e52050a4f6b290de7de67b
       - name: Install legate core
         working-directory: ./legate.core.internal
         run: |
@@ -58,7 +58,7 @@ jobs:
             repository: nv-legate/cunumeric.internal
             path: cunumeric.internal
             token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: 548f1cd73ac318a3ad2b3f6f239a999db87182c3
+            ref: 004da8474a8cc3e7f5d97b9e2e29b96e0fd84457
       - name: Install cunumeric
         working-directory: ./cunumeric.internal
         run: |
