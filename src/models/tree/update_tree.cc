@@ -19,24 +19,34 @@
 
 namespace legateboost {
 
+template <typename T, int DIM>
+void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, DIM>& x)
+{
+  auto shape = out.shape<DIM>();
+  auto write = out.write_accessor<T, DIM>();
+  for (legate::PointInRectIterator<DIM> it(shape); it.valid(); ++it) { write[*it] = x[*it]; }
+}
+
 struct update_tree_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
     const auto& X     = context.input(0).data();
-    auto X_shape      = X.shape<2>();
-    auto X_accessor   = X.read_accessor<T, 2>();
+    auto X_shape      = X.shape<3>();  // 3rd dimension is unused
+    auto X_accessor   = X.read_accessor<T, 3>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
-    const auto& g     = context.input(1).data();
-    const auto& h     = context.input(2).data();
-    EXPECT_AXIS_ALIGNED(0, X.shape<2>(), g.shape<2>());
-    EXPECT_AXIS_ALIGNED(0, g.shape<2>(), h.shape<2>());
-    EXPECT_AXIS_ALIGNED(1, g.shape<2>(), h.shape<2>());
-    auto g_shape     = context.input(1).data().shape<2>();
-    auto num_outputs = g.shape<2>().hi[1] - g.shape<2>().lo[1] + 1;
-    auto g_accessor  = g.read_accessor<double, 2>();
-    auto h_accessor  = h.read_accessor<double, 2>();
+    const auto& g     = context.input(1).data();  // 2nd dimension is unused
+    const auto& h     = context.input(2).data();  // 2nd dimension is unused
+    EXPECT_AXIS_ALIGNED(0, X.shape<3>(), g.shape<3>());
+    EXPECT_AXIS_ALIGNED(0, g.shape<3>(), h.shape<3>());
+    EXPECT_AXIS_ALIGNED(1, g.shape<3>(), h.shape<3>());
+    auto g_shape                = context.input(1).data().shape<3>();
+    auto num_outputs            = g.shape<3>().hi[2] - g.shape<3>().lo[2] + 1;
+    auto g_accessor             = g.read_accessor<double, 3>();
+    auto h_accessor             = h.read_accessor<double, 3>();
+    const auto& split_proposals = context.input(3).data();
+    EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
     // Tree structure
     auto feature     = context.input(3).data().read_accessor<int32_t, 1>();
@@ -66,11 +76,11 @@ struct update_tree_fn {
       // Use a max depth of 100 to avoid infinite loops
       for (int depth = 0; depth < 100; depth++) {
         for (int k = 0; k < num_outputs; k++) {
-          new_gradient[{pos, k}] += g_accessor[{i, k}];
-          new_hessian[{pos, k}] += h_accessor[{i, k}];
+          new_gradient[{pos, k}] += g_accessor[{i, 0, k}];
+          new_hessian[{pos, k}] += h_accessor[{i, 0, k}];
         }
         if (feature[pos] == -1) break;
-        auto x = X_accessor[{i, feature[pos]}];
+        auto x = X_accessor[{i, feature[pos], 0}];
         pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
       }
     }
@@ -92,17 +102,8 @@ struct update_tree_fn {
       }
     }
 
-    if (context.get_task_index()[0] == 0) {
-      auto leaf_value_out = context.output(0).data().write_accessor<double, 2>();
-      std::copy(new_leaf_value.ptr({0, 0}),
-                new_leaf_value.ptr({0, 0}) + num_nodes * num_outputs,
-                leaf_value_out.ptr({0, 0}));
-
-      auto hessian_out = context.output(1).data().write_accessor<double, 2>();
-      std::copy(new_hessian.ptr({0, 0}),
-                new_hessian.ptr({0, 0}) + num_nodes * num_outputs,
-                hessian_out.ptr({0, 0}));
-    }
+    WriteOutput(context.output(0).data(), new_leaf_value);
+    WriteOutput(context.output(1).data(), new_hessian);
   }
 };
 

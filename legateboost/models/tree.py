@@ -3,7 +3,7 @@ from enum import IntEnum
 from typing import Any
 
 import cunumeric as cn
-from legate.core import TaskTarget, constant, dimension, get_legate_runtime, types
+from legate.core import TaskTarget, get_legate_runtime, types
 
 from ..library import user_context, user_lib
 from ..utils import gather, get_store
@@ -61,80 +61,53 @@ class Tree(BaseModel):
         )
         split_proposals = gather(X, sample_rows)
 
-        num_features = X.shape[1]
         num_outputs = g.shape[1]
-        n_rows = X.shape[0]
-        num_procs = self.num_procs_to_use(n_rows)
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
 
-        task = get_legate_runtime().create_manual_task(
-            user_context, LegateBoostOpCode.BUILD_TREE, [num_procs, 1]
+        task = get_legate_runtime().create_auto_task(
+            user_context, LegateBoostOpCode.BUILD_TREE
         )
 
         # inputs
+        X_ = get_store(X).promote(2, g.shape[1])
+        g_ = get_store(g).promote(1, X.shape[1])
+        h_ = get_store(h).promote(1, X.shape[1])
         task.add_scalar_arg(self.max_depth, types.int32)
-        task.add_input(
-            get_store(X).partition_by_tiling((rows_per_tile, num_features)),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_input(
-            get_store(g).partition_by_tiling((rows_per_tile, num_outputs)),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_input(
-            get_store(h).partition_by_tiling((rows_per_tile, num_outputs)),
-            projection=(dimension(0), constant(0)),
-        )
+        task.add_input(X_)
+        task.add_input(g_)
+        task.add_input(h_)
+        task.add_alignment(g_, h_)
+        task.add_alignment(g_, X_)
         task.add_input(get_store(split_proposals))
-
+        task.add_broadcast(get_store(split_proposals))
         # outputs
-        # force 1d arrays to be 2d otherwise we get the dreaded assert proj_id == 0
         max_nodes = 2 ** (self.max_depth + 1)
+        task.add_scalar_arg(max_nodes, types.int32)
         leaf_value = get_legate_runtime().create_store(
             types.float64, (max_nodes, num_outputs)
         )
-        feature = get_legate_runtime().create_store(types.int32, (max_nodes, 1))
-        split_value = get_legate_runtime().create_store(types.float64, (max_nodes, 1))
-        gain = get_legate_runtime().create_store(types.float64, (max_nodes, 1))
+        feature = get_legate_runtime().create_store(types.int32, (max_nodes,))
+        split_value = get_legate_runtime().create_store(types.float64, (max_nodes,))
+        gain = get_legate_runtime().create_store(types.float64, (max_nodes,))
         hessian = get_legate_runtime().create_store(
             types.float64, (max_nodes, num_outputs)
         )
-
-        # All outputs belong to a single tile on worker 0
-        task.add_output(
-            leaf_value.partition_by_tiling((max_nodes, num_outputs)),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_output(
-            feature.partition_by_tiling((max_nodes, 1)),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_output(
-            split_value.partition_by_tiling((max_nodes, 1)),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_output(
-            gain.partition_by_tiling((max_nodes, 1)),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_output(
-            hessian.partition_by_tiling((max_nodes, num_outputs)),
-            projection=(dimension(0), constant(0)),
-        )
-
+        # Make 3D
+        task.add_output(leaf_value)
+        task.add_output(feature)
+        task.add_output(split_value)
+        task.add_output(gain)
+        task.add_output(hessian)
         if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
             task.add_nccl_communicator()
         elif get_legate_runtime().machine.count() > 1:
             task.add_cpu_communicator()
-
         task.execute()
 
         self.leaf_value = cn.array(leaf_value, copy=False)
-        self.feature = cn.array(feature, copy=False).squeeze()
-        self.split_value = cn.array(split_value, copy=False).squeeze()
-        self.gain = cn.array(gain, copy=False).squeeze()
+        self.feature = cn.array(feature, copy=False)
+        self.split_value = cn.array(split_value, copy=False)
+        self.gain = cn.array(gain, copy=False)
         self.hessian = cn.array(hessian, copy=False)
-
         return self
 
     def clear(self) -> None:
@@ -147,28 +120,20 @@ class Tree(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "Tree":
-        num_features = X.shape[1]
-        num_outputs = g.shape[1]
-        n_rows = X.shape[0]
-        num_procs = self.num_procs_to_use(n_rows)
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
-
-        task = get_legate_runtime().create_manual_task(
-            user_context, LegateBoostOpCode.UPDATE_TREE, [num_procs, 1]
+        task = get_legate_runtime().create_auto_task(
+            user_context, LegateBoostOpCode.UPDATE_TREE
         )
 
-        task.add_input(
-            get_store(X).partition_by_tiling((rows_per_tile, num_features)),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_input(
-            get_store(g).partition_by_tiling((rows_per_tile, num_outputs)),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_input(
-            get_store(h).partition_by_tiling((rows_per_tile, num_outputs)),
-            projection=(dimension(0), constant(0)),
-        )
+        # inputs
+        X_ = get_store(X).promote(2, g.shape[1])
+        g_ = get_store(g).promote(1, X.shape[1])
+        h_ = get_store(h).promote(1, X.shape[1])
+        task.add_scalar_arg(self.max_depth, types.int32)
+        task.add_input(X_)
+        task.add_input(g_)
+        task.add_input(h_)
+        task.add_alignment(g_, h_)
+        task.add_alignment(g_, X_)
 
         # broadcast the tree structure
         task.add_input(get_store(self.feature))
@@ -179,15 +144,8 @@ class Tree(BaseModel):
         )
         hessian = get_legate_runtime().create_store(types.float64, self.hessian.shape)
 
-        # All tree outputs belong to a single tile on worker 0
-        task.add_output(
-            leaf_value.partition_by_tiling(self.leaf_value.shape),
-            projection=(dimension(0), constant(0)),
-        )
-        task.add_output(
-            hessian.partition_by_tiling(self.hessian.shape),
-            projection=(dimension(0), constant(0)),
-        )
+        task.add_output(leaf_value)
+        task.add_output(hessian)
 
         # Update task has only a CPU implementation
         task.add_cpu_communicator()
@@ -201,29 +159,32 @@ class Tree(BaseModel):
         n_rows = X.shape[0]
         n_features = X.shape[1]
         n_outputs = self.leaf_value.shape[1]
-        num_procs = self.num_procs_to_use(n_rows)
-        rows_per_tile = int(cn.ceil(n_rows / num_procs))
-        task = get_legate_runtime().create_manual_task(
-            user_context, LegateBoostOpCode.PREDICT, [num_procs, 1]
+        task = get_legate_runtime().create_auto_task(
+            user_context, LegateBoostOpCode.PREDICT
         )
-
-        task.add_input(
-            get_store(X).partition_by_tiling((rows_per_tile, n_features)),
-            projection=(dimension(0), constant(0)),
-        )
-
-        # broadcast the tree structure
-        task.add_input(get_store(self.leaf_value))
-        task.add_input(get_store(self.feature))
-        task.add_input(get_store(self.split_value))
 
         pred = get_legate_runtime().create_store(types.float64, (n_rows, n_outputs))
-        task.add_output(
-            get_store(pred).partition_by_tiling((rows_per_tile, n_outputs)),
-            projection=(dimension(0), constant(0)),
-        )
+        X_ = get_store(X).promote(2, n_outputs)
+        pred_ = get_store(pred).promote(1, n_features)
+        task.add_input(X_)
+
+        # broadcast the tree structure
+        leaf_value_ = get_store(self.leaf_value)
+        feature_ = get_store(self.feature)
+        split_value_ = get_store(self.split_value)
+        task.add_input(leaf_value_)
+        task.add_input(feature_)
+        task.add_input(split_value_)
+        task.add_broadcast(leaf_value_)
+        task.add_broadcast(feature_)
+        task.add_broadcast(split_value_)
+
+        task.add_output(pred_)
+
+        task.add_alignment(X_, pred_)
         task.execute()
-        return cn.array(pred)
+
+        return cn.array(pred, copy=False)
 
     def is_leaf(self, id: int) -> Any:
         return self.feature[id] == -1
