@@ -6,8 +6,10 @@ import numpy as np
 from scipy.special import lambertw
 
 import cunumeric as cn
+from legate.core import get_legate_runtime
 
-from ..utils import gather, lbfgs
+from ..library import user_context, user_lib
+from ..utils import gather, get_store, lbfgs
 from .base_model import BaseModel
 
 
@@ -16,6 +18,22 @@ def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     YY = cn.einsum("ij,ij->i", Y, Y)
     XY = 2 * cn.dot(X, Y.T)
     return cn.maximum(XX + YY - XY, 0.0)
+
+
+def l2_task(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
+    assert X.shape[1] == Y.shape[1]
+    task = get_legate_runtime().create_auto_task(user_context, user_lib.cffi.L2)
+    X_ = get_store(X).promote(1, Y.shape[0])
+    task.add_input(X_)
+    Y_ = get_store(Y).promote(0, X.shape[0])
+    task.add_input(Y_)
+    L2 = get_legate_runtime().create_store(X_.type, (X.shape[0], Y.shape[0]))
+    L2_ = L2.promote(2, X.shape[1])
+    task.add_output(L2_)
+    task.add_alignment(X_, Y_)
+    task.add_alignment(X_, L2_)
+    task.execute()
+    return cn.array(L2, copy=False)
 
 
 class KRR(BaseModel):
@@ -144,7 +162,8 @@ class KRR(BaseModel):
         return sigma
 
     def rbf_kernel(self, X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
-        D_2 = l2(X, Y)
+        # D_2 = l2(X, Y)
+        D_2 = l2_task(X, Y)
 
         if self.sigma is None:
             self.sigma = self.opt_sigma(D_2)

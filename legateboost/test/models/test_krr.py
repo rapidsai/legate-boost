@@ -6,7 +6,20 @@ from sklearn.metrics import mean_squared_error
 import cunumeric as cn
 import legateboost as lb
 
+from ...models.krr import l2_task
 from ..utils import non_increasing
+
+
+def test_l2():
+    X = cn.array([[0, 0], [1, 1], [2, 2]], dtype=np.float32)
+    Y = cn.array([[1, 1], [2, 2], [3, 3]], dtype=np.float32)
+    D_2 = l2_task(X, Y)
+    print(D_2)
+
+    def l2(X, Y):
+        return np.sum((X[:, None] - Y[None]) ** 2, axis=-1)
+
+    assert np.allclose(D_2, l2(X, Y))
 
 
 @pytest.mark.parametrize("weights", [True, False])
