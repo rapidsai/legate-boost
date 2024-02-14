@@ -19,6 +19,10 @@
 #include "../../cpp_utils/cpp_utils.h"
 #include "l2.h"
 #include <tuple>
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
+
+namespace cg = cooperative_groups;
 
 namespace legateboost {
 
@@ -37,17 +41,23 @@ struct l2_fn {
     auto Y_accessor  = Y.read_accessor<T, 3>();
     auto L2_accessor = L2.write_accessor<T, 3>();
 
-    thrust::for_each_n(
-      thrust::device, UnravelIter(L2_shape), L2_shape.volume(), [=] __device__(auto p) {
-        T result = 0.0;
-        for (int i = X_shape.lo[2]; i <= X_shape.hi[2]; i++) {
-          auto x    = X_accessor[{p[0], p[1], i}];
-          auto y    = Y_accessor[{p[0], p[1], i}];
-          auto diff = x - y;
-          result += diff * diff;
-        }
-        L2_accessor[p] = result;
-      });
+    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    legate::Rect<2> out_shape({L2_shape.lo[0], L2_shape.lo[1]}, {L2_shape.hi[0], L2_shape.hi[1]});
+    LaunchNWarps(out_shape.volume(), stream, [=] __device__(size_t idx) {
+      auto tile  = cg::tiled_partition<32>(cg::this_thread_block());
+      auto tid   = tile.thread_rank();
+      auto p     = UnravelIndex(idx, out_shape);
+      T result   = 0.0;
+      auto x_ptr = X_accessor.ptr({p[0], 0, X_shape.lo[2]});
+      auto y_ptr = Y_accessor.ptr({0, p[1], Y_shape.lo[2]});
+      for (int i = X_shape.lo[2] + tid; i <= X_shape.hi[2]; i += 32) {
+        auto diff = x_ptr[i] - y_ptr[i];
+        result += diff * diff;
+      }
+      result = cg::reduce(tile, result, cg::plus<T>());
+
+      if (tid == 0) { L2_accessor[{p[0], p[1], 0}] = result; }
+    });
   }
 };
 }  // namespace

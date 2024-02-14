@@ -20,6 +20,7 @@
 #include "cpp_utils.h"
 #include "core/cuda/cuda_help.h"
 #include "core/cuda/stream_pool.h"
+#include <cooperative_groups.h>
 #include <nccl.h>
 
 namespace legateboost {
@@ -58,11 +59,35 @@ template <int ITEMS_PER_THREAD = 8, typename L>
 inline void LaunchN(size_t n, cudaStream_t stream, L lambda)
 {
   if (n == 0) { return; }
-  const int GRID_SIZE = static_cast<int>((n + ITEMS_PER_THREAD * THREADS_PER_BLOCK - 1) /
-                                         (ITEMS_PER_THREAD * THREADS_PER_BLOCK));
+  const int GRID_SIZE = min(static_cast<int>((n + ITEMS_PER_THREAD * THREADS_PER_BLOCK - 1) /
+                                             (ITEMS_PER_THREAD * THREADS_PER_BLOCK)),
+                            128);
   LaunchNKernel<<<GRID_SIZE, THREADS_PER_BLOCK, 0, stream>>>(n, lambda);
 }
 
+template <int kTHREADS_PER_BLOCK, typename L>
+__global__ void __launch_bounds__(kTHREADS_PER_BLOCK) LaunchNWarpsKernel(size_t size, L lambda)
+{
+  // block idx * warps per block + local warp idx
+  auto block_idx  = blockIdx.x;
+  auto warp_idx   = threadIdx.x / 32;
+  auto block_size = blockDim.x / 32;
+  auto num_blocks = gridDim.x;
+  for (auto i = block_size * block_idx + warp_idx; i < size; i += block_size * num_blocks) {
+    lambda(i);
+  }
+}
+
+template <typename L>
+inline void LaunchNWarps(size_t n, cudaStream_t stream, L lambda)
+{
+  if (n == 0) { return; }
+  const int block_threads = 512;
+  const int GRID_SIZE =
+    min(static_cast<int>((n + (THREADS_PER_BLOCK / 32) - 1) / (block_threads / 32)), 2048);
+
+  LaunchNWarpsKernel<block_threads><<<GRID_SIZE, block_threads, 0, stream>>>(n, lambda);
+}
 template <typename T>
 void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t stream)
 {

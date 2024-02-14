@@ -6,18 +6,19 @@ from sklearn.metrics import mean_squared_error
 import cunumeric as cn
 import legateboost as lb
 
-from ...models.krr import l2_task
+from ...models.krr import l2_distance
 from ..utils import non_increasing
 
 
-def test_l2():
-    X = cn.array([[0, 0], [1, 1], [2, 2]], dtype=np.float32)
-    Y = cn.array([[1, 1], [2, 2], [3, 3]], dtype=np.float32)
-    D_2 = l2_task(X, Y)
-    print(D_2)
+@pytest.mark.parametrize("dtype", [cn.float32, cn.float64])
+def test_l2(dtype):
+    rng = np.random.RandomState(0)
+    X = cn.array(rng.rand(500, 50).astype(dtype))
+    Y = cn.array(rng.rand(100, 50).astype(dtype))
+    D_2 = l2_distance(X, Y)
 
     def l2(X, Y):
-        return np.sum((X[:, None] - Y[None]) ** 2, axis=-1)
+        return cn.sum((X[:, None] - Y[None]) ** 2, axis=-1)
 
     assert np.allclose(D_2, l2(X, Y))
 

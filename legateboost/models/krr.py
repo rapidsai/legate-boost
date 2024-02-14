@@ -20,20 +20,20 @@ def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     return cn.maximum(XX + YY - XY, 0.0)
 
 
-def l2_task(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
+def l2_distance(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     assert X.shape[1] == Y.shape[1]
     task = get_legate_runtime().create_auto_task(user_context, user_lib.cffi.L2)
     X_ = get_store(X).promote(1, Y.shape[0])
     task.add_input(X_)
     Y_ = get_store(Y).promote(0, X.shape[0])
     task.add_input(Y_)
-    L2 = get_legate_runtime().create_store(X_.type, (X.shape[0], Y.shape[0]))
-    L2_ = L2.promote(2, X.shape[1])
-    task.add_output(L2_)
+    K = get_legate_runtime().create_store(X_.type, (X.shape[0], Y.shape[0]))
+    K_ = K.promote(2, X.shape[1])
+    task.add_output(K_)
     task.add_alignment(X_, Y_)
-    task.add_alignment(X_, L2_)
+    task.add_alignment(X_, K_)
     task.execute()
-    return cn.array(L2, copy=False)
+    return cn.array(K, copy=False)
 
 
 class KRR(BaseModel):
@@ -90,11 +90,8 @@ class KRR(BaseModel):
     ):
         self.num_components = n_components
         self.alpha = alpha
-        self.sigma = sigma
+        self.sigma = cn.array(sigma)
         self.solver = solver
-        self.num_components = n_components
-        self.alpha = alpha
-        self.sigma = sigma
 
     def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
         return self.rbf_kernel(X, self.X_train)
@@ -105,7 +102,6 @@ class KRR(BaseModel):
         K_mm = self._apply_kernel(self.X_train)
         num_outputs = g.shape[1]
         self.betas_ = cn.zeros((self.X_train.shape[0], num_outputs), dtype=X.dtype)
-
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k]).astype(X.dtype)
             Kw = K_nm * W[:, cn.newaxis]
@@ -163,7 +159,7 @@ class KRR(BaseModel):
 
     def rbf_kernel(self, X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
         # D_2 = l2(X, Y)
-        D_2 = l2_task(X, Y)
+        D_2 = l2_distance(X, Y)
 
         if self.sigma is None:
             self.sigma = self.opt_sigma(D_2)
