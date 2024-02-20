@@ -6,7 +6,7 @@ import numpy as np
 from scipy.special import lambertw
 
 import cunumeric as cn
-from legate.core import get_legate_runtime
+from legate.core import get_legate_runtime, types
 
 from ..library import user_context, user_lib
 from ..utils import gather, get_store, lbfgs
@@ -34,6 +34,15 @@ def l2_distance(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     task.add_alignment(X_, K_)
     task.execute()
     return cn.array(K, copy=False)
+
+
+def rbf(x: cn.ndarray, sigma: float) -> cn.ndarray:
+    task = get_legate_runtime().create_auto_task(user_context, user_lib.cffi.RBF)
+    task.add_input(get_store(x))
+    task.add_scalar_arg(sigma, types.float64)
+    task.add_output(get_store(x))
+    task.execute()
+    return x
 
 
 class KRR(BaseModel):
@@ -158,12 +167,11 @@ class KRR(BaseModel):
         return sigma
 
     def rbf_kernel(self, X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
-        # D_2 = l2(X, Y)
         D_2 = l2_distance(X, Y)
 
         if self.sigma is None:
             self.sigma = self.opt_sigma(D_2)
-        return cn.exp(-D_2 / (2 * self.sigma * self.sigma))
+        return rbf(D_2, self.sigma)
 
     def _sample_components(self, X: cn.ndarray) -> cn.ndarray:
         usable_num_components = min(X.shape[0], self.num_components)

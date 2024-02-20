@@ -15,6 +15,7 @@ enum LegateBoostOpCode {
   /**/
   GATHER = 9,
   L2     = 10,
+  RBF    = 11,
 };
 
 #endif  // __LEGATEBOOST_C_H__
