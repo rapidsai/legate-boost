@@ -6,7 +6,7 @@ from sklearn.metrics import mean_squared_error
 import cunumeric as cn
 import legateboost as lb
 
-from ...models.krr import l2_distance, rbf
+from ...models.krr import l2, rbf
 from ..utils import non_increasing
 
 
@@ -15,12 +15,12 @@ def test_l2(dtype):
     rng = np.random.RandomState(0)
     X = cn.array(rng.rand(500, 50).astype(dtype))
     Y = cn.array(rng.rand(100, 50).astype(dtype))
-    D_2 = l2_distance(X, Y)
+    D_2 = l2(X, Y)
 
-    def l2(X, Y):
+    def l2_true(X, Y):
         return cn.sum((X[:, None] - Y[None]) ** 2, axis=-1)
 
-    assert np.allclose(D_2, l2(X, Y))
+    assert np.allclose(D_2, l2_true(X, Y))
 
 
 @pytest.mark.parametrize("dtype", [cn.float32, cn.float64])
@@ -29,7 +29,7 @@ def test_rbf(dtype):
     X = cn.array(rng.rand(500, 50).astype(dtype))
     Y = cn.array(rng.rand(100, 50).astype(dtype))
     sigma = 0.254
-    D_2 = l2_distance(X, Y)
+    D_2 = l2(X, Y)
     K = rbf(D_2, sigma)
 
     def rbf_true(X, Y, sigma):

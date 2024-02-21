@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -381,3 +381,16 @@ def gather(X: cn.array, samples: cn.array) -> cn.array:
     task.add_broadcast(get_store(output))
     task.execute()
     return output
+
+
+__constant_cache: Dict[Tuple[float, cn.dtype], cn.array] = {}
+
+
+# cunumeric is very slow at creating small constant arrays, so we cache them
+def constant(value: float, dtype: cn.dtype) -> cn.array:
+    if (value, dtype) in __constant_cache:
+        return __constant_cache[(value, dtype)]
+    else:
+        result = cn.full(shape=(1,), value=value, dtype=dtype)
+        __constant_cache[(value, dtype)] = result
+        return result

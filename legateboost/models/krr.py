@@ -9,15 +9,18 @@ import cunumeric as cn
 from legate.core import get_legate_runtime, types
 
 from ..library import user_context, user_lib
-from ..utils import gather, get_store, lbfgs
+from ..utils import constant, gather, get_store, lbfgs
 from .base_model import BaseModel
 
 
 def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     XX = cn.einsum("ij,ij->i", X, X)[:, cn.newaxis]
     YY = cn.einsum("ij,ij->i", Y, Y)
-    XY = 2 * cn.dot(X, Y.T)
-    return cn.maximum(XX + YY - XY, 0.0)
+    XY = cn.dot(X, Y.T)
+    XY *= constant(-2.0, dtype=X.dtype)
+    XY += XX
+    XY += YY
+    return cn.maximum(XY, constant(0.0, X.dtype), out=XY)
 
 
 def l2_distance(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
@@ -99,7 +102,7 @@ class KRR(BaseModel):
     ):
         self.num_components = n_components
         self.alpha = alpha
-        self.sigma = cn.array(sigma)
+        self.sigma = sigma
         self.solver = solver
 
     def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
@@ -167,7 +170,7 @@ class KRR(BaseModel):
         return sigma
 
     def rbf_kernel(self, X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
-        D_2 = l2_distance(X, Y)
+        D_2 = l2(X, Y)
 
         if self.sigma is None:
             self.sigma = self.opt_sigma(D_2)
