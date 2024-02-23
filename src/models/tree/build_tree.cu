@@ -606,7 +606,7 @@ struct build_tree_fn {
     auto X_shape      = X.shape<3>();
     auto X_accessor   = X.read_accessor<T, 3>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
-    auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
+    auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
     auto num_outputs  = X_shape.hi[2] - X_shape.lo[2] + 1;
     const auto g      = context.input(1).data();
     const auto h      = context.input(2).data();
