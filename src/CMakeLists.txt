@@ -27,7 +27,6 @@ set(legateboost_srcs
   models/tree/build_tree.cc
   models/tree/update_tree.cc
   models/tree/predict.cc
-  models/krr/l2.cc
   cpp_utils/cpp_utils.h
   cpp_utils/cpp_utils.cc
   utils/gather.cc
@@ -36,7 +35,6 @@ set(legateboost_srcs
 if(Legion_USE_CUDA)
   list(APPEND legateboost_srcs
     models/tree/predict.cu
-    models/krr/l2.cu
     models/krr/rbf.cu
     models/tree/build_tree.cu
     special/special.cu

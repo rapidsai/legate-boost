@@ -23,22 +23,6 @@ def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     return cn.maximum(XY, constant(0.0, X.dtype), out=XY)
 
 
-def l2_distance(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
-    assert X.shape[1] == Y.shape[1]
-    task = get_legate_runtime().create_auto_task(user_context, user_lib.cffi.L2)
-    X_ = get_store(X).promote(1, Y.shape[0])
-    task.add_input(X_)
-    Y_ = get_store(Y).promote(0, X.shape[0])
-    task.add_input(Y_)
-    K = get_legate_runtime().create_store(X_.type, (X.shape[0], Y.shape[0]))
-    K_ = K.promote(2, X.shape[1])
-    task.add_output(K_)
-    task.add_alignment(X_, Y_)
-    task.add_alignment(X_, K_)
-    task.execute()
-    return cn.array(K, copy=False)
-
-
 def rbf(x: cn.ndarray, sigma: float) -> cn.ndarray:
     task = get_legate_runtime().create_auto_task(user_context, user_lib.cffi.RBF)
     task.add_input(get_store(x))
