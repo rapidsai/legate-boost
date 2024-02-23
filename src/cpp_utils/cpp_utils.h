@@ -98,8 +98,9 @@ void SumAllReduce(legate::TaskContext context, T* x, int count)
     type = legate::comm::coll::CollDataType::CollDouble;
   else
     EXPECT(false, "Unsupported type.");
-  auto result = legate::comm::coll::collAllgather(
-    x, gather_result.data(), count, type, comm.get<legate::comm::coll::CollComm>());
+  auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
+  EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
+  auto result = legate::comm::coll::collAllgather(x, gather_result.data(), count, type, comm_ptr);
   EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
   for (std::size_t j = 0; j < count; j++) { x[j] = 0.0; }
   for (std::size_t i = 0; i < num_ranks; i++) {

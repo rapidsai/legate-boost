@@ -71,14 +71,17 @@ class Tree(BaseModel):
         X_ = get_store(X).promote(2, g.shape[1])
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
+
         task.add_scalar_arg(self.max_depth, types.int32)
         task.add_input(X_)
+        task.add_broadcast(X_, 1)
         task.add_input(g_)
         task.add_input(h_)
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
         task.add_input(get_store(split_proposals))
         task.add_broadcast(get_store(split_proposals))
+
         # outputs
         max_nodes = 2 ** (self.max_depth + 1)
         task.add_scalar_arg(max_nodes, types.int32)
@@ -91,7 +94,6 @@ class Tree(BaseModel):
         hessian = get_legate_runtime().create_store(
             types.float64, (max_nodes, num_outputs)
         )
-        # Make 3D
         task.add_output(leaf_value)
         task.add_output(feature)
         task.add_output(split_value)
@@ -130,6 +132,7 @@ class Tree(BaseModel):
         h_ = get_store(h).promote(1, X.shape[1])
         task.add_scalar_arg(self.max_depth, types.int32)
         task.add_input(X_)
+        task.add_broadcast(X_, 1)
         task.add_input(g_)
         task.add_input(h_)
         task.add_alignment(g_, h_)
@@ -137,7 +140,9 @@ class Tree(BaseModel):
 
         # broadcast the tree structure
         task.add_input(get_store(self.feature))
+        task.add_broadcast(get_store(self.feature))
         task.add_input(get_store(self.split_value))
+        task.add_broadcast(get_store(self.split_value))
 
         leaf_value = get_legate_runtime().create_store(
             types.float64, self.leaf_value.shape
@@ -167,6 +172,7 @@ class Tree(BaseModel):
         X_ = get_store(X).promote(2, n_outputs)
         pred_ = get_store(pred).promote(1, n_features)
         task.add_input(X_)
+        task.add_broadcast(X_, 1)
 
         # broadcast the tree structure
         leaf_value_ = get_store(self.leaf_value)

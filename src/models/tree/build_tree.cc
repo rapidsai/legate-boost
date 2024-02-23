@@ -146,7 +146,7 @@ struct build_tree_fn {
     auto X_shape      = X.shape<3>();  // 3rd dimension is unused
     auto X_accessor   = X.read_accessor<T, 3>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
-    auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
+    auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
     const auto& g     = context.input(1).data();  // 2nd dimension is unused
     const auto& h     = context.input(2).data();  // 2nd dimension is unused
     EXPECT_AXIS_ALIGNED(0, X.shape<3>(), g.shape<3>());
