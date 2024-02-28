@@ -3,7 +3,7 @@ import pytest
 from scipy import optimize
 
 import cunumeric as cn
-from legateboost.utils import gather, lbfgs, sample_average
+from legateboost.utils import gather, lbfgs, preround_task, sample_average
 
 
 def test_sample_average() -> None:
@@ -62,3 +62,15 @@ def test_gather(dtype):
     X = cn.array(rs.randn(1000, 100).astype(dtype))
     rows = cn.array(rs.randint(0, 1000, size=100))
     check_gather(X, rows)
+
+
+@pytest.mark.parametrize("dtype", [cn.float32, cn.float64])
+def test_preround(dtype):
+    rng = np.random.RandomState(1)
+    x = cn.array(rng.randn(10000, 10).astype(dtype))
+    convential_sum = x.sum()
+    sums = []
+    for _ in range(10):
+        sums.append(preround_task(x.copy()).sum())
+    assert np.all(s == sums[0] for s in sums)
+    assert np.isclose(convential_sum, sums[0])

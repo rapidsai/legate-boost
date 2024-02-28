@@ -16,7 +16,6 @@
  */
 #include "legate_library.h"
 #include "legateboost.h"
-#include "../cpp_utils/cpp_utils.cuh"
 #include "../cpp_utils/cpp_utils.h"
 #include "gather.h"
 

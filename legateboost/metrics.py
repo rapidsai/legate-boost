@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Tuple, Type
 
+import numpy as np
 from typing_extensions import Self, override
 
 import cunumeric as cn
 
 from .special import erf, loggamma
-from .utils import pick_col_by_idx, sample_average, set_col_by_idx
+from .utils import constant, pick_col_by_idx, sample_average, set_col_by_idx
 
 
 class BaseMetric(ABC):
@@ -251,18 +252,23 @@ class LogLossMetric(BaseMetric):
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
         y = y.squeeze()
-        eps = cn.finfo(pred.dtype).eps
-        cn.clip(pred, eps, 1 - eps, out=pred)
+        eps = np.finfo(pred.dtype).eps
+        cn.clip(
+            pred, constant(eps, pred.dtype), constant(1 - eps, pred.dtype), out=pred
+        )
+
+        pred = pred.squeeze()
 
         w_sum = w.sum()
-        if w_sum == 0:
-            return 0.0
 
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
-            logloss = -(y * cn.log(pred) + (self.one - y) * cn.log(self.one - pred))
-            return float((logloss * w).sum() / w_sum)
+            logloss = -(
+                y * cn.log(pred)
+                + (constant(1, pred.dtype) - y) * cn.log(constant(1, pred.dtype) - pred)
+            )
+            return cn.dot(logloss, w) / w_sum
 
         # multi-class case
         assert pred.ndim == 2
@@ -271,7 +277,7 @@ class LogLossMetric(BaseMetric):
         logloss = -cn.log(pick_col_by_idx(pred, label))
         # logloss = -cn.log(pred[cn.arange(label.size), label])
 
-        return float((logloss * w).sum() / w_sum)
+        return cn.dot(logloss, w) / w_sum
 
     def name(self) -> str:
         return "log_loss"

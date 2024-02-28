@@ -30,6 +30,7 @@ set(legateboost_srcs
   cpp_utils/cpp_utils.h
   cpp_utils/cpp_utils.cc
   utils/gather.cc
+  utils/preround.cc
 )
 
 if(Legion_USE_CUDA)
@@ -39,6 +40,7 @@ if(Legion_USE_CUDA)
     models/tree/build_tree.cu
     special/special.cu
     utils/gather.cu
+    utils/preround.cu
   )
 endif()
 

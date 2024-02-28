@@ -111,6 +111,7 @@ void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t str
   }
 }
 
+/*
 #if __CUDA_ARCH__ < 600
 __device__ inline double atomicAdd(double* address, double val)
 {
@@ -128,6 +129,7 @@ __device__ inline double atomicAdd(double* address, double val)
   return __longlong_as_double(old);
 }
 #endif
+*/
 
 #if THRUST_VERSION >= 101600
 #define DEFAULT_POLICY thrust::cuda::par_nosync

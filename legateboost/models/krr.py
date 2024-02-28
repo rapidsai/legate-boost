@@ -100,10 +100,10 @@ class KRR(BaseModel):
         self.betas_ = cn.zeros((self.X_train.shape[0], num_outputs), dtype=X.dtype)
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k]).astype(X.dtype)
-            Kw = K_nm * W[:, cn.newaxis]
+            K_nm *= W[:, cn.newaxis]
             yw = W * (-g[:, k] / h[:, k]).astype(X.dtype)
             self.betas_[:, k] = cn.linalg.lstsq(
-                Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw), rcond=None
+                K_nm.T.dot(K_nm) + self.alpha * K_mm, cn.dot(K_nm.T, yw), rcond=None
             )[0]
         return self
 

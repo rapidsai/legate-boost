@@ -16,7 +16,7 @@ from .input_validation import check_sample_weight, check_X_y
 from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
-from .utils import PickleCunumericMixin, preround
+from .utils import PickleCunumericMixin, constant, preround
 
 EvalResult: TypeAlias = dict[str, dict[str, list[float]]]
 
@@ -178,9 +178,9 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         assert g.shape == h.shape
 
         # apply weights and learning rate
-        g = g * sample_weight[:, None] * learning_rate
+        g = g * sample_weight[:, None] * constant(learning_rate, dtype=cn.float64)
         # ensure hessians are not too small for numerical stability
-        h = cn.maximum(h * sample_weight[:, None], 1e-8)
+        h = cn.maximum(h * sample_weight[:, None], constant(1e-8, dtype=cn.float64))
         return preround(g), preround(h)
 
     def _partial_fit(

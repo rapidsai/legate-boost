@@ -4,7 +4,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 import cunumeric as cn
-from legate.core import LogicalArray, LogicalStore, ReductionOp, get_legate_runtime
+from legate.core import (
+    LogicalArray,
+    LogicalStore,
+    ReductionOp,
+    get_legate_runtime,
+    types,
+)
 
 from .library import user_context, user_lib
 
@@ -68,12 +74,17 @@ def mod_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
     return
 
 
-one = cn.array(1.0, dtype=cn.float64)
-two = cn.array(2.0, dtype=cn.float64)
-eps = cn.finfo(cn.float64).eps
+def preround_cn(x: cn.ndarray) -> cn.ndarray:
+    assert x.dtype == cn.float32 or x.dtype == cn.float64
+    m = float(cn.sum(cn.abs(x)))
+    n = x.size
+    eps = cn.finfo(x.dtype).eps
+    delta = cn.floor(m / (1.0 - 2.0 * n * eps))
+    M = 2.0 ** cn.ceil(cn.log2(delta))
+    return (x + M) - M
 
 
-def preround(x: cn.ndarray) -> cn.ndarray:
+def preround_old(x: cn.ndarray) -> cn.ndarray:
     """Apply this function to grad/hess ensure reproducible floating point
     summation.
 
@@ -83,11 +94,65 @@ def preround(x: cn.ndarray) -> cn.ndarray:
     Instead of using max(abs(x)) * n as an upper bound we use sum(abs(x))
     """
     assert x.dtype == cn.float32 or x.dtype == cn.float64
-    m = cn.sum(cn.abs(x))
+    m = float(cn.sum(cn.abs(x)))
     n = x.size
-    delta = cn.floor(m / (one - two * n * eps))
-    M = two ** cn.ceil(cn.log2(delta))
+    eps = np.finfo(x.dtype).eps
+    delta = np.floor(m / (1.0 - 2.0 * n * eps))
+    M = 2.0 ** np.ceil(np.log2(delta))
     return (x + M) - M
+
+
+def preround_task(x: cn.ndarray) -> cn.ndarray:
+    assert x.dtype == cn.float32 or x.dtype == cn.float64
+    sum = cn.sum(cn.abs(x))
+    preround_task = get_legate_runtime().create_auto_task(
+        user_context,
+        user_lib.cffi.PREROUND,
+    )
+    preround_task.add_input(get_store(x.ravel()))
+    preround_task.add_input(get_store(sum))
+    preround_task.add_scalar_arg(x.size, types.int64)
+    preround_task.add_output(get_store(x.ravel()))
+    preround_task.execute()
+    return x
+
+
+def preround_task2(x: cn.ndarray) -> cn.ndarray:
+    assert x.dtype == cn.float32 or x.dtype == cn.float64
+    abssum_task = get_legate_runtime().create_auto_task(
+        user_context,
+        user_lib.cffi.ABSSUM,
+    )
+    sum = get_legate_runtime().create_store(
+        get_store(x).type, (1,), optimize_scalar=True
+    )
+    abssum_task.add_input(get_store(x.ravel()))
+    abssum_task.add_reduction(sum, ReductionOp.ADD)
+    abssum_task.execute()
+    preround_task = get_legate_runtime().create_auto_task(
+        user_context,
+        user_lib.cffi.PREROUND,
+    )
+    preround_task.add_input(get_store(x.ravel()))
+    preround_task.add_input(get_store(sum))
+    preround_task.add_scalar_arg(x.size, types.int64)
+    preround_task.add_output(get_store(x.ravel()))
+    preround_task.execute()
+    return x
+
+
+def preround(x: cn.ndarray) -> cn.ndarray:
+    assert x.dtype == cn.float32 or x.dtype == cn.float64
+    preround_task = get_legate_runtime().create_auto_task(
+        user_context,
+        user_lib.cffi.PREROUND_NCCL,
+    )
+    preround_task.add_input(get_store(x.ravel()))
+    preround_task.add_scalar_arg(x.size, types.int64)
+    preround_task.add_output(get_store(x.ravel()))
+    preround_task.add_nccl_communicator()
+    preround_task.execute()
+    return x
 
 
 def get_store(input: Any) -> LogicalStore:
