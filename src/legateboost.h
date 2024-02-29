@@ -13,11 +13,9 @@ enum LegateBoostOpCode {
   DIGAMMA = 7,
   ZETA    = 8,
   /**/
-  GATHER        = 9,
-  RBF           = 10,
-  ABSSUM        = 11,
-  PREROUND      = 12,
-  PREROUND_NCCL = 13,
+  GATHER   = 9,
+  RBF      = 10,
+  PREROUND = 11,
 };
 
 #endif  // __LEGATEBOOST_C_H__

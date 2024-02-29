@@ -9,8 +9,12 @@ from legateboost.utils import preround
 def check_determinism(model):
     rs = cn.random.RandomState(79)
     X = cn.array(rs.random((10000, 10)))
-    g = preround(cn.array(rs.normal(size=(X.shape[0], 5))))
-    h = preround(cn.array(rs.random(g.shape) + 0.1))
+    g, h = preround(
+        [
+            cn.array(rs.normal(size=(X.shape[0], 5))),
+            cn.array(rs.random((X.shape[0], 5)) + 0.1),
+        ]
+    )
     preds = []
     models = []
     for _ in range(0, 5):

@@ -110,8 +110,7 @@ class SquaredErrorObjective(BaseObjective):
     ) -> cn.ndarray:
         assert y.ndim == 2
         if boost_from_average:
-            y = preround(y)
-            w = preround(w)
+            y, w = preround((y, w))
             return cn.sum(y * w[:, None], axis=0) / cn.sum(w)
         else:
             return cn.zeros(y.shape[1])
@@ -197,11 +196,10 @@ class NormalObjective(BaseObjective, Forecast):
         assert y.ndim == 2
         pred = cn.zeros((y.shape[1], 2))
         if boost_from_average:
-            y = preround(y)
-            w = preround(w)
+            y, w = preround((y, w))
             mean = cn.sum(y * w[:, None], axis=0) / cn.sum(w)
             var = (y - mean) * (y - mean) * w[:, None]
-            var = cn.sum(preround(var), axis=0) / cn.sum(w)
+            var = cn.sum(preround([var]), axis=0) / cn.sum(w)
             pred[:, 0] = mean
             pred[:, 1] = cn.log(var) / 2
         return pred.reshape(-1)
@@ -437,8 +435,7 @@ class QuantileObjective(BaseObjective):
         # Instead fit a normal distribution to the data and use that
         # to estimate quantiles.
         if boost_from_average:
-            y = preround(y)
-            w = preround(w)
+            y, w = preround((y, w))
             mean = cn.sum(y * w[:, None], axis=0) / cn.sum(w)
             var = cn.sum((y - mean) * (y - mean) * w[:, None], axis=0) / cn.sum(w)
             init = cn.array(

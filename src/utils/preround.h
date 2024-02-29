@@ -19,23 +19,7 @@
 
 namespace legateboost {
 
-class AbsSumTask : public Task<AbsSumTask, ABSSUM> {
- public:
-  static void cpu_variant(legate::TaskContext context);
-#ifdef LEGATEBOOST_USE_CUDA
-  static void gpu_variant(legate::TaskContext context);
-#endif
-};
-
 class PreroundTask : public Task<PreroundTask, PREROUND> {
- public:
-  static void cpu_variant(legate::TaskContext context);
-#ifdef LEGATEBOOST_USE_CUDA
-  static void gpu_variant(legate::TaskContext context);
-#endif
-};
-
-class PreroundNCCLTask : public Task<PreroundNCCLTask, PREROUND_NCCL> {
  public:
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA
