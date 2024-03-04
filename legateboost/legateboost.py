@@ -394,7 +394,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
 
     def _predict(self, X: cn.ndarray) -> cn.ndarray:
-        X = check_X_y(X)
         check_is_fitted(self, "is_fitted_")
         if X.shape[1] != self.n_features_in_:
             raise ValueError(
@@ -565,6 +564,7 @@ class LBRegressor(LBBase, RegressorMixin):
         cn.ndarray
             Predicted labels for X.
         """
+        X = check_X_y(X)
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
         if pred.shape[1] == 1:
@@ -768,6 +768,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         y :
             The predicted raw values for each sample in X.
         """
+        X = check_X_y(X)
         return super()._predict(X)
 
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
@@ -785,6 +786,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         y :
             The predicted class probabilities for each sample in X.
         """
+        X = check_X_y(X)
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
         if pred.shape[1] == 1:
