@@ -14,8 +14,11 @@ from .base_model import BaseModel
 def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     XX = cn.einsum("ij,ij->i", X, X)[:, cn.newaxis]
     YY = cn.einsum("ij,ij->i", Y, Y)
-    XY = 2 * cn.dot(X, Y.T)
-    return cn.maximum(XX + YY - XY, 0.0)
+    XY = cn.dot(X, Y.T)
+    XY *= -2.0
+    XY += XX
+    XY += YY
+    return cn.maximum(XY, 0.0, out=XY)
 
 
 class KRR(BaseModel):
@@ -74,9 +77,6 @@ class KRR(BaseModel):
         self.alpha = alpha
         self.sigma = sigma
         self.solver = solver
-        self.num_components = n_components
-        self.alpha = alpha
-        self.sigma = sigma
 
     def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
         return self.rbf_kernel(X, self.X_train)
@@ -90,10 +90,10 @@ class KRR(BaseModel):
 
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k]).astype(X.dtype)
-            Kw = K_nm * W[:, cn.newaxis]
+            K_nm *= W[:, cn.newaxis]
             yw = W * (-g[:, k] / h[:, k]).astype(X.dtype)
             self.betas_[:, k] = cn.linalg.lstsq(
-                Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw), rcond=None
+                K_nm.T.dot(K_nm) + self.alpha * K_mm, cn.dot(K_nm.T, yw), rcond=None
             )[0]
         return self
 
