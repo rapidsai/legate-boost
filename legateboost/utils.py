@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -76,6 +76,12 @@ def mod_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
 
 
 def preround(xs: Sequence[cn.ndarray]) -> cn.ndarray:
+    """Apply this function to grad/hess ensure reproducible floating point
+    summation. Algorithm 5: Reproducible Sequential Sum in 'Fast Reproducible.
+
+    Floating-Point Summation' by Demmel and Nguyen.
+    Instead of using max(abs(x)) * n as an upper bound we use sum(abs(x))
+    """
     assert all(x.dtype == cn.float32 or x.dtype == cn.float64 for x in xs)
     task = get_legate_runtime().create_auto_task(
         user_context,
@@ -385,16 +391,3 @@ def gather(X: cn.array, samples: cn.array) -> cn.array:
     task.add_broadcast(get_store(output))
     task.execute()
     return output
-
-
-__constant_cache: Dict[Tuple[float, cn.dtype], cn.array] = {}
-
-
-# cunumeric is very slow at creating small constant arrays, so we cache them
-def constant(value: float, dtype: cn.dtype) -> cn.array:
-    if (value, dtype) in __constant_cache:
-        return __constant_cache[(value, dtype)]
-    else:
-        result = cn.full(shape=(1,), value=value, dtype=dtype)
-        __constant_cache[(value, dtype)] = result
-        return result

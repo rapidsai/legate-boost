@@ -7,7 +7,7 @@ from typing_extensions import Self, override
 import cunumeric as cn
 
 from .special import erf, loggamma
-from .utils import constant, pick_col_by_idx, sample_average, set_col_by_idx
+from .utils import pick_col_by_idx, sample_average, set_col_by_idx
 
 
 class BaseMetric(ABC):
@@ -15,9 +15,6 @@ class BaseMetric(ABC):
 
     Implement this class to create custom metrics.
     """
-
-    # utility constant
-    one = cn.ones(1, dtype=cn.float64)
 
     @abstractmethod
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
@@ -190,7 +187,7 @@ class GammaDevianceMetric(BaseMetric):
         eps = 1e-6
         y = y + eps
         pred = pred + eps
-        d = 2.0 * (cn.log(pred / y) + y / pred - self.one)
+        d = 2.0 * (cn.log(pred / y) + y / pred - 1.0)
         result = sample_average(d, w)
         if result.size > 1:
             result = cn.average(result)
@@ -215,7 +212,7 @@ class QuantileMetric(BaseMetric):
 
     def __init__(self, quantiles: cn.ndarray = cn.array([0.25, 0.5, 0.75])) -> None:
         super().__init__()
-        assert cn.all(0.0 <= quantiles) and cn.all(quantiles <= self.one)
+        assert cn.all(0.0 <= quantiles) and cn.all(quantiles <= 1.0)
         self.quantiles = quantiles
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
@@ -253,9 +250,7 @@ class LogLossMetric(BaseMetric):
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
         y = y.squeeze()
         eps = np.finfo(pred.dtype).eps
-        cn.clip(
-            pred, constant(eps, pred.dtype), constant(1 - eps, pred.dtype), out=pred
-        )
+        cn.clip(pred, eps, 1 - eps, out=pred)
 
         pred = pred.squeeze()
 
@@ -264,10 +259,7 @@ class LogLossMetric(BaseMetric):
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
-            logloss = -(
-                y * cn.log(pred)
-                + (constant(1, pred.dtype) - y) * cn.log(constant(1, pred.dtype) - pred)
-            )
+            logloss = -(y * cn.log(pred) + (1 - y) * cn.log(1 - pred))
             return cn.dot(logloss, w) / w_sum
 
         # multi-class case
@@ -300,16 +292,16 @@ class ExponentialMetric(BaseMetric):
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
-            exp = cn.power(pred / (self.one - pred), 0.5 - y)
+            exp = cn.power(pred / (1.0 - pred), 0.5 - y)
             return float((exp * w).sum() / w.sum())
 
         # multi-class case
         # note that exp loss is invariant to adding a constant to prediction
         K = pred.shape[1]  # number of classes
-        f = cn.log(pred) * (K - self.one)  # undo softmax
-        y_k = cn.full((y.size, K), -self.one / (K - self.one))
+        f = cn.log(pred) * (K - 1.0)  # undo softmax
+        y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
 
-        set_col_by_idx(y_k, y.astype(cn.int32), self.one)
+        set_col_by_idx(y_k, y.astype(cn.int32), 1.0)
         # y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
 
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))

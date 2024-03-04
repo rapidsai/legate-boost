@@ -28,9 +28,6 @@ class BaseObjective(ABC):
     Implement this class to create custom objectives.
     """
 
-    # utility constant
-    one = cn.ones(1, dtype=cn.float64)
-
     @abstractmethod
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         """Computes the functional gradient and hessian of the squared error
@@ -284,7 +281,7 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
         # g = dL/du   = 1 - y / exp(u)
         # h = d^2L/du = y / exp(u)
         h = y / pred
-        g = self.one - h
+        g = 1.0 - h
         return g, h
 
     def metric(self) -> GammaDevianceMetric:
@@ -409,7 +406,7 @@ class QuantileObjective(BaseObjective):
 
     def __init__(self, quantiles: cn.ndarray = cn.array([0.25, 0.5, 0.75])) -> None:
         super().__init__()
-        assert cn.all(0.0 < quantiles) and cn.all(quantiles < self.one)
+        assert cn.all(0.0 < quantiles) and cn.all(quantiles < 1.0)
         self.quantiles = quantiles
 
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
@@ -463,22 +460,23 @@ class LogLossObjective(FitInterceptRegMixIn):
 
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
         assert pred.ndim == 2
+        pred = pred.astype(cn.float64)
         # binary case
         if pred.shape[1] == 1:
-            return pred - y, pred * (self.one - pred)
+            return pred - y, pred * (1.0 - pred)
 
         # multi-class case
         label = y.astype(cn.int32).squeeze()
-        h = pred * (self.one - pred)
+        h = pred * (1.0 - pred)
         g = pred.copy()
-        mod_col_by_idx(g, label, -self.one)
+        mod_col_by_idx(g, label, -1.0)
         # g[cn.arange(y.size), label] -= 1.0
         return g, h
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         assert len(pred.shape) == 2
         if pred.shape[1] == 1:
-            return self.one / (self.one + cn.exp(-pred))
+            return 1.0 / (1.0 + cn.exp(-pred))
         # softmax function
         s = cn.max(pred, axis=1)
         e_x = cn.exp(pred - s[:, cn.newaxis])
@@ -523,7 +521,7 @@ class ExponentialObjective(FitInterceptRegMixIn):
 
         # binary case
         if pred.shape[1] == 1:
-            adjusted_y = 2 * y - self.one
+            adjusted_y = 2 * y - 1
             f = 0.5 * cn.log(pred / (1 - pred))  # undo sigmoid
             exp = cn.exp(-f * adjusted_y)
             return -adjusted_y * exp, exp
@@ -531,9 +529,9 @@ class ExponentialObjective(FitInterceptRegMixIn):
         # multi-class case
         K = pred.shape[1]  # number of classes
         f = cn.log(pred) * (K - 1)  # undo softmax
-        y_k = cn.full((y.size, K), -self.one / (K - self.one))
+        y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
         labels = y.astype(cn.int32).squeeze()
-        set_col_by_idx(y_k, labels, self.one)
+        set_col_by_idx(y_k, labels, 1.0)
         # y_k[cn.arange(y.size), labels] = 1.0
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
 

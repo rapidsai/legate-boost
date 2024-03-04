@@ -9,7 +9,7 @@ import cunumeric as cn
 from legate.core import get_legate_runtime, types
 
 from ..library import user_context, user_lib
-from ..utils import constant, gather, get_store, lbfgs
+from ..utils import gather, get_store, lbfgs
 from .base_model import BaseModel
 
 
@@ -17,10 +17,10 @@ def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     XX = cn.einsum("ij,ij->i", X, X)[:, cn.newaxis]
     YY = cn.einsum("ij,ij->i", Y, Y)
     XY = cn.dot(X, Y.T)
-    XY *= constant(-2.0, dtype=X.dtype)
+    XY *= -2.0
     XY += XX
     XY += YY
-    return cn.maximum(XY, constant(0.0, X.dtype), out=XY)
+    return cn.maximum(XY, 0.0, out=XY)
 
 
 def rbf(x: cn.ndarray, sigma: float) -> cn.ndarray:
@@ -103,7 +103,7 @@ class KRR(BaseModel):
             K_nm *= W[:, cn.newaxis]
             yw = W * (-g[:, k] / h[:, k]).astype(X.dtype)
             self.betas_[:, k] = cn.linalg.lstsq(
-                K_nm.T.dot(K_nm) + constant(self.alpha, K_nm.dtype) * K_mm,
+                K_nm.T.dot(K_nm) + self.alpha * K_mm,
                 cn.dot(K_nm.T, yw),
                 rcond=None,
             )[0]
