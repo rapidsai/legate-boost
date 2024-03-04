@@ -254,7 +254,11 @@ class FitInterceptRegMixIn(BaseObjective):
         if boost_from_average:
             assert init.shape[0] == 1
             # Construct the initial prediction array for gradient.
-            pred = cn.repeat(init, y.shape[0], axis=0)
+            pred_shape = (
+                (y.shape[0], init.shape[1]) if init.ndim > 1 else (y.shape[0], 1)
+            )
+            pred = cn.empty(pred_shape)
+            pred[:] = init
 
             # Take 1 newton step (we could iterate here to get a better estimate)
             g, h = self.gradient(y, pred)
