@@ -76,7 +76,7 @@ jobs:
           mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
       - name: Build legateboost
         run: |
-          CMAKE_ARGS=-DCMAKE_CUDA_ARCHITECTURES=70\;80 pip install -e .
+          CUDA_ARCH=70\;80 ./build.sh
           python -m build -n --wheel
       - uses: actions/upload-artifact@v3
         with:
