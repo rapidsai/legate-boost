@@ -401,12 +401,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
                     X.shape[1], self.n_features_in_
                 )
             )
-        pred_shape = (
-            (X.shape[0], self.model_init_.shape[1])
-            if self.model_init_.ndim > 1
-            else (X.shape[0], 1)
-        )
-        pred = cn.empty(pred_shape, dtype=X.dtype)
+        pred = cn.empty((X.shape[0],) + self.model_init_.shape, dtype=cn.float64)
         pred[:] = self.model_init_
         for m in self.models_:
             pred += m.predict(X)
