@@ -188,6 +188,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: Optional[cn.ndarray] = None,
+        early_stopping_rounds: Optional[int] = 0,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> Self:
@@ -345,6 +346,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray,
+        early_stopping_rounds: Optional[int] = 0,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> Self:
@@ -391,7 +393,9 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         )
         self.is_fitted_ = True
 
-        return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
+        return self._partial_fit(
+            X, y, sample_weight, early_stopping_rounds, eval_set, eval_result
+        )
 
     def _predict(self, X: cn.ndarray) -> cn.ndarray:
         X = check_X_y(X)
