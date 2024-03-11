@@ -101,10 +101,10 @@ class KRR(BaseModel):
 
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k]).astype(X.dtype)
-            K_nm *= W[:, cn.newaxis]
+            Kw = K_nm * W[:, cn.newaxis]
             yw = W * (-g[:, k] / h[:, k]).astype(X.dtype)
             self.betas_[:, k] = cn.linalg.lstsq(
-                K_nm.T.dot(K_nm) + self.alpha * K_mm, cn.dot(K_nm.T, yw), rcond=None
+                Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw), rcond=None
             )[0]
         return self
 
