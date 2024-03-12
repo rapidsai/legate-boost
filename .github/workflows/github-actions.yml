@@ -41,7 +41,7 @@ jobs:
             repository: nv-legate/legate.core.internal
             path: legate.core.internal
             token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: aadaae211e90b31527e52050a4f6b290de7de67b
+            ref: a9a386038f6a1131ddb5ad262f00492cf04ac6c1
       - name: Install legate core
         working-directory: ./legate.core.internal
         run: |
@@ -58,7 +58,7 @@ jobs:
             repository: nv-legate/cunumeric.internal
             path: cunumeric.internal
             token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: 004da8474a8cc3e7f5d97b9e2e29b96e0fd84457
+            ref: e8d34a86fb018897ab257c2e77a7ff86cf55cf2d
       - name: Install cunumeric
         working-directory: ./cunumeric.internal
         run: |
@@ -76,7 +76,7 @@ jobs:
           mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
       - name: Build legateboost
         run: |
-          pip install -e .
+          CUDA_ARCH=70\;80 ./build.sh
           python -m build -n --wheel
       - uses: actions/upload-artifact@v3
         with:

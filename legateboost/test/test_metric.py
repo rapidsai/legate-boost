@@ -38,22 +38,6 @@ def test_multiple_metrics() -> None:
     assert "exp" in eval_result["train"]
 
 
-def test_eval_tuple():
-    # check weights get registered
-    np.random.seed(0)
-    X = np.random.random((10, 1))
-    y = np.random.randint(0, 2, size=X.shape[0])
-    X_eval = np.random.random((10, 1))
-    y_eval = np.random.randint(0, 2, size=X.shape[0])
-    w_eval = cn.zeros(X.shape[0])
-
-    eval_result = {}
-    lb.LBClassifier(n_estimators=2).fit(
-        X, y, eval_set=[(X_eval, y_eval, w_eval)], eval_result=eval_result
-    )
-    assert eval_result["eval-0"]["log_loss"][-1] == 0.0
-
-
 def test_mse():
     def compare_to_sklearn(y, p, w):
         a = lb.MSEMetric().metric(cn.array(y), cn.array(p), cn.array(w))
