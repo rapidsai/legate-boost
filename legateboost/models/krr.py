@@ -6,16 +6,30 @@ import numpy as np
 from scipy.special import lambertw
 
 import cunumeric as cn
+from legate.core import get_legate_runtime, types
 
-from ..utils import gather, lbfgs
+from ..library import user_context, user_lib
+from ..utils import gather, get_store, lbfgs
 from .base_model import BaseModel
 
 
 def l2(X: cn.ndarray, Y: cn.ndarray) -> cn.ndarray:
     XX = cn.einsum("ij,ij->i", X, X)[:, cn.newaxis]
     YY = cn.einsum("ij,ij->i", Y, Y)
-    XY = 2 * cn.dot(X, Y.T)
-    return cn.maximum(XX + YY - XY, 0.0)
+    XY = cn.dot(X, Y.T)
+    XY *= -2.0
+    XY += XX
+    XY += YY
+    return cn.maximum(XY, 0.0, out=XY)
+
+
+def rbf(x: cn.ndarray, sigma: float) -> cn.ndarray:
+    task = get_legate_runtime().create_auto_task(user_context, user_lib.cffi.RBF)
+    task.add_input(get_store(x))
+    task.add_scalar_arg(sigma, types.float64)
+    task.add_output(get_store(x))
+    task.execute()
+    return x
 
 
 class KRR(BaseModel):
@@ -74,9 +88,6 @@ class KRR(BaseModel):
         self.alpha = alpha
         self.sigma = sigma
         self.solver = solver
-        self.num_components = n_components
-        self.alpha = alpha
-        self.sigma = sigma
 
     def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
         return self.rbf_kernel(X, self.X_train)
@@ -148,7 +159,7 @@ class KRR(BaseModel):
 
         if self.sigma is None:
             self.sigma = self.opt_sigma(D_2)
-        return cn.exp(-D_2 / (2 * self.sigma * self.sigma))
+        return rbf(D_2, self.sigma)
 
     def _sample_components(self, X: cn.ndarray) -> cn.ndarray:
         usable_num_components = min(X.shape[0], self.num_components)

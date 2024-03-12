@@ -36,6 +36,7 @@ if(Legion_USE_CUDA)
   list(APPEND legateboost_srcs
     models/tree/predict.cu
     models/tree/build_tree.cu
+    models/krr/rbf.cu
     special/special.cu
     utils/gather.cu
   )

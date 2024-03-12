@@ -255,14 +255,12 @@ class LogLossMetric(BaseMetric):
         cn.clip(pred, eps, 1 - eps, out=pred)
 
         w_sum = w.sum()
-        if w_sum == 0:
-            return 0.0
 
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
             logloss = -(y * cn.log(pred) + (self.one - y) * cn.log(self.one - pred))
-            return float((logloss * w).sum() / w_sum)
+            return cn.dot(logloss, w) / w_sum
 
         # multi-class case
         assert pred.ndim == 2
@@ -271,7 +269,7 @@ class LogLossMetric(BaseMetric):
         logloss = -cn.log(pick_col_by_idx(pred, label))
         # logloss = -cn.log(pred[cn.arange(label.size), label])
 
-        return float((logloss * w).sum() / w_sum)
+        return cn.dot(logloss, w) / w_sum
 
     def name(self) -> str:
         return "log_loss"

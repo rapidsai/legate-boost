@@ -14,6 +14,7 @@ enum LegateBoostOpCode {
   ZETA    = 8,
   /**/
   GATHER = 9,
+  RBF    = 10,
 };
 
 #endif  // __LEGATEBOOST_C_H__
