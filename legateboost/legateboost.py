@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from copy import deepcopy
-from typing import Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
@@ -17,6 +17,9 @@ from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
 from .utils import PickleCunumericMixin, preround
+
+if TYPE_CHECKING:
+    from .callbacks import TrainingCallback
 
 EvalResult: TypeAlias = dict[str, dict[str, list[float]]]
 
@@ -43,6 +46,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.random_state = random_state
         self.version = version
         self.model_init_: cn.ndarray
+        if not isinstance(base_models, tuple):
+            raise ValueError("base_models must be a tuple")
         self.base_models = base_models
 
     def _more_tags(self) -> Any:
@@ -188,24 +193,14 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: Optional[cn.ndarray] = None,
-        early_stopping_rounds: Optional[int] = 0,
+        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> Self:
         # check inputs
         X, y = check_X_y(X, y)
         _eval_set = self._process_eval_set(eval_set)
-
         sample_weight = check_sample_weight(sample_weight, y.shape[0])
-
-        if not hasattr(self, "is_fitted_"):
-            return self.fit(
-                X,
-                y,
-                sample_weight=sample_weight,
-                eval_set=eval_set,
-                eval_result=eval_result,
-            )
 
         if self.n_features_in_ != X.shape[1]:
             raise ValueError(
@@ -214,13 +209,29 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
                 )
             )
 
+        # in case callbacks is not iterable
+        if callbacks is None:
+            callbacks = []
+        elif not hasattr(callbacks, "__len__"):
+            callbacks = [callbacks]
+
         # avoid appending to an existing eval result
         eval_result.clear()
 
         # current model prediction
         train_pred = self._predict(X)
         eval_preds = [self._predict(X_eval) for X_eval, _, _ in _eval_set]
+
+        # callbacks before training
+        for c in callbacks:
+            c.before_training(self)
+
         for i in range(self.n_estimators):
+
+            # callbacks before iteration
+            if any((c.before_iteration(self, i, eval_result) for c in callbacks)):
+                break
+
             # obtain gradients
             g, h = self._get_weighted_gradient(
                 y, train_pred, sample_weight, self.learning_rate
@@ -228,11 +239,10 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
 
             # build new model
             self.models_.append(
-                deepcopy(self.base_models[i % len(self.base_models)]).set_random_state(
-                    self.random_state_
-                )
+                deepcopy(self.base_models[i % len(self.base_models)])
+                .set_random_state(self.random_state_)
+                .fit(X, g, h)
             )
-            self.models_[-1].fit(X, g, h)
 
             # update current predictions
             train_pred += self.models_[-1].predict(X)
@@ -252,6 +262,17 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
                 _eval_set,
                 eval_result,
             )
+
+            # callbacks after iteration
+            if any(
+                (c.after_iteration(self, model_idx, eval_result) for c in callbacks)
+            ):
+                break
+
+        # callbacks after training
+        for c in callbacks:
+            c.after_training(self)
+
         return self
 
     def update(
@@ -346,7 +367,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray,
-        early_stopping_rounds: Optional[int] = 0,
+        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> Self:
@@ -393,9 +414,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         )
         self.is_fitted_ = True
 
-        return self._partial_fit(
-            X, y, sample_weight, early_stopping_rounds, eval_set, eval_result
-        )
+        return self._partial_fit(X, y, sample_weight, callbacks, eval_set, eval_result)
 
     def _predict(self, X: cn.ndarray) -> cn.ndarray:
         check_is_fitted(self, "is_fitted_")
@@ -506,6 +525,7 @@ class LBRegressor(LBBase, RegressorMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
+        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> LBBase:
@@ -531,10 +551,19 @@ class LBRegressor(LBBase, RegressorMixin):
         self :
             Returns self.
         """
+        if not hasattr(self, "is_fitted_"):
+            return self.fit(
+                X,
+                y,
+                sample_weight=sample_weight,
+                eval_set=eval_set,
+                eval_result=eval_result,
+            )
         return super()._partial_fit(
             X,
             y,
             sample_weight=sample_weight,
+            callbacks=callbacks,
             eval_set=eval_set,
             eval_result=eval_result,
         )
@@ -544,11 +573,19 @@ class LBRegressor(LBBase, RegressorMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
+        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> "LBRegressor":
         X, y = check_X_y(X, y)
-        return super().fit(X, y, sample_weight, eval_set, eval_result)
+        return super().fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            callbacks=callbacks,
+            eval_set=eval_set,
+            eval_result=eval_result,
+        )
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         """Predict labels for samples in X.
@@ -654,6 +691,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         y: cn.ndarray,
         classes: Optional[cn.ndarray] = None,
         sample_weight: cn.ndarray = None,
+        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> LBBase:
@@ -709,6 +747,7 @@ class LBClassifier(LBBase, ClassifierMixin):
             X,
             y,
             sample_weight=sample_weight,
+            callbacks=callbacks,
             eval_set=eval_set,
             eval_result=eval_result,
         )
@@ -718,6 +757,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
+        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> "LBClassifier":
@@ -746,6 +786,7 @@ class LBClassifier(LBBase, ClassifierMixin):
             X,
             y,
             sample_weight=sample_weight,
+            callbacks=callbacks,
             eval_set=eval_set,
             eval_result=eval_result,
         )
