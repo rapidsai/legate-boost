@@ -13,11 +13,11 @@ class TrainingCallback(ABC):
     def __init__(self) -> None:
         pass
 
-    def before_training(self, model: LBBase):
+    def before_training(self, model: LBBase) -> None:
         """Run before training starts."""
         pass
 
-    def after_training(self, model: LBBase):
+    def after_training(self, model: LBBase) -> None:
         """Run after training is finished."""
         pass
 
@@ -91,7 +91,7 @@ class EarlyStopping(TrainingCallback):
         self.verbose = verbose
         super().__init__()
 
-    def before_training(self, model: LBBase):
+    def before_training(self, model: LBBase) -> None:
         self.current_rounds = 0
         self.best_score = None
 
@@ -150,8 +150,8 @@ class EarlyStopping(TrainingCallback):
         score = data_log[metric_name][-1]
         return self._update_rounds(score, metric_name, model, epoch)
 
-    def after_training(self, model: LBBase):
-        if self.verbose:
+    def after_training(self, model: LBBase) -> None:
+        if self.verbose and self.best_score is not None:
             print(
                 f"Early stopping at round {self.best_score[0]}"
                 + f" with score {self.best_score[1]}"

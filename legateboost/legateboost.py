@@ -33,9 +33,9 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
+        callbacks: Sequence[TrainingCallback] = [],
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
-        version: str = "native",
     ) -> None:
         self.n_estimators = n_estimators
         self.objective = objective
@@ -44,8 +44,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.init = init
         self.verbose = verbose
         self.random_state = random_state
-        self.version = version
         self.model_init_: cn.ndarray
+        self.callbacks = callbacks
         if not isinstance(base_models, tuple):
             raise ValueError("base_models must be a tuple")
         self.base_models = base_models
@@ -193,7 +193,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: Optional[cn.ndarray] = None,
-        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> Self:
@@ -209,12 +208,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
                 )
             )
 
-        # in case callbacks is not iterable
-        if callbacks is None:
-            callbacks = []
-        elif not hasattr(callbacks, "__len__"):
-            callbacks = [callbacks]
-
         # avoid appending to an existing eval result
         eval_result.clear()
 
@@ -223,13 +216,13 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         eval_preds = [self._predict(X_eval) for X_eval, _, _ in _eval_set]
 
         # callbacks before training
-        for c in callbacks:
+        for c in self.callbacks:
             c.before_training(self)
 
         for i in range(self.n_estimators):
 
             # callbacks before iteration
-            if any((c.before_iteration(self, i, eval_result) for c in callbacks)):
+            if any((c.before_iteration(self, i, eval_result) for c in self.callbacks)):
                 break
 
             # obtain gradients
@@ -265,12 +258,15 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
 
             # callbacks after iteration
             if any(
-                (c.after_iteration(self, model_idx, eval_result) for c in callbacks)
+                (
+                    c.after_iteration(self, model_idx, eval_result)
+                    for c in self.callbacks
+                )
             ):
                 break
 
         # callbacks after training
-        for c in callbacks:
+        for c in self.callbacks:
             c.after_training(self)
 
         return self
@@ -367,7 +363,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray,
-        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> Self:
@@ -414,7 +409,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         )
         self.is_fitted_ = True
 
-        return self._partial_fit(X, y, sample_weight, callbacks, eval_set, eval_result)
+        return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
 
     def _predict(self, X: cn.ndarray) -> cn.ndarray:
         check_is_fitted(self, "is_fitted_")
@@ -462,6 +457,9 @@ class LBRegressor(LBBase, RegressorMixin):
     base_models :
         The base models to use for each iteration. The model used in each iteration
         i is base_models[i % len(base_models)].
+    callbacks :
+        List of callbacks to apply during training e.g. early stopping.
+        See `callbacks` module for more information.
     verbose :
         Controls the verbosity when fitting and predicting.
     random_state :
@@ -501,6 +499,7 @@ class LBRegressor(LBBase, RegressorMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
+        callbacks: Sequence[TrainingCallback] = [],
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
     ) -> None:
@@ -511,6 +510,7 @@ class LBRegressor(LBBase, RegressorMixin):
             learning_rate=learning_rate,
             init=init,
             base_models=base_models,
+            callbacks=callbacks,
             verbose=verbose,
             random_state=random_state,
         )
@@ -525,7 +525,6 @@ class LBRegressor(LBBase, RegressorMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
-        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> LBBase:
@@ -563,7 +562,6 @@ class LBRegressor(LBBase, RegressorMixin):
             X,
             y,
             sample_weight=sample_weight,
-            callbacks=callbacks,
             eval_set=eval_set,
             eval_result=eval_result,
         )
@@ -573,7 +571,6 @@ class LBRegressor(LBBase, RegressorMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
-        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> "LBRegressor":
@@ -582,7 +579,6 @@ class LBRegressor(LBBase, RegressorMixin):
             X,
             y,
             sample_weight=sample_weight,
-            callbacks=callbacks,
             eval_set=eval_set,
             eval_result=eval_result,
         )
@@ -631,6 +627,9 @@ class LBClassifier(LBBase, ClassifierMixin):
     base_models:
         The base models to use for each iteration. The model used in each iteration
         i is base_models[i % len(base_models)].
+    callbacks :
+        List of callbacks to apply during training e.g. early stopping.
+        See `callbacks` module for more information.
     verbose :
         Controls the verbosity of the boosting process.
     random_state :
@@ -671,6 +670,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
+        callbacks: Sequence[TrainingCallback] = [],
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
     ) -> None:
@@ -681,6 +681,7 @@ class LBClassifier(LBBase, ClassifierMixin):
             learning_rate=learning_rate,
             init=init,
             base_models=base_models,
+            callbacks=callbacks,
             verbose=verbose,
             random_state=random_state,
         )
@@ -691,7 +692,6 @@ class LBClassifier(LBBase, ClassifierMixin):
         y: cn.ndarray,
         classes: Optional[cn.ndarray] = None,
         sample_weight: cn.ndarray = None,
-        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> LBBase:
@@ -747,7 +747,6 @@ class LBClassifier(LBBase, ClassifierMixin):
             X,
             y,
             sample_weight=sample_weight,
-            callbacks=callbacks,
             eval_set=eval_set,
             eval_result=eval_result,
         )
@@ -757,7 +756,6 @@ class LBClassifier(LBBase, ClassifierMixin):
         X: cn.ndarray,
         y: cn.ndarray,
         sample_weight: cn.ndarray = None,
-        callbacks: Optional[Sequence[TrainingCallback]] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> "LBClassifier":
@@ -786,7 +784,6 @@ class LBClassifier(LBBase, ClassifierMixin):
             X,
             y,
             sample_weight=sample_weight,
-            callbacks=callbacks,
             eval_set=eval_set,
             eval_result=eval_result,
         )
