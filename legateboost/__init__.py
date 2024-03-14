@@ -20,4 +20,8 @@ from .objectives import (
     QuantileObjective,
     SquaredErrorObjective,
 )
+from .callbacks import (
+    TrainingCallback,
+    EarlyStopping,
+)
 from .utils import mod_col_by_idx, pick_col_by_idx, set_col_by_idx

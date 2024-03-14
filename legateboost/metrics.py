@@ -47,6 +47,15 @@ class BaseMetric(ABC):
     def create(cls) -> Self:
         return cls()
 
+    @staticmethod
+    def minimize() -> bool:
+        """Returns `True` if the metric should be minimized, `False` otherwise.
+
+        Returns:
+            `True` if the metric should be minimized, `False` otherwise.
+        """
+        return True
+
 
 class MSEMetric(BaseMetric):
     """Class for computing the mean squared error (MSE) metric between the true
