@@ -33,7 +33,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
-        callbacks: Sequence[TrainingCallback] = [],
+        callbacks: Sequence[TrainingCallback] = (),
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
     ) -> None:
@@ -499,7 +499,7 @@ class LBRegressor(LBBase, RegressorMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
-        callbacks: Sequence[TrainingCallback] = [],
+        callbacks: Sequence[TrainingCallback] = (),
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
     ) -> None:
@@ -670,7 +670,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         learning_rate: float = 0.1,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
-        callbacks: Sequence[TrainingCallback] = [],
+        callbacks: Sequence[TrainingCallback] = (),
         verbose: int = 0,
         random_state: Optional[np.random.RandomState] = None,
     ) -> None:
@@ -742,6 +742,15 @@ class LBClassifier(LBBase, ClassifierMixin):
             assert self.is_fitted_
             if classes is not None and cn.any(self.classes_ != classes):
                 raise ValueError("classes must match previous fit")
+
+        if not hasattr(self, "is_fitted_"):
+            return self.fit(
+                X,
+                y,
+                sample_weight=sample_weight,
+                eval_set=eval_set,
+                eval_result=eval_result,
+            )
 
         return super()._partial_fit(
             X,

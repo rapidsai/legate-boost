@@ -47,7 +47,7 @@ def benchmark(args):
                         "time": elapsed,
                         "iteration": j,
                         "Model type": model_type,
-                        "nrows": args.nrows,
+                        "nrows": X.shape[0],
                         "ncols": args.ncols,
                     },
                     index=[0],
