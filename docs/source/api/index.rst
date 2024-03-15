@@ -11,3 +11,4 @@ Python API Reference
    metrics
    objectives
    models
+   callbacks

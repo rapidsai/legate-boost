@@ -38,6 +38,19 @@ def test_notebooks(path):
         "--RegexRemovePreprocessor.patterns='^%'",
         str(path),
     ]
-    subprocess.check_call(cmd)
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(e.stderr.decode())
+        raise e
     # import the script to run it in the existing python process
     importlib.import_module(path.stem)
+
+
+def test_benchmark():
+    subprocess.run(
+        "legate --cpus 2 scaling.py --nrows 100 --ncols 5 --niter 2",
+        shell=True,
+        check=True,
+        cwd=sys.path[0] + "/benchmark",
+    )

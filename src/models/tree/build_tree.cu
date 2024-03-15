@@ -15,11 +15,10 @@
  */
 #include "legate_library.h"
 #include "legateboost.h"
-#include "utils.h"
+#include "../../cpp_utils/cpp_utils.h"
+#include "../../cpp_utils/cpp_utils.cuh"
 #include "core/comm/coll.h"
 #include "build_tree.h"
-#include "cuda_help.h"
-#include "kernel_helper.cuh"
 #include <numeric>
 
 #include <cub/device/device_radix_sort.cuh>
@@ -34,8 +33,8 @@
 namespace legateboost {
 
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  reduce_base_sums(legate::AccessorRO<double, 2> g,
-                   legate::AccessorRO<double, 2> h,
+  reduce_base_sums(legate::AccessorRO<double, 3> g,
+                   legate::AccessorRO<double, 3> h,
                    size_t n_local_samples,
                    int64_t sample_offset,
                    legate::Buffer<double, 1> base_sums,
@@ -49,8 +48,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
   int64_t sample_id = threadIdx.x + blockDim.x * blockIdx.x;
 
-  double G = sample_id < n_local_samples ? g[{sample_id + sample_offset, output}] : 0.0;
-  double H = sample_id < n_local_samples ? h[{sample_id + sample_offset, output}] : 0.0;
+  double G = sample_id < n_local_samples ? g[{sample_id + sample_offset, 0, output}] : 0.0;
+  double H = sample_id < n_local_samples ? h[{sample_id + sample_offset, 0, output}] : 0.0;
 
   double blocksumG = BlockReduce(temp_storage_g).Sum(G);
   double blocksumH = BlockReduce(temp_storage_h).Sum(H);
@@ -63,12 +62,12 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
 template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  fill_histogram_blockreduce(legate::AccessorRO<TYPE, 2> X,
+  fill_histogram_blockreduce(legate::AccessorRO<TYPE, 3> X,
                              size_t n_local_samples,
                              size_t n_features,
                              int64_t sample_offset,
-                             legate::AccessorRO<double, 2> g,
-                             legate::AccessorRO<double, 2> h,
+                             legate::AccessorRO<double, 3> g,
+                             legate::AccessorRO<double, 3> h,
                              size_t n_outputs,
                              legate::AccessorRO<TYPE, 2> split_proposal,
                              int32_t* positions_local,
@@ -121,7 +120,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
         (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + localSampleId;
       left_shared[localFeatureId][localSampleId] =
         (globalSampleId < n_local_samples && feature < n_features)
-          ? X[{index_mapping[localSampleId], feature}] <= split_proposal[{depth, feature}]
+          ? X[{index_mapping[localSampleId], feature, 0}] <= split_proposal[{depth, feature}]
           : false;
     }
 
@@ -140,8 +139,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     int32_t sampleNode = validThread ? positions_local[sampleId] - max_nodes_in_level + 1 : -1;
 
     for (int32_t output = 0; output < n_outputs; output++) {
-      double G = validThread ? g[{index_mapping[threadIdx.x], output}] : 0.0;
-      double H = validThread ? h[{index_mapping[threadIdx.x], output}] : 0.0;
+      double G = validThread ? g[{index_mapping[threadIdx.x], 0, output}] : 0.0;
+      double H = validThread ? h[{index_mapping[threadIdx.x], 0, output}] : 0.0;
       for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (feature < n_features) {
@@ -276,25 +275,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
 namespace {
 
-void SumAllReduce(legate::TaskContext context, double* x, int count, cudaStream_t stream)
-{
-  auto domain      = context.get_launch_domain();
-  size_t num_ranks = domain.get_volume();
-  EXPECT(num_ranks == 1 || context.num_communicators() > 0,
-         "Expected a GPU communicator for multi-rank task.");
-  if (context.num_communicators() == 0) return;
-  auto comm             = context.communicator(0);
-  ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();
-
-  if (num_ranks > 1) {
-    CHECK_NCCL(ncclAllReduce(x, x, count, ncclDouble, ncclSum, *nccl_comm, stream));
-    CHECK_CUDA_STREAM(stream);
-  }
-}
-
 struct Tree {
-  Tree(int max_depth, int num_outputs, cudaStream_t stream)
-    : num_outputs(num_outputs), max_nodes(1 << (max_depth + 1)), stream(stream)
+  Tree(int max_nodes, int num_outputs, cudaStream_t stream)
+    : num_outputs(num_outputs), max_nodes(max_nodes), stream(stream)
   {
     leaf_value  = legate::create_buffer<double, 2>({max_nodes, num_outputs});
     feature     = legate::create_buffer<int32_t, 1>({max_nodes});
@@ -361,32 +344,28 @@ struct Tree {
                                stream));
   }
 
-  template <typename T, int DIM>
-  void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, DIM>& x)
+  template <typename T, int DIM, typename ThrustPolicyT>
+  void WriteOutput(legate::PhysicalStore out,
+                   const legate::Buffer<T, DIM> x,
+                   const ThrustPolicyT& policy)
   {
-    // all outputs are 2D
-    // for those where the internal buffer is 1D we expect the 2nd extent to be 1
-    const legate::Point<DIM> zero   = legate::Point<DIM>::ZEROES();
-    const legate::Point<2> zero2    = legate::Point<2>::ZEROES();
-    const legate::Rect<2> out_shape = out.shape<2>();
-    auto out_acc                    = out.write_accessor<T, 2>();
-    EXPECT(DIM == 2 || out_shape.hi[1] == out_shape.lo[1], "Buffer is 1D but store has 2D.");
-    EXPECT(out_shape.lo == zero2, "Output store shape should start at zero.");
-    EXPECT(out_acc.accessor.is_dense_row_major(out_shape), "Output store is not dense row major.");
-    CHECK_CUDA(cudaMemcpyAsync(out_acc.ptr(zero2),
-                               x.ptr(zero),
-                               out_shape.volume() * sizeof(T),
-                               cudaMemcpyDeviceToDevice,
-                               stream));
+    // Write a tile of x to the output
+    const legate::Rect<DIM> out_shape = out.shape<DIM>();
+    auto out_acc                      = out.write_accessor<T, DIM>();
+    thrust::for_each_n(policy,
+                       UnravelIter(out_shape),
+                       out_shape.volume(),
+                       [=] __host__ __device__(const legate::Point<DIM>& p) { out_acc[p] = x[p]; });
   }
 
-  void WriteTreeOutput(legate::TaskContext context)
+  template <typename ThrustPolicyT>
+  void WriteTreeOutput(legate::TaskContext context, const ThrustPolicyT& policy)
   {
-    WriteOutput(context.output(0).data(), leaf_value);
-    WriteOutput(context.output(1).data(), feature);
-    WriteOutput(context.output(2).data(), split_value);
-    WriteOutput(context.output(3).data(), gain);
-    WriteOutput(context.output(4).data(), hessian);
+    WriteOutput(context.output(0).data(), leaf_value, policy);
+    WriteOutput(context.output(1).data(), feature, policy);
+    WriteOutput(context.output(2).data(), split_value, policy);
+    WriteOutput(context.output(3).data(), gain, policy);
+    WriteOutput(context.output(4).data(), hessian, policy);
     CHECK_CUDA_STREAM(stream);
   }
 
@@ -449,7 +428,7 @@ struct TreeLevelInfo {
   }
 
   template <typename TYPE>
-  void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 2> X, legate::Rect<2> X_shape)
+  void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 3> X, legate::Rect<3> X_shape)
   {
     if (current_depth > 0 && skip_rows < num_rows) {
       auto tree_split_value_ptr    = tree.split_value.ptr(0);
@@ -462,7 +441,7 @@ struct TreeLevelInfo {
           pos = -1;
           return;
         }
-        double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos]}];
+        double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos], 0}];
         bool left      = x_value <= tree_split_value_ptr[pos];
         pos            = left ? 2 * pos + 1 : 2 * pos + 2;
       };
@@ -534,11 +513,11 @@ struct TreeLevelInfo {
 
   template <typename TYPE>
   void FillHistogram(Tree& tree,
-                     legate::AccessorRO<TYPE, 2> X,
-                     legate::Rect<2> X_shape,
+                     legate::AccessorRO<TYPE, 3> X,
+                     legate::Rect<3> X_shape,
                      legate::AccessorRO<TYPE, 2> split_proposal,
-                     legate::AccessorRO<double, 2> g,
-                     legate::AccessorRO<double, 2> h)
+                     legate::AccessorRO<double, 3> g,
+                     legate::AccessorRO<double, 3> h)
   {
     if (skip_rows < num_rows) {
       // TODO adjust kernel parameters dynamically
@@ -606,9 +585,9 @@ struct TreeLevelInfo {
 void ReduceBaseSums(legate::Buffer<double> base_sums,
                     int32_t num_rows,
                     int32_t num_outputs,
-                    legate::AccessorRO<double, 2> g,
-                    legate::AccessorRO<double, 2> h,
-                    legate::Rect<2> shape,
+                    legate::AccessorRO<double, 3> g,
+                    legate::AccessorRO<double, 3> h,
+                    legate::Rect<3> shape,
                     cudaStream_t stream)
 {
   CHECK_CUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
@@ -620,37 +599,38 @@ void ReduceBaseSums(legate::Buffer<double> base_sums,
 }
 
 struct build_tree_fn {
-  template <legate::Type::Code CODE>
+  template <typename T>
   void operator()(legate::TaskContext context)
   {
-    using T           = legate::type_of<CODE>;
-    const auto& X     = context.input(0).data();
-    auto X_shape      = X.shape<2>();
-    auto X_accessor   = X.read_accessor<T, 2>();
+    const auto X      = context.input(0).data();
+    auto X_shape      = X.shape<3>();
+    auto X_accessor   = X.read_accessor<T, 3>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
-    auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
-    const auto& g     = context.input(1).data();
-    const auto& h     = context.input(2).data();
-    auto g_shape      = g.shape<2>();
-    auto h_shape      = h.shape<2>();
+    auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
+    auto num_outputs  = X_shape.hi[2] - X_shape.lo[2] + 1;
+    const auto g      = context.input(1).data();
+    const auto h      = context.input(2).data();
+    auto g_shape      = g.shape<3>();
+    auto h_shape      = h.shape<3>();
+    EXPECT(g_shape.lo[2] == 0, "Outputs should not be split between workers.");
     EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
-    auto num_outputs            = g_shape.hi[1] - g_shape.lo[1] + 1;
-    auto g_accessor             = g.read_accessor<double, 2>();
-    auto h_accessor             = h.read_accessor<double, 2>();
+    auto g_accessor             = g.read_accessor<double, 3>();
+    auto h_accessor             = h.read_accessor<double, 3>();
     const auto& split_proposals = context.input(3).data();
     EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X_shape);
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
 
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();
+    auto max_nodes = context.scalars().at(1).value<int>();
 
     auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
 
-    Tree tree(max_depth, num_outputs, stream);
+    Tree tree(max_nodes, num_outputs, stream);
 
     // Initialize the root node
     {
@@ -696,7 +676,7 @@ struct build_tree_fn {
       tree_state.PerformBestSplit(tree, split_proposal_accessor, eps);
     }
 
-    if (context.get_task_index()[0] == 0) { tree.WriteTreeOutput(context); }
+    tree.WriteTreeOutput(context, thrust_exec_policy);
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
     CHECK_CUDA_STREAM(stream);

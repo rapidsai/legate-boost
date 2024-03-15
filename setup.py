@@ -45,7 +45,7 @@ requires = [
 extras_require = {
     "test": [
         "hypothesis",
-        "pytest",
+        "pytest<8",
         "xgboost",
         "notebook",
         "nbconvert",

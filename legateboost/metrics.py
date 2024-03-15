@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Dict, Tuple, Type
 
-from typing_extensions import Self
+from typing_extensions import Self, override
 
 import cunumeric as cn
 
+from .special import erf, loggamma
 from .utils import pick_col_by_idx, sample_average, set_col_by_idx
 
 
@@ -13,6 +14,9 @@ class BaseMetric(ABC):
 
     Implement this class to create custom metrics.
     """
+
+    # utility constant
+    one = cn.ones(1, dtype=cn.float64)
 
     @abstractmethod
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
@@ -42,6 +46,15 @@ class BaseMetric(ABC):
     @classmethod
     def create(cls) -> Self:
         return cls()
+
+    @staticmethod
+    def minimize() -> bool:
+        """Returns `True` if the metric should be minimized, `False` otherwise.
+
+        Returns:
+            `True` if the metric should be minimized, `False` otherwise.
+        """
+        return True
 
 
 class MSEMetric(BaseMetric):
@@ -74,7 +87,7 @@ class MSEMetric(BaseMetric):
         return "mse"
 
 
-def check_normal(y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
+def check_dist_param(y: cn.ndarray, pred: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
     """Checks for normal distribution inputs."""
     if y.size * 2 != pred.size:
         raise ValueError("Expected pred to contain mean and sd for each y_i")
@@ -97,7 +110,7 @@ class NormalLLMetric(BaseMetric):
     """  # noqa: E501
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        y, pred = check_normal(y, pred)
+        y, pred = check_dist_param(y, pred)
         w_sum = w.sum()
         if w_sum == 0:
             return 0
@@ -118,35 +131,27 @@ class NormalLLMetric(BaseMetric):
         return "normal_neg_ll"
 
 
-def erf(x: cn.ndarray) -> cn.ndarray:
-    """Element-wise error function.
+class GammaLLMetric(BaseMetric):
+    """The mean negative log likelihood of the labels, given parameters
+    predicted by the model."""
 
-    Parameters
-    ----------
-    x :
-        Input array.
+    @override
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+        y, pred = check_dist_param(y, pred)
 
-    Returns :
-        The error function applied element-wise to the input array.
-    """
-    # Code from https://www.johndcook.com/blog/python_erf/
-    a1 = 0.254829592
-    a2 = -0.284496736
-    a3 = 1.421413741
-    a4 = -1.453152027
-    a5 = 1.061405429
-    p = 0.3275911
+        w_sum = w.sum()
+        if w_sum == 0:
+            return 0
 
-    # Save the sign of x
-    sign = cn.ones(shape=x.shape, dtype=cn.int8)
-    sign[x < 0.0] = -1
-    x = cn.abs(x)
+        k = pred[:, :, 0]
+        b = pred[:, :, 1]
+        error = -(k - 1) * cn.log(y) + y / (b + 1e-6) + k * cn.log(b) + loggamma(k)
 
-    # A&S formula 7.1.26
-    t = 1.0 / (1.0 + p * x)
-    y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * cn.exp(-x * x)
+        return float(sample_average(error, w))
 
-    return sign * y
+    @override
+    def name(self) -> str:
+        return "gamma_neg_ll"
 
 
 def norm_cdf(x: cn.ndarray) -> cn.ndarray:
@@ -170,7 +175,7 @@ class NormalCRPSMetric(BaseMetric):
     """
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
-        y, pred = check_normal(y, pred)
+        y, pred = check_dist_param(y, pred)
         loc = pred[:, :, 0]
         # `NormalObjective` outputs variance instead of scale.
         scale = cn.sqrt(pred[:, :, 1])
@@ -193,7 +198,7 @@ class GammaDevianceMetric(BaseMetric):
         eps = 1e-6
         y = y + eps
         pred = pred + eps
-        d = 2.0 * (cn.log(pred / y) + y / pred - 1.0)
+        d = 2.0 * (cn.log(pred / y) + y / pred - self.one)
         result = sample_average(d, w)
         if result.size > 1:
             result = cn.average(result)
@@ -218,7 +223,7 @@ class QuantileMetric(BaseMetric):
 
     def __init__(self, quantiles: cn.ndarray = cn.array([0.25, 0.5, 0.75])) -> None:
         super().__init__()
-        assert cn.all(0.0 <= quantiles) and cn.all(quantiles <= 1.0)
+        assert cn.all(0.0 <= quantiles) and cn.all(quantiles <= self.one)
         self.quantiles = quantiles
 
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
@@ -259,14 +264,12 @@ class LogLossMetric(BaseMetric):
         cn.clip(pred, eps, 1 - eps, out=pred)
 
         w_sum = w.sum()
-        if w_sum == 0:
-            return 0.0
 
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
-            logloss = -(y * cn.log(pred) + (1 - y) * cn.log(1 - pred))
-            return float((logloss * w).sum() / w_sum)
+            logloss = -(y * cn.log(pred) + (self.one - y) * cn.log(self.one - pred))
+            return cn.dot(logloss, w) / w_sum
 
         # multi-class case
         assert pred.ndim == 2
@@ -275,7 +278,7 @@ class LogLossMetric(BaseMetric):
         logloss = -cn.log(pick_col_by_idx(pred, label))
         # logloss = -cn.log(pred[cn.arange(label.size), label])
 
-        return float((logloss * w).sum() / w_sum)
+        return cn.dot(logloss, w) / w_sum
 
     def name(self) -> str:
         return "log_loss"
@@ -298,16 +301,16 @@ class ExponentialMetric(BaseMetric):
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
-            exp = cn.power(pred / (1 - pred), 0.5 - y)
+            exp = cn.power(pred / (self.one - pred), 0.5 - y)
             return float((exp * w).sum() / w.sum())
 
         # multi-class case
         # note that exp loss is invariant to adding a constant to prediction
         K = pred.shape[1]  # number of classes
-        f = cn.log(pred) * (K - 1)  # undo softmax
-        y_k = cn.full((y.size, K), -1.0 / (K - 1.0))
+        f = cn.log(pred) * (K - self.one)  # undo softmax
+        y_k = cn.full((y.size, K), -self.one / (K - self.one))
 
-        set_col_by_idx(y_k, y.astype(cn.int32), 1.0)
+        set_col_by_idx(y_k, y.astype(cn.int32), self.one)
         # y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
 
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
@@ -317,11 +320,12 @@ class ExponentialMetric(BaseMetric):
         return "exp"
 
 
-metrics = {
+metrics: Dict[str, Type[BaseMetric]] = {
     "log_loss": LogLossMetric,
     "mse": MSEMetric,
     "exp": ExponentialMetric,
     "normal_neg_ll": NormalLLMetric,
+    "gamma_neg_ll": GammaLLMetric,
     "normal_crps": NormalCRPSMetric,
     "deviance_gamma": GammaDevianceMetric,
 }

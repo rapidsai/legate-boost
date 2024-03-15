@@ -16,16 +16,15 @@
 #include "legate.h"
 #include "legate_library.h"
 #include "legateboost.h"
-#include "utils.h"
+#include "../../cpp_utils/cpp_utils.h"
 #include "build_tree.h"
 
 namespace legateboost {
 
 namespace {
 struct Tree {
-  Tree(int max_depth, int num_outputs) : num_outputs(num_outputs)
+  Tree(int max_nodes, int num_outputs) : num_outputs(num_outputs)
   {
-    int max_nodes = 1 << (max_depth + 1);
     feature.resize(max_nodes, -1);
     split_value.resize(max_nodes);
     gain.resize(max_nodes);
@@ -83,14 +82,19 @@ struct Tree {
 template <typename T>
 void WriteOutput(legate::PhysicalStore out, const std::vector<T>& x)
 {
-  EXPECT(out.shape<2>().volume() >= x.size(), "Output not large enough.");
-  std::copy(x.begin(), x.end(), out.write_accessor<T, 2>().ptr({0, 0}));
+  auto shape = out.shape<1>();
+  auto write = out.write_accessor<T, 1>();
+  for (auto i = shape.lo[0]; i <= shape.hi[0]; ++i) { write[i] = x[i]; }
 }
-void WriteOutput(legate::PhysicalStore out, const legate::Buffer<double, 2>& x)
+
+template <typename T>
+void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, 2>& x)
 {
-  std::copy(x.ptr({0, 0}),
-            x.ptr({0, 0}) + out.shape<2>().volume(),
-            out.write_accessor<double, 2>().ptr({0, 0}));
+  auto shape = out.shape<2>();
+  auto write = out.write_accessor<T, 2>();
+  for (auto i = shape.lo[0]; i <= shape.hi[0]; ++i) {
+    for (int j = shape.lo[1]; j <= shape.hi[1]; ++j) { write[{i, j}] = x[{i, j}]; }
+  }
 }
 
 void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
@@ -135,38 +139,39 @@ struct GradientHistogram {
 };
 
 struct build_tree_fn {
-  template <legate::Type::Code CODE>
+  template <typename T>
   void operator()(legate::TaskContext context)
   {
-    using T           = legate::type_of<CODE>;
     const auto& X     = context.input(0).data();
-    auto X_shape      = X.shape<2>();
-    auto X_accessor   = X.read_accessor<T, 2>();
+    auto X_shape      = X.shape<3>();  // 3rd dimension is unused
+    auto X_accessor   = X.read_accessor<T, 3>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
-    auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
-    const auto& g     = context.input(1).data();
-    const auto& h     = context.input(2).data();
-    EXPECT_AXIS_ALIGNED(0, X.shape<2>(), g.shape<2>());
-    EXPECT_AXIS_ALIGNED(0, g.shape<2>(), h.shape<2>());
-    EXPECT_AXIS_ALIGNED(1, g.shape<2>(), h.shape<2>());
-    auto g_shape                = context.input(1).data().shape<2>();
-    auto num_outputs            = g.shape<2>().hi[1] - g.shape<2>().lo[1] + 1;
-    auto g_accessor             = g.read_accessor<double, 2>();
-    auto h_accessor             = h.read_accessor<double, 2>();
+    auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
+    const auto& g     = context.input(1).data();  // 2nd dimension is unused
+    const auto& h     = context.input(2).data();  // 2nd dimension is unused
+    EXPECT_AXIS_ALIGNED(0, X.shape<3>(), g.shape<3>());
+    EXPECT_AXIS_ALIGNED(0, g.shape<3>(), h.shape<3>());
+    EXPECT_AXIS_ALIGNED(1, g.shape<3>(), h.shape<3>());
+    auto g_shape                = context.input(1).data().shape<3>();
+    auto num_outputs            = g.shape<3>().hi[2] - g.shape<3>().lo[2] + 1;
+    auto g_accessor             = g.read_accessor<double, 3>();
+    auto h_accessor             = h.read_accessor<double, 3>();
     const auto& split_proposals = context.input(3).data();
-    EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X.shape<2>());
+    EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X.shape<3>());
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
+    EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();
+    auto max_nodes = context.scalars().at(1).value<int>();
 
-    Tree tree(max_depth, num_outputs);
+    Tree tree(max_nodes, num_outputs);
 
     // Initialize the root node
     std::vector<GPair> base_sums(num_outputs);
     for (auto i = g_shape.lo[0]; i <= g_shape.hi[0]; ++i) {
       for (auto j = 0; j < num_outputs; ++j) {
-        base_sums[j] += {g_accessor[{i, j}], h_accessor[{i, j}]};
+        base_sums[j] += {g_accessor[{i, 0, j}], h_accessor[{i, 0, j}]};
       }
     }
     SumAllReduce(context, reinterpret_cast<double*>(base_sums.data()), num_outputs * 2);
@@ -187,9 +192,10 @@ struct build_tree_fn {
         if (position < 0) continue;
         auto position_in_level = position - ((1 << depth) - 1);
         for (int64_t j = 0; j < num_features; j++) {
-          if (X_accessor[{i, j}] <= split_proposal_accessor[{depth, j}]) {
+          if (X_accessor[{i, j, 0}] <= split_proposal_accessor[{depth, j}]) {
             for (int64_t k = 0; k < num_outputs; ++k) {
-              histogram.Add(j, position_in_level, k, GPair{g_accessor[{i, k}], h_accessor[{i, k}]});
+              histogram.Add(
+                j, position_in_level, k, GPair{g_accessor[{i, 0, k}], h_accessor[{i, 0, k}]});
             }
           }
         }
@@ -260,13 +266,13 @@ struct build_tree_fn {
           pos = -1;
           continue;
         }
-        auto x    = X_accessor[{i, tree.feature[pos]}];
+        auto x    = X_accessor[{i, tree.feature[pos], 0}];
         bool left = x <= tree.split_value[pos];
         pos       = left ? Tree::LeftChild(pos) : Tree::RightChild(pos);
       }
     }
 
-    if (context.get_task_index()[0] == 0) { WriteTreeOutput(context, tree); }
+    WriteTreeOutput(context, tree);
   }
 };
 
@@ -275,7 +281,7 @@ struct build_tree_fn {
 /*static*/ void BuildTreeTask::cpu_variant(legate::TaskContext context)
 {
   const auto& X = context.input(0).data();
-  type_dispatch_float(X.code(), build_tree_fn(), context);
+  legateboost::type_dispatch_float(X.code(), build_tree_fn(), context);
 }
 
 }  // namespace legateboost

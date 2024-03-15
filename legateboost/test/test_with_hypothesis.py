@@ -93,7 +93,7 @@ def regression_generated_dataset_strategy(draw):
     X = np.random.random((num_rows, num_features))
     y = np.random.random((X.shape[0], num_outputs))
 
-    dtype = draw(st.sampled_from([np.float16, np.float32, np.float64]))
+    dtype = draw(st.sampled_from([np.float32, np.float64]))
     return X.astype(dtype), y.astype(dtype)
 
 
@@ -173,7 +173,7 @@ def classification_generated_dataset_strategy(draw):
     # ensure we have at least one of each class
     y[:num_classes] = np.arange(num_classes)
 
-    X_dtype = draw(st.sampled_from([np.float16, np.float32, np.float64]))
+    X_dtype = draw(st.sampled_from([np.float32, np.float64]))
     y_dtype = draw(
         st.sampled_from(
             [np.int8, np.uint16, np.int32, np.int64, np.float32, np.float64]
@@ -212,7 +212,9 @@ def classification_dataset_strategy(draw):
     classification_param_strategy,
     classification_dataset_strategy(),
 )
-def test_classifier(model_params, classification_params, classification_dataset):
+def test_classifier(
+    model_params: dict, classification_params: dict, classification_dataset: tuple
+) -> None:
     X, y, w, name = classification_dataset
     eval_result = {}
     model_params["n_estimators"] = 3

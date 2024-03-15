@@ -6,7 +6,16 @@ enum LegateBoostOpCode {
   BUILD_TREE    = 1,
   PREDICT       = 2,
   UPDATE_TREE   = 3,
-  BUILD_NN      = 4,
+  /* special */
+  ERF     = 4,
+  LGAMMA  = 5,
+  TGAMMA  = 6,
+  DIGAMMA = 7,
+  ZETA    = 8,
+  /**/
+  GATHER   = 9,
+  RBF      = 10,
+  BUILD_NN = 11,
 };
 
 #endif  // __LEGATEBOOST_C_H__

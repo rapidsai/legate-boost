@@ -10,3 +10,5 @@ legate_prof*
 .hypothesis
 examples/notebook/*.py
 legion_prof
+benchmark
+benchmark/!*.py
