@@ -23,6 +23,9 @@ legate_add_cffi(${CMAKE_SOURCE_DIR}/src/legateboost.h TARGET legateboost)
 legate_python_library_template(legateboost)
 legate_default_python_install(legateboost EXPORT legateboost-export)
 
+
+include(cmake/thirdparty/get_cutensor.cmake)
+
 if (SANITIZE)
   message(STATUS "Adding sanitizer flags")
   add_compile_options(-fsanitize=address)

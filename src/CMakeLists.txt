@@ -26,10 +26,10 @@ set(legateboost_srcs
   models/tree/build_tree.cc
   models/tree/update_tree.cc
   models/tree/predict.cc
+  models/nn/build_nn.cc
   cpp_utils/cpp_utils.h
   cpp_utils/cpp_utils.cc
   utils/gather.cc
-  build_nn.cc
 )
 
 if(Legion_USE_CUDA)
@@ -37,9 +37,9 @@ if(Legion_USE_CUDA)
     models/tree/predict.cu
     models/tree/build_tree.cu
     models/krr/rbf.cu
+    models/nn/build_nn.cu
     special/special.cu
     utils/gather.cu
-    build_nn.cu
   )
 endif()
 
