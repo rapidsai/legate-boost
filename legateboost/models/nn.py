@@ -35,7 +35,6 @@ class NN(BaseModel):
 
     def backward(self, X, g, h, coeff_grads, bias_grads, deltas, activations):
         activations = self.forward(X, activations)
-        self.backprop_task(X, g, h)
         cost = self.cost(activations[-1], g, h)
         deltas[-1] = self.cost_prime(activations[-1], g, h)
         coeff_grads[-1] = activations[-2].T.dot(deltas[-1]) / X.shape[0]
@@ -45,17 +44,19 @@ class NN(BaseModel):
             self.tanh_prime(activations[i], deltas[i - 1])
             coeff_grads[i - 1] = activations[i - 1].T.dot(deltas[i - 1]) / X.shape[0]
             bias_grads[i - 1] = deltas[i - 1].mean(axis=0)
-        for g, c in zip(coeff_grads, self.coefficients_):
-            assert g.shape == c.shape, (g.shape, c.shape)
+        for grad, coeff in zip(coeff_grads, self.coefficients_):
+            assert grad.shape == coeff.shape, (grad.shape, coeff.shape)
+
         return cost, bias_grads, coeff_grads
 
     def _loss_grad_lbfgs(
         self, packed, X, g, h, coeff_grads, bias_grads, deltas, activations
     ):
         self._unpack(packed)
-        loss, bias_grads, coeff_grads = self.backward(
-            X, g, h, coeff_grads, bias_grads, deltas, activations
-        )
+        # loss, bias_grads, coeff_grads = self.backward(
+        #    X, g, h, coeff_grads, bias_grads, deltas, activations
+        # )
+        loss, bias_grads, coeff_grads = self.backprop_task(X, g, h)
         packed_grad = self._pack(bias_grads + coeff_grads)
         assert packed_grad.shape == packed.shape
         return loss, packed_grad
@@ -107,22 +108,42 @@ class NN(BaseModel):
             user_context, user_lib.cffi.BUILD_NN
         )
         X_ = get_store(X).promote(2, g.shape[1])
+
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
+        task.add_scalar_arg(X.shape[0], types.int64)
         task.add_input(X_)
         task.add_input(g_)
         task.add_input(h_)
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
-        for c, b in zip(self.coefficients_, self.biases_):
+        coeff_grads = [
+            get_legate_runtime().create_store(X_.type, c.shape)
+            for c in self.coefficients_
+        ]
+        bias_grads = [
+            get_legate_runtime().create_store(X_.type, b.shape) for b in self.biases_
+        ]
+        cost = get_legate_runtime().create_store(X_.type, (1,))
+        task.add_output(cost)
+        for c, b, c_g, b_g in zip(
+            self.coefficients_, self.biases_, coeff_grads, bias_grads
+        ):
             task.add_input(get_store(c))
             task.add_broadcast(get_store(c))
             task.add_input(get_store(b))
             task.add_broadcast(get_store(b))
-        f = get_legate_runtime().create_store(types.float64, (1,))
-        task.add_output(f)
+            task.add_output(c_g)
+            task.add_broadcast(c_g)
+            task.add_output(b_g)
+            task.add_broadcast(b_g)
+
         task.execute()
-        return cn.array(f, copy=False)[0]
+        return (
+            cn.array(cost, copy=False),
+            [cn.array(bg, copy=False) for bg in bias_grads],
+            [cn.array(cg, copy=False) for cg in coeff_grads],
+        )
 
     def fit(self, X, g, h):
         # init layers with glorot initialization
