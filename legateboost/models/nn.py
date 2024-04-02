@@ -1,5 +1,5 @@
 import cunumeric as cn
-from legate.core import get_legate_runtime, types
+from legate.core import TaskTarget, get_legate_runtime, types
 
 from ..library import user_context, user_lib
 from ..utils import get_store, lbfgs
@@ -53,10 +53,9 @@ class NN(BaseModel):
         self, packed, X, g, h, coeff_grads, bias_grads, deltas, activations
     ):
         self._unpack(packed)
-        # loss, bias_grads, coeff_grads = self.backward(
-        #    X, g, h, coeff_grads, bias_grads, deltas, activations
-        # )
-        loss, bias_grads, coeff_grads = self.backprop_task(X, g, h)
+        loss, bias_grads, coeff_grads = self.backward(
+            X, g, h, coeff_grads, bias_grads, deltas, activations
+        )
         packed_grad = self._pack(bias_grads + coeff_grads)
         assert packed_grad.shape == packed.shape
         return loss, packed_grad
@@ -103,7 +102,7 @@ class NN(BaseModel):
         if self.verbose:
             print(result)
 
-    def backprop_task(self, X, g, h):
+    def fit_lbfgs_task(self, X, g, h):
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.BUILD_NN
         )
@@ -112,38 +111,27 @@ class NN(BaseModel):
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
         task.add_scalar_arg(X.shape[0], types.int64)
+        # todo: expose gtol parameter
+        task.add_scalar_arg(1e-5, types.float64)
+        task.add_scalar_arg(self.verbose, types.int32)
         task.add_input(X_)
         task.add_input(g_)
         task.add_input(h_)
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
-        coeff_grads = [
-            get_legate_runtime().create_store(X_.type, c.shape)
-            for c in self.coefficients_
-        ]
-        bias_grads = [
-            get_legate_runtime().create_store(X_.type, b.shape) for b in self.biases_
-        ]
-        cost = get_legate_runtime().create_store(X_.type, (1,))
-        task.add_output(cost)
-        for c, b, c_g, b_g in zip(
-            self.coefficients_, self.biases_, coeff_grads, bias_grads
-        ):
+        for c, b in zip(self.coefficients_, self.biases_):
             task.add_input(get_store(c))
-            task.add_broadcast(get_store(c))
             task.add_input(get_store(b))
+            task.add_output(get_store(c))
+            task.add_output(get_store(b))
+            task.add_broadcast(get_store(c))
             task.add_broadcast(get_store(b))
-            task.add_output(c_g)
-            task.add_broadcast(c_g)
-            task.add_output(b_g)
-            task.add_broadcast(b_g)
 
+        if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
+            task.add_nccl_communicator()
+        elif get_legate_runtime().machine.count() > 1:
+            task.add_cpu_communicator()
         task.execute()
-        return (
-            cn.array(cost, copy=False),
-            [cn.array(bg, copy=False) for bg in bias_grads],
-            [cn.array(cg, copy=False) for cg in coeff_grads],
-        )
 
     def fit(self, X, g, h):
         # init layers with glorot initialization
@@ -159,13 +147,16 @@ class NN(BaseModel):
             factor = 6.0
             init_bound = cn.sqrt(factor / (n + m))
             self.coefficients_.append(
-                self.random_state.uniform(-init_bound, init_bound, size=(n, m))
+                cn.array(
+                    self.random_state.uniform(-init_bound, init_bound, size=(n, m))
+                )
             )
             self.biases_.append(
-                self.random_state.uniform(-init_bound, init_bound, size=(m,))
+                cn.array(self.random_state.uniform(-init_bound, init_bound, size=(m,)))
             )
 
         self._fitlbfgs(X, g, h)
+        # self.fit_lbfgs_task(X, g, h)
         return self
 
     def predict(self, X):

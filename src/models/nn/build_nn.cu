@@ -17,7 +17,7 @@ class NNContext {
  public:
   cublasHandle_t handle;
   cudaStream_t stream;
-  NNContext(cudaStream_t stream = 0) : stream(stream)
+  NNContext(cudaStream_t stream) : stream(stream)
   {
     CUBLAS_ERROR(cublasCreate(&handle));
     CUBLAS_ERROR(cublasSetStream(handle, stream));
@@ -34,6 +34,15 @@ struct Matrix {
   Matrix(T* data, std::array<int64_t, 2> extent) : data(data), extent(extent) {}
 
   std::size_t size() const { return extent[0] * extent[1]; }
+
+  void Print(std::size_t n) const
+  {
+    CHECK_CUDA(cudaDeviceSynchronize());
+    std::vector<T> host_data(size());
+    cudaMemcpy(host_data.data(), data, size() * sizeof(T), cudaMemcpyDeviceToHost);
+    for (int i = 0; i < std::min(n, this->size()); i++) { std::cout << host_data[i] << " "; }
+    std::cout << std::endl;
+  }
 
   static Matrix<T> From1dStore(legate::PhysicalStore store)
   {
@@ -89,6 +98,13 @@ struct Matrix {
     auto t   = Matrix<T>(buffer->ptr({0, 0}), extent);
     t.buffer = buffer;
     return t;
+  }
+
+  static Matrix<T> Copy(const Matrix<T>& X)
+  {
+    auto Y = Create(X.extent);
+    cudaMemcpy(Y.data, X.data, X.size() * sizeof(T), cudaMemcpyDeviceToDevice);
+    return Y;
   }
 };
 
@@ -151,9 +167,22 @@ void dot(NNContext* context, Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
   }
 }
 
+template <typename T>
+T vector_norm(NNContext* context, Matrix<T>& A)
+{
+  T result = 0.0;
+  if constexpr (std::is_same<T, double>::value) {
+    CUBLAS_ERROR(cublasDnrm2(context->handle, A.size(), A.data, 1, &result));
+  } else {
+    CUBLAS_ERROR(cublasSnrm2(context->handle, A.size(), A.data, 1, &result));
+  }
+  CHECK_CUDA(cudaStreamSynchronize(context->stream));
+  return result;
+}
+
 // bias vector is added to each row of matrix A
 template <typename T>
-void add_bias(NNContext* context, Matrix<T>& A, const Matrix<const T>& bias)
+void add_bias(NNContext* context, Matrix<T>& A, Matrix<T>& bias)
 {
   LaunchN(A.extent[0] * A.extent[1], context->stream, [=] __device__(int64_t idx) {
     int64_t j = idx % A.extent[1];
@@ -179,13 +208,12 @@ void tanh_prime(NNContext* context, Matrix<T>& H, Matrix<T>& delta)
 }
 
 template <typename T>
-void eval_cost(legate::TaskContext legate_context,
-               NNContext* context,
-               Matrix<T>& pred,
-               Matrix<T>& g,
-               Matrix<T>& h,
-               int64_t total_rows,
-               legate::PhysicalStore cost)
+T eval_cost(legate::TaskContext legate_context,
+            NNContext* context,
+            Matrix<T>& pred,
+            Matrix<T>& g,
+            Matrix<T>& h,
+            int64_t total_rows)
 {
   Matrix<T> cost_array = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
@@ -215,10 +243,10 @@ void eval_cost(legate::TaskContext legate_context,
                          context->stream);
   SumAllReduce(legate_context, result.ptr({0}), 1, context->stream);
 
-  if (cost.shape<1>().volume() > 0) {
-    auto ptr = cost.write_accessor<T, 1>().ptr(cost.shape<1>().lo);
-    cudaMemcpyAsync(ptr, result.ptr({0}), sizeof(T), cudaMemcpyDeviceToDevice, context->stream);
-  }
+  T cost;
+  cudaMemcpyAsync(&cost, result.ptr({0}), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
+  CHECK_CUDA(cudaStreamSynchronize(context->stream));
+  return cost;
 }
 
 template <typename T>
@@ -252,6 +280,137 @@ void bias_grad(NNContext* context, Matrix<T>& delta, Matrix<T>& bias_grad, int64
   });
 }
 
+template <typename T>
+void forward(NNContext* nn_context,
+             std::vector<Matrix<T>>& coefficients,
+             std::vector<Matrix<T>>& bias,
+             std::vector<Matrix<T>>& activations)
+{
+  for (int i = 0; i < coefficients.size(); i++) {
+    dot(nn_context, activations.at(i), coefficients.at(i), activations.at(i + 1));
+    add_bias(nn_context, activations.at(i + 1), bias.at(i));
+    if (i < coefficients.size() - 1) tanh(nn_context, activations.at(i + 1));
+  }
+}
+
+template <typename T>
+T backward(legate::TaskContext context,
+           NNContext* nn_context,
+           std::vector<Matrix<T>>& coefficients,
+           std::vector<Matrix<T>>& bias,
+           std::vector<Matrix<T>>& coefficient_grads,
+           std::vector<Matrix<T>>& bias_grads,
+           Matrix<T>& all_grads,
+           std::vector<Matrix<T>>& activations,
+           std::vector<Matrix<T>>& deltas,
+           Matrix<T>& g,
+           Matrix<T>& h,
+           std::size_t total_rows)
+{
+  forward(nn_context, coefficients, bias, activations);
+
+  T cost        = eval_cost(context, nn_context, activations.back(), g, h, total_rows);
+  deltas.back() = eval_cost_prime(context, nn_context, activations.back(), g, h);
+  dot<true, false>(
+    nn_context, activations.at(activations.size() - 2), deltas.back(), coefficient_grads.back());
+  bias_grad(nn_context, deltas.back(), bias_grads.back(), total_rows);
+
+  for (int i = coefficients.size() - 1; i > 0; i--) {
+    dot<false, true>(nn_context, deltas.at(i), coefficients.at(i), deltas.at(i - 1));
+    tanh_prime(nn_context, activations.at(i), deltas.at(i - 1));
+    dot<true, false>(
+      nn_context, activations.at(i - 1), deltas.at(i - 1), coefficient_grads.at(i - 1));
+    bias_grad(nn_context, deltas.at(i - 1), bias_grads.at(i - 1), total_rows);
+  }
+
+  // Scale and allreduce gradients
+  SumAllReduce(context, all_grads.data, all_grads.size(), nn_context->stream);
+  LaunchN(all_grads.size(), nn_context->stream, [=] __device__(int64_t idx) {
+    all_grads.data[idx] /= total_rows;
+  });
+  return cost;
+}
+
+template <typename T>
+void update_coefficients(NNContext* nn_context,
+                         std::vector<Matrix<T>>& coefficients,
+                         std::vector<Matrix<T>>& coefficient_grads,
+                         std::vector<Matrix<T>>& coefficient_proposals,
+                         std::vector<Matrix<T>>& bias,
+                         std::vector<Matrix<T>>& bias_grads,
+                         std::vector<Matrix<T>>& bias_proposals,
+                         T alpha)
+{
+  for (int i = 0; i < coefficients.size(); i++) {
+    auto coeff          = coefficients.at(i).data;
+    auto grad           = coefficient_grads.at(i).data;
+    auto coeff_proposal = coefficient_proposals.at(i).data;
+    LaunchN(coefficients.at(i).size(), nn_context->stream, [=] __device__(int64_t idx) {
+      coeff_proposal[idx] = coeff[idx] - alpha * grad[idx];
+    });
+
+    auto bias_data          = bias.at(i).data;
+    auto bias_grad_data     = bias_grads.at(i).data;
+    auto bias_proposal_data = bias_proposals.at(i).data;
+    LaunchN(bias.at(i).size(), nn_context->stream, [=] __device__(int64_t idx) {
+      bias_proposal_data[idx] = bias_data[idx] - alpha * bias_grad_data[idx];
+    });
+  }
+}
+
+template <typename T>
+T line_search(legate::TaskContext context,
+              NNContext* nn_context,
+              std::vector<Matrix<T>>& coefficients,
+              std::vector<Matrix<T>>& bias,
+              std::vector<Matrix<T>>& coefficient_proposals,
+              std::vector<Matrix<T>>& bias_proposals,
+              std::vector<Matrix<T>>& coefficient_grads,
+              std::vector<Matrix<T>>& bias_grads,
+              Matrix<T>& all_grads,
+              std::vector<Matrix<T>>& activations,
+              std::vector<Matrix<T>>& deltas,
+              Matrix<T>& g,
+              Matrix<T>& h,
+              std::size_t total_rows,
+              T cost)
+{
+  T alpha = 1.0;
+  T rho   = 0.5;
+  T c     = 1e-4;
+  // Direction here is negative gradient
+  T norm = vector_norm(nn_context, all_grads);
+  T t    = -c * norm * norm;
+
+  update_coefficients(nn_context,
+                      coefficients,
+                      coefficient_grads,
+                      coefficient_proposals,
+                      bias,
+                      bias_grads,
+                      bias_proposals,
+                      alpha);
+  forward(nn_context, coefficient_proposals, bias_proposals, activations);
+  T new_cost = eval_cost(context, nn_context, activations.back(), g, h, total_rows);
+
+  while (cost - new_cost < alpha * t && alpha * rho > 1e-15) {
+    alpha *= rho;
+    update_coefficients(nn_context,
+                        coefficients,
+                        coefficient_grads,
+                        coefficient_proposals,
+                        bias,
+                        bias_grads,
+                        bias_proposals,
+                        alpha);
+    forward(nn_context, coefficient_proposals, bias_proposals, activations);
+    new_cost = eval_cost(context, nn_context, activations.back(), g, h, total_rows);
+  }
+  update_coefficients(
+    nn_context, coefficients, coefficient_grads, coefficients, bias, bias_grads, bias, alpha);
+  return new_cost;
+}
+
 struct build_nn_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
@@ -272,25 +431,39 @@ struct build_nn_fn {
     auto g_accessor  = g.read_accessor<double, 3>();
     auto h_accessor  = h.read_accessor<double, 3>();
     auto total_rows  = context.scalar(0).value<int64_t>();
+    double gtol      = context.scalar(1).value<double>();
+    int32_t verbose  = context.scalar(2).value<int32_t>();
 
     auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
     NNContext nn_context(stream);
-    std::vector<Matrix<const T>> coefficients;
-    std::vector<Matrix<const T>> bias;
-    std::vector<Matrix<T>> coefficient_grads;
-    std::vector<Matrix<T>> bias_grads;
+    std::vector<Matrix<T>> coefficients;
+    std::vector<Matrix<T>> bias;
 
-    EXPECT(context.num_inputs() >= 3, "No coefficients or bias provided");
-    EXPECT(context.num_inputs() % 2 == 1, "Number of inputs must be odd");
-    for (int i = 3; i < context.num_inputs(); i += 2) {
-      coefficients.push_back(Matrix<const T>::From2dStore(context.input(i).data()));
-      bias.push_back(Matrix<const T>::From1dStore(context.input(i + 1).data()));
+    std::size_t buffer_size = 0;
+    for (int i = 0; i < context.num_outputs(); i += 2) {
+      coefficients.push_back(Matrix<T>::From2dOutputStore(context.output(i).data()));
+      buffer_size += coefficients.back().size();
+      bias.push_back(Matrix<T>::From1dOutputStore(context.output(i + 1).data()));
+      buffer_size += bias.back().size();
     }
 
-    auto cost = context.output(0);
-    for (int i = 1; i < context.num_outputs(); i += 2) {
-      coefficient_grads.push_back(Matrix<T>::From2dOutputStore(context.output(i).data()));
-      bias_grads.push_back(Matrix<T>::From1dOutputStore(context.output(i + 1).data()));
+    auto grad_storage           = Matrix<T>::Create({int64_t(buffer_size), 1});
+    auto coeff_proposal_storage = Matrix<T>::Create({int64_t(buffer_size), 1});
+    std::vector<Matrix<T>> coefficient_grads;
+    std::vector<Matrix<T>> bias_grads;
+    std::vector<Matrix<T>> coefficient_proposals;
+    std::vector<Matrix<T>> bias_proposals;
+    std::size_t offset = 0;
+    for (int i = 0; i < context.num_outputs(); i += 2) {
+      coefficient_grads.push_back(
+        Matrix<T>(grad_storage.data + offset, coefficients.at(i / 2).extent));
+      coefficient_proposals.push_back(
+        Matrix<T>(coeff_proposal_storage.data + offset, coefficients.at(i / 2).extent));
+      offset += coefficients.at(i / 2).size();
+      bias_grads.push_back(Matrix<T>(grad_storage.data + offset, bias.at(i / 2).extent));
+      bias_proposals.push_back(
+        Matrix<T>(coeff_proposal_storage.data + offset, bias.at(i / 2).extent));
+      offset += bias.at(i / 2).size();
     }
 
     auto X_Matrix = Matrix<T>::Project3dStore(X, 2);
@@ -304,34 +477,53 @@ struct build_nn_fn {
       deltas.push_back(Matrix<T>::Create({num_rows, c.extent[1]}));
     }
 
-    // Forward
-    for (int i = 0; i < coefficients.size(); i++) {
-      dot(&nn_context, activations.at(i), coefficients.at(i), activations.at(i + 1));
-      add_bias(&nn_context, activations.at(i + 1), bias.at(i));
-      if (i < coefficients.size() - 1) tanh(&nn_context, activations.at(i + 1));
-    }
-
-    eval_cost(context, &nn_context, activations.back(), g_Matrix, h_Matrix, total_rows, cost);
-    deltas.back() = eval_cost_prime(context, &nn_context, activations.back(), g_Matrix, h_Matrix);
-    dot<true, false>(
-      &nn_context, activations.at(activations.size() - 2), deltas.back(), coefficient_grads.back());
-    bias_grad(&nn_context, deltas.back(), bias_grads.back(), total_rows);
-
-    for (int i = coefficients.size() - 1; i > 0; i--) {
-      dot<false, true>(&nn_context, deltas.at(i), coefficients.at(i), deltas.at(i - 1));
-      tanh_prime(&nn_context, activations.at(i), deltas.at(i - 1));
-      dot<true, false>(
-        &nn_context, activations.at(i - 1), deltas.at(i - 1), coefficient_grads.at(i - 1));
-      bias_grad(&nn_context, deltas.at(i - 1), bias_grads.at(i - 1), total_rows);
-    }
-    // Scale and allreduce gradients
-    for (int i = 0; i < coefficients.size(); i++) {
-      SumAllReduce(context, coefficient_grads.at(i).data, coefficient_grads.at(i).size(), stream);
-      SumAllReduce(context, bias_grads.at(i).data, bias_grads.at(i).size(), stream);
-      auto data = coefficient_grads.at(i).data;
-      LaunchN(coefficient_grads.at(i).size(), stream, [=] __device__(int64_t idx) {
-        data[idx] /= total_rows;
-      });
+    int max_iters = 100;
+    T cost        = backward(context,
+                      &nn_context,
+                      coefficients,
+                      bias,
+                      coefficient_grads,
+                      bias_grads,
+                      grad_storage,
+                      activations,
+                      deltas,
+                      g_Matrix,
+                      h_Matrix,
+                      total_rows);
+    T grad_norm   = vector_norm(&nn_context, grad_storage);
+    for (int i = 0; i < max_iters; i++) {
+      cost = line_search(context,
+                         &nn_context,
+                         coefficients,
+                         bias,
+                         coefficient_proposals,
+                         bias_proposals,
+                         coefficient_grads,
+                         bias_grads,
+                         grad_storage,
+                         activations,
+                         deltas,
+                         g_Matrix,
+                         h_Matrix,
+                         total_rows,
+                         cost);
+      backward(context,
+               &nn_context,
+               coefficients,
+               bias,
+               coefficient_grads,
+               bias_grads,
+               grad_storage,
+               activations,
+               deltas,
+               g_Matrix,
+               h_Matrix,
+               total_rows);
+      T grad_norm = vector_norm(&nn_context, grad_storage);
+      if (verbose && i % verbose == 0)
+        std::cout << "L-BFGS Iteration: " << i << " Cost: " << cost << " Grad Norm: " << grad_norm
+                  << std::endl;
+      if (grad_norm < gtol) break;
     }
   }
 };
