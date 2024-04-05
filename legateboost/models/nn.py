@@ -56,7 +56,7 @@ class NN(BaseModel):
         loss, bias_grads, coeff_grads = self.backward(
             X, g, h, coeff_grads, bias_grads, deltas, activations
         )
-        packed_grad = self._pack(bias_grads + coeff_grads)
+        packed_grad = self._pack(coeff_grads + bias_grads)
         assert packed_grad.shape == packed.shape
         return loss, packed_grad
 
@@ -66,18 +66,18 @@ class NN(BaseModel):
     def _unpack(self, packed_coef):
         offset = 0
         for i in range(len(self.hidden_layer_sizes) + 1):
-            self.biases_[i] = packed_coef[
-                offset : offset + self.biases_[i].size
-            ].reshape(self.biases_[i].shape)
-            offset += self.biases_[i].size
-        for i in range(len(self.hidden_layer_sizes) + 1):
             self.coefficients_[i] = packed_coef[
                 offset : offset + self.coefficients_[i].size
             ].reshape(self.coefficients_[i].shape)
             offset += self.coefficients_[i].size
+        for i in range(len(self.hidden_layer_sizes) + 1):
+            self.biases_[i] = packed_coef[
+                offset : offset + self.biases_[i].size
+            ].reshape(self.biases_[i].shape)
+            offset += self.biases_[i].size
 
     def _fitlbfgs(self, X, g, h):
-        packed = self._pack(self.biases_ + self.coefficients_)
+        packed = self._pack(self.coefficients_ + self.biases_)
         coeff_grads = [None] * (len(self.hidden_layer_sizes) + 1)
         bias_grads = [None] * (len(self.hidden_layer_sizes) + 1)
         deltas = [None] * (len(self.hidden_layer_sizes) + 1)
@@ -114,6 +114,7 @@ class NN(BaseModel):
         # todo: expose gtol parameter
         task.add_scalar_arg(1e-5, types.float64)
         task.add_scalar_arg(self.verbose, types.int32)
+        task.add_scalar_arg(self.m, types.int32)
         task.add_input(X_)
         task.add_input(g_)
         task.add_input(h_)
@@ -155,8 +156,8 @@ class NN(BaseModel):
                 cn.array(self.random_state.uniform(-init_bound, init_bound, size=(m,)))
             )
 
-        self._fitlbfgs(X, g, h)
-        # self.fit_lbfgs_task(X, g, h)
+        # self._fitlbfgs(X, g, h)
+        self.fit_lbfgs_task(X, g, h)
         return self
 
     def predict(self, X):
