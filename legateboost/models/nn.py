@@ -115,6 +115,7 @@ class NN(BaseModel):
         task.add_scalar_arg(1e-5, types.float64)
         task.add_scalar_arg(self.verbose, types.int32)
         task.add_scalar_arg(self.m, types.int32)
+        task.add_scalar_arg(self.max_iter, types.int32)
         task.add_input(X_)
         task.add_input(g_)
         task.add_input(h_)

@@ -42,11 +42,9 @@ struct Matrix {
   {
     auto result = Matrix<T>::Create(extent);
     auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
-    CHECK_CUDA(cudaStreamSynchronize(stream));
-    auto out = result.data;
-    auto in  = data;
+    auto out    = result.data;
+    auto in     = data;
     LaunchN(size(), stream, [=] __device__(int64_t idx) { out[idx] = in[idx] * scalar; });
-    CHECK_CUDA(cudaStreamSynchronize(stream));
 
     return result;
   }
@@ -54,14 +52,12 @@ struct Matrix {
   Matrix<T> operator-(const Matrix<T>& other) const
   {
     EXPECT(extent == other.extent, "Matrix dimensions must match");
-    auto result = Matrix<T>::Create(extent);
-    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
-    CHECK_CUDA(cudaStreamSynchronize(stream));
+    auto result     = Matrix<T>::Create(extent);
+    auto stream     = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto in         = data;
     auto out        = result.data;
     auto other_data = other.data;
     LaunchN(size(), stream, [=] __device__(int64_t idx) { out[idx] = in[idx] - other_data[idx]; });
-    CHECK_CUDA(cudaStreamSynchronize(stream));
     return result;
   }
 
@@ -119,13 +115,6 @@ struct Matrix {
     auto t   = Matrix<T>(buffer->ptr({0, 0}), extent);
     t.buffer = buffer;
     return t;
-  }
-
-  static Matrix<T> Copy(const Matrix<T>& X)
-  {
-    auto Y = Create(X.extent);
-    cudaMemcpy(Y.data, X.data, X.size() * sizeof(T), cudaMemcpyDeviceToDevice);
-    return Y;
   }
 };
 
@@ -298,7 +287,7 @@ T eval_cost(legate::TaskContext legate_context,
     T p                  = pred.data[idx];
     T g_val              = g.data[idx];
     T h_val              = h.data[idx];
-    cost_array.data[idx] = (p * (g_val + 0.5 * h_val * p) / total_rows);
+    cost_array.data[idx] = (p * (g_val + 0.5 * h_val * p) / (total_rows * pred.extent[1]));
   });
 
   auto result               = legate::create_buffer<T>({1});
@@ -347,43 +336,39 @@ Matrix<T> eval_cost_prime(legate::TaskContext legate_context,
 template <typename T>
 void bias_grad(NNContext* context, Matrix<T>& delta, Matrix<T>& bias_grad)
 {
-  cudaMemset(bias_grad.data, 0, bias_grad.extent[0] * sizeof(T));
-  // TODO: make this some kind of reduction
-  LaunchN(delta.extent[0] * delta.extent[1], context->stream, [=] __device__(int64_t idx) {
-    int64_t j = idx % delta.extent[1];
-    atomicAdd(&bias_grad.data[j], delta.data[idx]);
-  });
+  auto ones = Matrix<T>::Create({1, delta.extent[0]});
+  LaunchN(ones.size(), context->stream, [=] __device__(int64_t idx) { ones.data[idx] = 1.0; });
+  dot<false, false>(context, ones, delta, bias_grad);
 }
 
 template <typename T>
 void forward(NNContext* nn_context,
              std::vector<Matrix<T>>& coefficients,
-             std::vector<Matrix<T>>& bias,
+             std::vector<Matrix<T>>& biases,
              std::vector<Matrix<T>>& activations)
 {
   for (int i = 0; i < coefficients.size(); i++) {
     dot(nn_context, activations.at(i), coefficients.at(i), activations.at(i + 1));
-    add_bias(nn_context, activations.at(i + 1), bias.at(i));
+    add_bias(nn_context, activations.at(i + 1), biases.at(i));
     if (i < coefficients.size() - 1) tanh(nn_context, activations.at(i + 1));
   }
 }
 
 template <typename T>
-std::tuple<T, Matrix<T>> backward(legate::TaskContext context,
-                                  NNContext* nn_context,
-                                  std::vector<Matrix<T>>& coefficients,
-                                  std::vector<Matrix<T>>& bias,
-                                  std::vector<Matrix<T>>& activations,
-                                  std::vector<Matrix<T>>& deltas,
-                                  Matrix<T>& g,
-                                  Matrix<T>& h,
-                                  std::size_t total_rows)
+Matrix<T> backward(legate::TaskContext context,
+                   NNContext* nn_context,
+                   std::vector<Matrix<T>>& coefficients,
+                   std::vector<Matrix<T>>& bias,
+                   std::vector<Matrix<T>>& activations,
+                   std::vector<Matrix<T>>& deltas,
+                   Matrix<T>& g,
+                   Matrix<T>& h,
+                   std::size_t total_rows)
 {
   auto grads                           = Matrix<T>::Create({nn_context->num_parameters, 1});
   auto [coefficient_grads, bias_grads] = nn_context->Unpack(grads);
   forward(nn_context, coefficients, bias, activations);
 
-  T cost        = eval_cost(context, nn_context, activations.back(), g, h, total_rows);
   deltas.back() = eval_cost_prime(context, nn_context, activations.back(), g, h);
   dot<true, false>(
     nn_context, activations.at(activations.size() - 2), deltas.back(), coefficient_grads.back());
@@ -402,7 +387,7 @@ std::tuple<T, Matrix<T>> backward(legate::TaskContext context,
   LaunchN(grads.size(), nn_context->stream, [=] __device__(int64_t idx) {
     grads.data[idx] /= total_rows;
   });
-  return std::make_tuple(cost, grads);
+  return grads;
 }
 
 template <typename T>
@@ -434,18 +419,18 @@ void update_coefficients(NNContext* nn_context,
 }
 
 template <typename T>
-T line_search(legate::TaskContext context,
-              NNContext* nn_context,
-              std::vector<Matrix<T>>& coefficients,
-              std::vector<Matrix<T>>& bias,
-              Matrix<T>& direction,
-              Matrix<T>& grad,
-              std::vector<Matrix<T>>& activations,
-              std::vector<Matrix<T>>& deltas,
-              Matrix<T>& g,
-              Matrix<T>& h,
-              std::size_t total_rows,
-              T cost)
+std::tuple<T, T> line_search(legate::TaskContext context,
+                             NNContext* nn_context,
+                             std::vector<Matrix<T>>& coefficients,
+                             std::vector<Matrix<T>>& bias,
+                             Matrix<T>& direction,
+                             Matrix<T>& grad,
+                             std::vector<Matrix<T>>& activations,
+                             std::vector<Matrix<T>>& deltas,
+                             Matrix<T>& g,
+                             Matrix<T>& h,
+                             std::size_t total_rows,
+                             T cost)
 {
   T alpha = 1.0;
   T rho   = 0.5;
@@ -466,7 +451,7 @@ T line_search(legate::TaskContext context,
     forward(nn_context, coefficient_proposals, bias_proposals, activations);
     new_cost = eval_cost(context, nn_context, activations.back(), g, h, total_rows);
   }
-  return alpha;
+  return std::make_tuple(alpha, new_cost);
 }
 
 template <typename T>
@@ -488,9 +473,13 @@ class LBfgs {
   }
   Matrix<T> GetDirection(NNContext* context, Matrix<T>& grad)
   {
+    /*
+    Chen, Weizhu, Zhenghao Wang, and Jingren Zhou. "Large-scale L-BFGS using MapReduce." Advances in
+    neural information processing systems 27 (2014).
+    */
     if (s.size() == 0) { return grad * -1.0; }
     // Form a matrix
-    auto b             = Matrix<T>::Create({s.size() + y.size() + 1, grad.size()});
+    auto b             = Matrix<T>::Create({int64_t(s.size() + y.size() + 1), grad.size()});
     std::size_t offset = 0;
     for (int i = 0; i < s.size(); i++) {
       auto s_i = s.at(i);
@@ -582,6 +571,7 @@ struct build_nn_fn {
     double gtol      = context.scalar(1).value<double>();
     int32_t verbose  = context.scalar(2).value<int32_t>();
     int32_t m        = context.scalar(3).value<int32_t>();
+    int32_t max_iter = context.scalar(4).value<int32_t>();
 
     auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
     std::vector<Matrix<T>> coefficients;
@@ -606,48 +596,49 @@ struct build_nn_fn {
     }
 
     LBfgs<T> lbfgs(m);
-    int max_iters     = 100;
-    auto [cost, grad] = backward(context,
-                                 &nn_context,
-                                 coefficients,
-                                 bias,
-                                 activations,
-                                 deltas,
-                                 g_Matrix,
-                                 h_Matrix,
-                                 total_rows);
-    T grad_norm       = vector_norm(&nn_context, grad);
-    for (int i = 0; i < max_iters; i++) {
-      auto direction = lbfgs.GetDirection(&nn_context, grad);
-      T alpha        = line_search(context,
-                            &nn_context,
-                            coefficients,
-                            bias,
-                            direction,
-                            grad,
-                            activations,
-                            deltas,
-                            g_Matrix,
-                            h_Matrix,
-                            total_rows,
-                            cost);
+    auto grad = backward(context,
+                         &nn_context,
+                         coefficients,
+                         bias,
+                         activations,
+                         deltas,
+                         g_Matrix,
+                         h_Matrix,
+                         total_rows);
 
-      update_coefficients(&nn_context, coefficients, coefficients, bias, bias, direction, alpha);
+    T cost = eval_cost(context, &nn_context, activations.back(), g_Matrix, h_Matrix, total_rows);
 
-      auto [new_cost, new_grad] = backward(context,
+    for (int i = 0; i < max_iter; i++) {
+      auto direction         = lbfgs.GetDirection(&nn_context, grad);
+      auto [alpha, new_cost] = line_search(context,
                                            &nn_context,
                                            coefficients,
                                            bias,
+                                           direction,
+                                           grad,
                                            activations,
                                            deltas,
                                            g_Matrix,
                                            h_Matrix,
-                                           total_rows);
+                                           total_rows,
+                                           cost);
+
+      update_coefficients(&nn_context, coefficients, coefficients, bias, bias, direction, alpha);
+
+      auto new_grad = backward(context,
+                               &nn_context,
+                               coefficients,
+                               bias,
+                               activations,
+                               deltas,
+                               g_Matrix,
+                               h_Matrix,
+                               total_rows);
 
       lbfgs.Add(direction * alpha, new_grad - grad);
-      grad      = new_grad;
-      cost      = new_cost;
-      grad_norm = vector_norm(&nn_context, grad);
+      grad        = new_grad;
+      cost        = new_cost;
+      T grad_norm = vector_norm(&nn_context, grad);
       if (verbose && i % verbose == 0)
         std::cout << "L-BFGS Iteration: " << i << " Cost: " << cost << " Grad Norm: " << grad_norm
                   << std::endl;
