@@ -7,11 +7,21 @@ from .base_model import BaseModel
 
 
 class NN(BaseModel):
-    def __init__(self, max_iter=100, hidden_layer_sizes=(100,), verbose=False, m=10):
+    def __init__(
+        self,
+        max_iter=100,
+        hidden_layer_sizes=(100,),
+        alpha=0.0001,
+        verbose=False,
+        m=10,
+        gtol=1e-5,
+    ):
         self.max_iter = max_iter
         self.hidden_layer_sizes = hidden_layer_sizes
         self.verbose = verbose
         self.m = m
+        self.alpha = alpha
+        self.gtol = gtol
 
     def tanh(self, x):
         return cn.tanh(x, out=x)
@@ -111,11 +121,11 @@ class NN(BaseModel):
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
         task.add_scalar_arg(X.shape[0], types.int64)
-        # todo: expose gtol parameter
-        task.add_scalar_arg(1e-5, types.float64)
+        task.add_scalar_arg(self.gtol, types.float64)
         task.add_scalar_arg(self.verbose, types.int32)
         task.add_scalar_arg(self.m, types.int32)
         task.add_scalar_arg(self.max_iter, types.int32)
+        task.add_scalar_arg(self.alpha, types.float64)
         task.add_input(X_)
         task.add_input(g_)
         task.add_input(h_)

@@ -153,6 +153,8 @@ class NNContext {
     for (int i = 0; i < coefficient_extents.size(); i++) {
       coefficients.push_back(Matrix<T>(x.data + offset, coefficient_extents.at(i)));
       offset += coefficients.back().size();
+    }
+    for (int i = 0; i < bias_extents.size(); i++) {
       biases.push_back(Matrix<T>(x.data + offset, bias_extents.at(i)));
       offset += biases.back().size();
     }
@@ -272,12 +274,22 @@ void tanh_prime(NNContext* context, Matrix<T>& H, Matrix<T>& delta)
 }
 
 template <typename T>
+void apply_alpha(NNContext* context, Matrix<T>& grad, Matrix<T>& coeff, double alpha)
+{
+  LaunchN(grad.size(), context->stream, [=] __device__(int64_t idx) {
+    grad.data[idx] += alpha * coeff.data[idx];
+  });
+}
+
+template <typename T>
 T eval_cost(legate::TaskContext legate_context,
             NNContext* context,
             Matrix<T>& pred,
             Matrix<T>& g,
             Matrix<T>& h,
-            int64_t total_rows)
+            std::vector<Matrix<T>>& coefficients,
+            int64_t total_rows,
+            double alpha)
 {
   Matrix<T> cost_array = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
@@ -310,6 +322,13 @@ T eval_cost(legate::TaskContext legate_context,
   T cost;
   cudaMemcpyAsync(&cost, result.ptr({0}), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
   CHECK_CUDA(cudaStreamSynchronize(context->stream));
+
+  if (alpha > 0.0) {
+    T L2 = 0.0;
+    for (auto& c : coefficients) { L2 += vector_dot(context, c, c); }
+    L2 = (0.5 * alpha) * L2 / total_rows;
+    cost += L2;
+  }
   return cost;
 }
 
@@ -363,7 +382,8 @@ Matrix<T> backward(legate::TaskContext context,
                    std::vector<Matrix<T>>& deltas,
                    Matrix<T>& g,
                    Matrix<T>& h,
-                   std::size_t total_rows)
+                   std::size_t total_rows,
+                   double alpha)
 {
   auto grads                           = Matrix<T>::Create({nn_context->num_parameters, 1});
   auto [coefficient_grads, bias_grads] = nn_context->Unpack(grads);
@@ -379,7 +399,14 @@ Matrix<T> backward(legate::TaskContext context,
     tanh_prime(nn_context, activations.at(i), deltas.at(i - 1));
     dot<true, false>(
       nn_context, activations.at(i - 1), deltas.at(i - 1), coefficient_grads.at(i - 1));
+
     bias_grad(nn_context, deltas.at(i - 1), bias_grads.at(i - 1));
+  }
+
+  if (alpha > 0.0) {
+    for (int i = 0; i < coefficients.size(); i++) {
+      apply_alpha(nn_context, coefficient_grads.at(i), coefficients.at(i), alpha);
+    }
   }
 
   // Scale and allreduce gradients
@@ -397,7 +424,7 @@ void update_coefficients(NNContext* nn_context,
                          std::vector<Matrix<T>>& bias,
                          std::vector<Matrix<T>>& bias_out,
                          Matrix<T>& direction,
-                         T alpha)
+                         T lr)
 {
   auto [coefficient_direction, bias_direction] = nn_context->Unpack(direction);
 
@@ -406,14 +433,14 @@ void update_coefficients(NNContext* nn_context,
     auto coeff_direction = coefficient_direction.at(i).data;
     auto coeff_out       = coefficients_out.at(i).data;
     LaunchN(coefficients.at(i).size(), nn_context->stream, [=] __device__(int64_t idx) {
-      coeff_out[idx] = coeff[idx] + alpha * coeff_direction[idx];
+      coeff_out[idx] = coeff[idx] + lr * coeff_direction[idx];
     });
 
     auto bias_data           = bias.at(i).data;
     auto bias_direction_data = bias_direction.at(i).data;
     auto bias_out_data       = bias_out.at(i).data;
     LaunchN(bias.at(i).size(), nn_context->stream, [=] __device__(int64_t idx) {
-      bias_out_data[idx] = bias_data[idx] + alpha * bias_direction_data[idx];
+      bias_out_data[idx] = bias_data[idx] + lr * bias_direction_data[idx];
     });
   }
 }
@@ -430,28 +457,31 @@ std::tuple<T, T> line_search(legate::TaskContext context,
                              Matrix<T>& g,
                              Matrix<T>& h,
                              std::size_t total_rows,
-                             T cost)
+                             T cost,
+                             double alpha)
 {
-  T alpha = 1.0;
-  T rho   = 0.5;
-  T c     = 1e-4;
-  T t     = -c * vector_dot(nn_context, grad, direction);
-  EXPECT(t > 0, "Search direction is not a descent direction");
+  T lr  = 1.0;
+  T rho = 0.5;
+  T c   = 1e-4;
+  T t   = -c * vector_dot(nn_context, grad, direction);
+  EXPECT(t >= 0, "Search direction is not a descent direction");
   auto coeff_proposal_storage                  = Matrix<T>::Create({nn_context->num_parameters, 1});
   auto [coefficient_proposals, bias_proposals] = nn_context->Unpack(coeff_proposal_storage);
   update_coefficients(
-    nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, alpha);
+    nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, lr);
   forward(nn_context, coefficient_proposals, bias_proposals, activations);
-  T new_cost = eval_cost(context, nn_context, activations.back(), g, h, total_rows);
+  T new_cost = eval_cost(
+    context, nn_context, activations.back(), g, h, coefficient_proposals, total_rows, alpha);
 
-  while (cost - new_cost < alpha * t && alpha * rho > 1e-15) {
-    alpha *= rho;
+  while (cost - new_cost < lr * t && lr * rho > 1e-15) {
+    lr *= rho;
     update_coefficients(
-      nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, alpha);
+      nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, lr);
     forward(nn_context, coefficient_proposals, bias_proposals, activations);
-    new_cost = eval_cost(context, nn_context, activations.back(), g, h, total_rows);
+    new_cost = eval_cost(
+      context, nn_context, activations.back(), g, h, coefficient_proposals, total_rows, alpha);
   }
-  return std::make_tuple(alpha, new_cost);
+  return std::make_tuple(lr, new_cost);
 }
 
 template <typename T>
@@ -459,9 +489,10 @@ class LBfgs {
   int m;
   std::deque<Matrix<T>> s;
   std::deque<Matrix<T>> y;
+  bool verbose = false;
 
  public:
-  LBfgs(int m) : m(m) {}
+  LBfgs(int m, bool verbose) : m(m), verbose(verbose) {}
   void Add(Matrix<T>&& x_diff, Matrix<T>&& grad_diff)
   {
     if (s.size() >= m) {
@@ -544,6 +575,16 @@ class LBfgs {
 
     auto direction = Matrix<T>::Create(grad.extent);
     dot<true, false>(context, delta, b, direction);
+
+    T t = vector_dot(context, grad, direction);
+    if (t > 0) {
+      if (verbose)
+        std::cout << "Search direction is not a descent direction. Resetting LBFGS search."
+                  << std::endl;
+      s.clear();
+      y.clear();
+      return grad * -1.0;
+    }
     return direction;
   }
 };
@@ -572,6 +613,7 @@ struct build_nn_fn {
     int32_t verbose  = context.scalar(2).value<int32_t>();
     int32_t m        = context.scalar(3).value<int32_t>();
     int32_t max_iter = context.scalar(4).value<int32_t>();
+    double alpha     = context.scalar(5).value<double>();
 
     auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
     std::vector<Matrix<T>> coefficients;
@@ -595,7 +637,7 @@ struct build_nn_fn {
       deltas.push_back(Matrix<T>::Create({num_rows, c.extent[1]}));
     }
 
-    LBfgs<T> lbfgs(m);
+    LBfgs<T> lbfgs(m, verbose);
     auto grad = backward(context,
                          &nn_context,
                          coefficients,
@@ -604,26 +646,35 @@ struct build_nn_fn {
                          deltas,
                          g_Matrix,
                          h_Matrix,
-                         total_rows);
+                         total_rows,
+                         alpha);
 
-    T cost = eval_cost(context, &nn_context, activations.back(), g_Matrix, h_Matrix, total_rows);
+    T cost = eval_cost(context,
+                       &nn_context,
+                       activations.back(),
+                       g_Matrix,
+                       h_Matrix,
+                       coefficients,
+                       total_rows,
+                       alpha);
 
     for (int i = 0; i < max_iter; i++) {
-      auto direction         = lbfgs.GetDirection(&nn_context, grad);
-      auto [alpha, new_cost] = line_search(context,
-                                           &nn_context,
-                                           coefficients,
-                                           bias,
-                                           direction,
-                                           grad,
-                                           activations,
-                                           deltas,
-                                           g_Matrix,
-                                           h_Matrix,
-                                           total_rows,
-                                           cost);
+      auto direction      = lbfgs.GetDirection(&nn_context, grad);
+      auto [lr, new_cost] = line_search(context,
+                                        &nn_context,
+                                        coefficients,
+                                        bias,
+                                        direction,
+                                        grad,
+                                        activations,
+                                        deltas,
+                                        g_Matrix,
+                                        h_Matrix,
+                                        total_rows,
+                                        cost,
+                                        alpha);
 
-      update_coefficients(&nn_context, coefficients, coefficients, bias, bias, direction, alpha);
+      update_coefficients(&nn_context, coefficients, coefficients, bias, bias, direction, lr);
 
       auto new_grad = backward(context,
                                &nn_context,
@@ -633,9 +684,10 @@ struct build_nn_fn {
                                deltas,
                                g_Matrix,
                                h_Matrix,
-                               total_rows);
+                               total_rows,
+                               alpha);
 
-      lbfgs.Add(direction * alpha, new_grad - grad);
+      lbfgs.Add(direction * lr, new_grad - grad);
       grad        = new_grad;
       cost        = new_cost;
       T grad_norm = vector_norm(&nn_context, grad);
