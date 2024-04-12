@@ -1,5 +1,6 @@
 import numpy as np
 from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
+from sklearn.preprocessing import StandardScaler
 
 import legateboost as lb
 
@@ -27,6 +28,18 @@ def tree_strategy(draw):
 
 
 @st.composite
+def nn_strategy(draw):
+    alpha = draw(st.floats(0.0, 1.0))
+    hidden_layer_sizes = draw(st.sampled_from([(), (100,), (100, 100), (10, 10, 10)]))
+    # max iter needs to be sufficiently large, otherwise the models can make the loss
+    # worse (from a bad initialization)
+    max_iter = 200
+    return lb.models.NN(
+        alpha=alpha, hidden_layer_sizes=hidden_layer_sizes, max_iter=max_iter
+    )
+
+
+@st.composite
 def linear_strategy(draw):
     alpha = draw(st.floats(0.0, 1.0))
     return lb.models.Linear(alpha=alpha)
@@ -49,7 +62,11 @@ def base_model_strategy(draw):
     base_models = ()
     for _ in range(n):
         base_models += (
-            draw(st.one_of([tree_strategy(), linear_strategy(), krr_strategy()])),
+            draw(
+                st.one_of(
+                    [tree_strategy(), linear_strategy(), krr_strategy(), nn_strategy()]
+                )
+            ),
         )
     return base_models
 
@@ -112,6 +129,7 @@ def regression_dataset_strategy(draw):
     else:
         w = None
 
+    X = StandardScaler().fit_transform(X)
     return X, y, w
 
 
@@ -122,10 +140,13 @@ def regression_dataset_strategy(draw):
 )
 def test_regressor(model_params, regression_params, regression_dataset):
     X, y, w = regression_dataset
-
     eval_result = {}
     assume(regression_params["objective"] != "quantile" or y.ndim == 1)
-    model = lb.LBRegressor(**model_params, **regression_params).fit(
+    # training can diverge with normal objective and no init
+    assume(
+        regression_params["objective"] != "normal" or model_params["init"] == "average"
+    )
+    model = lb.LBRegressor(**model_params, **regression_params, verbose=True).fit(
         X, y, sample_weight=w, eval_result=eval_result
     )
     model.predict(X)
@@ -136,7 +157,7 @@ def test_regressor(model_params, regression_params, regression_dataset):
 
 classification_param_strategy = st.fixed_dictionaries(
     {
-        "objective": st.sampled_from(["log_loss"]),
+        "objective": st.sampled_from(["log_loss", "exp"]),
         # we can technically have up to learning rate 1.0, however
         #  some problems may not converge (e.g. multiclass classification
         #  with many classes) unless the learning rate is sufficiently small

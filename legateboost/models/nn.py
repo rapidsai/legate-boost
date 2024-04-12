@@ -118,8 +118,8 @@ class NN(BaseModel):
         )
         X_ = get_store(X).promote(2, g.shape[1])
 
-        g_ = get_store(g).promote(1, X.shape[1])
-        h_ = get_store(h).promote(1, X.shape[1])
+        g_ = get_store(g.astype(cn.float64)).promote(1, X.shape[1])
+        h_ = get_store(h.astype(cn.float64)).promote(1, X.shape[1])
         task.add_scalar_arg(X.shape[0], types.int64)
         task.add_scalar_arg(self.gtol, types.float64)
         task.add_scalar_arg(self.verbose, types.int32)
@@ -160,11 +160,15 @@ class NN(BaseModel):
             init_bound = cn.sqrt(factor / (n + m))
             self.coefficients_.append(
                 cn.array(
-                    self.random_state.uniform(-init_bound, init_bound, size=(n, m))
+                    self.random_state.uniform(-init_bound, init_bound, size=(n, m)),
+                    dtype=X.dtype,
                 )
             )
             self.biases_.append(
-                cn.array(self.random_state.uniform(-init_bound, init_bound, size=(m,)))
+                cn.array(
+                    self.random_state.uniform(-init_bound, init_bound, size=(m,)),
+                    dtype=X.dtype,
+                )
             )
 
         # self._fitlbfgs(X, g, h)

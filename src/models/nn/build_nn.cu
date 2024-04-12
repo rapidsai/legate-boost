@@ -64,26 +64,26 @@ struct Matrix {
   static Matrix<T> From1dStore(legate::PhysicalStore store)
   {
     auto shape = store.shape<1>();
-    T* data    = store.read_accessor<T, 1>().ptr(shape.lo);
+    T* data    = store.read_accessor<T, 1, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
   static Matrix<T> From1dOutputStore(legate::PhysicalStore store)
   {
     auto shape = store.shape<1>();
-    T* data    = store.read_write_accessor<T, 1>().ptr(shape.lo);
+    T* data    = store.read_write_accessor<T, 1, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
 
   static Matrix<T> From2dStore(legate::PhysicalStore store)
   {
     auto shape = store.shape<2>();
-    T* data    = store.read_accessor<T, 2>().ptr(shape.lo);
+    T* data    = store.read_accessor<T, 2, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
   static Matrix<T> From2dOutputStore(legate::PhysicalStore store)
   {
     auto shape = store.shape<2>();
-    T* data    = store.read_write_accessor<T, 2>().ptr(shape.lo);
+    T* data    = store.read_write_accessor<T, 2, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
 
@@ -91,7 +91,7 @@ struct Matrix {
   static Matrix<T> Project3dStore(legate::PhysicalStore store, int broadcast_dimension)
   {
     auto shape = store.shape<3>();
-    auto data  = store.read_accessor<T, 3>().ptr(shape.lo);
+    auto data  = store.read_accessor<T, 3, true>().ptr(shape.lo);
     std::array<int64_t, 2> extent;
     if (broadcast_dimension == 0) {
       extent = {shape.hi[1] - shape.lo[1] + 1, shape.hi[2] - shape.lo[2] + 1};
@@ -285,8 +285,8 @@ template <typename T>
 T eval_cost(legate::TaskContext legate_context,
             NNContext* context,
             Matrix<T>& pred,
-            Matrix<T>& g,
-            Matrix<T>& h,
+            Matrix<double>& g,
+            Matrix<double>& h,
             std::vector<Matrix<T>>& coefficients,
             int64_t total_rows,
             double alpha)
@@ -322,7 +322,6 @@ T eval_cost(legate::TaskContext legate_context,
   T cost;
   cudaMemcpyAsync(&cost, result.ptr({0}), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
   CHECK_CUDA(cudaStreamSynchronize(context->stream));
-
   if (alpha > 0.0) {
     T L2 = 0.0;
     for (auto& c : coefficients) { L2 += vector_dot(context, c, c); }
@@ -336,8 +335,8 @@ template <typename T>
 Matrix<T> eval_cost_prime(legate::TaskContext legate_context,
                           NNContext* context,
                           Matrix<T>& pred,
-                          Matrix<T>& g,
-                          Matrix<T>& h)
+                          Matrix<double>& g,
+                          Matrix<double>& h)
 {
   Matrix<T> cost_prime = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
@@ -380,8 +379,8 @@ Matrix<T> backward(legate::TaskContext context,
                    std::vector<Matrix<T>>& bias,
                    std::vector<Matrix<T>>& activations,
                    std::vector<Matrix<T>>& deltas,
-                   Matrix<T>& g,
-                   Matrix<T>& h,
+                   Matrix<double>& g,
+                   Matrix<double>& h,
                    std::size_t total_rows,
                    double alpha)
 {
@@ -454,8 +453,8 @@ std::tuple<T, T> line_search(legate::TaskContext context,
                              Matrix<T>& grad,
                              std::vector<Matrix<T>>& activations,
                              std::vector<Matrix<T>>& deltas,
-                             Matrix<T>& g,
-                             Matrix<T>& h,
+                             Matrix<double>& g,
+                             Matrix<double>& h,
                              std::size_t total_rows,
                              T cost,
                              double alpha)
@@ -577,7 +576,7 @@ class LBfgs {
     dot<true, false>(context, delta, b, direction);
 
     T t = vector_dot(context, grad, direction);
-    if (t > 0) {
+    if (t >= 0) {
       if (verbose)
         std::cout << "Search direction is not a descent direction. Resetting LBFGS search."
                   << std::endl;
@@ -595,7 +594,7 @@ struct build_nn_fn {
   {
     const auto& X     = context.input(0).data();
     auto X_shape      = X.shape<3>();
-    auto X_accessor   = X.read_accessor<T, 3>();
+    auto X_accessor   = X.read_accessor<T, 3, true>();
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
     const auto& g     = context.input(1).data();
@@ -606,8 +605,8 @@ struct build_nn_fn {
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
     auto num_outputs = g_shape.hi[2] - g_shape.lo[2] + 1;
-    auto g_accessor  = g.read_accessor<double, 3>();
-    auto h_accessor  = h.read_accessor<double, 3>();
+    auto g_accessor  = g.read_accessor<double, 3, true>();
+    auto h_accessor  = h.read_accessor<double, 3, true>();
     auto total_rows  = context.scalar(0).value<int64_t>();
     double gtol      = context.scalar(1).value<double>();
     int32_t verbose  = context.scalar(2).value<int32_t>();
@@ -626,9 +625,9 @@ struct build_nn_fn {
 
     NNContext nn_context(coefficients, bias, stream);
 
-    auto X_Matrix = Matrix<T>::Project3dStore(X, 2);
-    auto g_Matrix = Matrix<T>::Project3dStore(g, 1);
-    auto h_Matrix = Matrix<T>::Project3dStore(h, 1);
+    auto X_Matrix           = Matrix<T>::Project3dStore(X, 2);
+    Matrix<double> g_Matrix = Matrix<double>::Project3dStore(g, 1);
+    Matrix<double> h_Matrix = Matrix<double>::Project3dStore(h, 1);
 
     std::vector<Matrix<T>> activations({X_Matrix});
     std::vector<Matrix<T>> deltas;
