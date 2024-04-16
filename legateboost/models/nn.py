@@ -32,7 +32,7 @@ class NN(BaseModel):
     def forward(self, X, activations):
         for i in range(len(self.hidden_layer_sizes) + 1):
             activations[i + 1] = activations[i].dot(self.coefficients_[i])
-            activations[i + 1] += self.biases_[i]
+            activations[i + 1] += self.biases_[i][0]
             if i + 1 < len(self.hidden_layer_sizes) + 1:
                 activations[i + 1] = self.tanh(activations[i + 1])
         return activations
@@ -116,10 +116,12 @@ class NN(BaseModel):
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.BUILD_NN
         )
+
         X_ = get_store(X).promote(2, g.shape[1])
 
         g_ = get_store(g.astype(cn.float64)).promote(1, X.shape[1])
         h_ = get_store(h.astype(cn.float64)).promote(1, X.shape[1])
+
         task.add_scalar_arg(X.shape[0], types.int64)
         task.add_scalar_arg(self.gtol, types.float64)
         task.add_scalar_arg(self.verbose, types.int32)
@@ -132,13 +134,13 @@ class NN(BaseModel):
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
         for c, b in zip(self.coefficients_, self.biases_):
+            b = b[0]
             task.add_input(get_store(c))
             task.add_input(get_store(b))
             task.add_output(get_store(c))
             task.add_output(get_store(b))
             task.add_broadcast(get_store(c))
             task.add_broadcast(get_store(b))
-
         if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
             task.add_nccl_communicator()
         elif get_legate_runtime().machine.count() > 1:
@@ -164,9 +166,18 @@ class NN(BaseModel):
                     dtype=X.dtype,
                 )
             )
+            # https://github.com/nv-legate/legate.core.internal/issues/584
+            # bias cannot be size 1 - give it an extra useless dimension
             self.biases_.append(
                 cn.array(
-                    self.random_state.uniform(-init_bound, init_bound, size=(m,)),
+                    self.random_state.uniform(
+                        -init_bound,
+                        init_bound,
+                        size=(
+                            2,
+                            m,
+                        ),
+                    ),
                     dtype=X.dtype,
                 )
             )

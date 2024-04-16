@@ -20,7 +20,11 @@ struct Matrix {
   std::shared_ptr<legate::Buffer<T, 2>> buffer;
   std::array<int64_t, 2> extent;
 
-  Matrix(T* data, std::array<int64_t, 2> extent) : data(data), extent(extent) {}
+  Matrix(T* data, std::array<int64_t, 2> extent) : data(data)
+  {
+    this->extent[0] = std::max(extent[0], 0L);
+    this->extent[1] = std::max(extent[1], 0L);
+  }
 
   __host__ __device__ std::int64_t size() const { return extent[0] * extent[1]; }
 
@@ -126,12 +130,17 @@ class NNContext {
   std::vector<std::array<int64_t, 2>> bias_extents;
   int64_t num_parameters;
   template <typename T>
-  NNContext(const std::vector<Matrix<T>>& coefficients,
+  NNContext(legate::TaskContext context,
+            const std::vector<Matrix<T>>& coefficients,
             const std::vector<Matrix<T>>& bias,
             cudaStream_t stream)
     : stream(stream)
   {
     CUBLAS_ERROR(cublasCreate(&handle));
+    // Without syncronising, cublas creation hangs
+    auto temp = legate::create_buffer<float>({1});
+    SumAllReduce(context, temp.ptr({0}), 1, stream);
+    CHECK_CUDA(cudaStreamSynchronize(stream));
     CUBLAS_ERROR(cublasSetStream(handle, stream));
     num_parameters = 0;
     for (const auto& c : coefficients) {
@@ -165,6 +174,7 @@ class NNContext {
 template <bool transpose_A = false, bool transpose_B = false, typename T1, typename T2, typename T3>
 void dot(NNContext* context, Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
 {
+  if (A.size() == 0 || B.size() == 0) return;
   using T = typename std::remove_const<T1>::type;
   static_assert(std::is_same<T, typename std::remove_const<T2>::type>::value,
                 "T1 and T2 must be the same type");
@@ -225,6 +235,7 @@ template <typename T>
 T vector_norm(NNContext* context, Matrix<T>& A)
 {
   T result = 0.0;
+  if (A.size() == 0) return result;
   if constexpr (std::is_same<T, double>::value) {
     CUBLAS_ERROR(cublasDnrm2(context->handle, A.size(), A.data, 1, &result));
   } else {
@@ -237,7 +248,8 @@ T vector_norm(NNContext* context, Matrix<T>& A)
 template <typename T>
 T vector_dot(NNContext* context, Matrix<T>& A, Matrix<T>& B)
 {
-  T result;
+  T result = 0.0;
+  if (A.size() == 0) return result;
   if constexpr (std::is_same<T, double>::value) {
     CUBLAS_ERROR(cublasDdot(context->handle, A.size(), A.data, 1, B.data, 1, &result));
   } else {
@@ -623,7 +635,7 @@ struct build_nn_fn {
       bias.push_back(Matrix<T>::From1dOutputStore(context.output(i + 1).data()));
     }
 
-    NNContext nn_context(coefficients, bias, stream);
+    NNContext nn_context(context, coefficients, bias, stream);
 
     auto X_Matrix           = Matrix<T>::Project3dStore(X, 2);
     Matrix<double> g_Matrix = Matrix<double>::Project3dStore(g, 1);
