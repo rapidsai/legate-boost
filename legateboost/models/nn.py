@@ -2,7 +2,7 @@ import cunumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
 
 from ..library import user_context, user_lib
-from ..utils import get_store, lbfgs
+from ..utils import get_store
 from .base_model import BaseModel
 
 
@@ -37,82 +37,7 @@ class NN(BaseModel):
                 activations[i + 1] = self.tanh(activations[i + 1])
         return activations
 
-    def cost(self, pred, g, h):
-        return (pred * (g + 0.5 * h * pred)).mean()
-
-    def cost_prime(self, pred, g, h):
-        return g + h * pred
-
-    def backward(self, X, g, h, coeff_grads, bias_grads, deltas, activations):
-        activations = self.forward(X, activations)
-        cost = self.cost(activations[-1], g, h)
-        deltas[-1] = self.cost_prime(activations[-1], g, h)
-        coeff_grads[-1] = activations[-2].T.dot(deltas[-1]) / X.shape[0]
-        bias_grads[-1] = deltas[-1].mean(axis=0)
-        for i in range(len(self.hidden_layer_sizes), 0, -1):
-            deltas[i - 1] = deltas[i].dot(self.coefficients_[i].T)
-            self.tanh_prime(activations[i], deltas[i - 1])
-            coeff_grads[i - 1] = activations[i - 1].T.dot(deltas[i - 1]) / X.shape[0]
-            bias_grads[i - 1] = deltas[i - 1].mean(axis=0)
-        for grad, coeff in zip(coeff_grads, self.coefficients_):
-            assert grad.shape == coeff.shape, (grad.shape, coeff.shape)
-
-        return cost, bias_grads, coeff_grads
-
-    def _loss_grad_lbfgs(
-        self, packed, X, g, h, coeff_grads, bias_grads, deltas, activations
-    ):
-        self._unpack(packed)
-        loss, bias_grads, coeff_grads = self.backward(
-            X, g, h, coeff_grads, bias_grads, deltas, activations
-        )
-        packed_grad = self._pack(coeff_grads + bias_grads)
-        assert packed_grad.shape == packed.shape
-        return loss, packed_grad
-
-    def _pack(self, xs):
-        return cn.concatenate([x.ravel() for x in xs])
-
-    def _unpack(self, packed_coef):
-        offset = 0
-        for i in range(len(self.hidden_layer_sizes) + 1):
-            self.coefficients_[i] = packed_coef[
-                offset : offset + self.coefficients_[i].size
-            ].reshape(self.coefficients_[i].shape)
-            offset += self.coefficients_[i].size
-        for i in range(len(self.hidden_layer_sizes) + 1):
-            self.biases_[i] = packed_coef[
-                offset : offset + self.biases_[i].size
-            ].reshape(self.biases_[i].shape)
-            offset += self.biases_[i].size
-
-    def _fitlbfgs(self, X, g, h):
-        packed = self._pack(self.coefficients_ + self.biases_)
-        coeff_grads = [None] * (len(self.hidden_layer_sizes) + 1)
-        bias_grads = [None] * (len(self.hidden_layer_sizes) + 1)
-        deltas = [None] * (len(self.hidden_layer_sizes) + 1)
-        activations = [X] + [None] * len(self.hidden_layer_sizes) + [None]
-        result = lbfgs(
-            packed,
-            self._loss_grad_lbfgs,
-            args=(
-                X,
-                g,
-                h,
-                coeff_grads,
-                bias_grads,
-                deltas,
-                activations,
-            ),
-            verbose=self.verbose,
-            max_iter=self.max_iter,
-            m=self.m,
-        )
-        self._unpack(result.x)
-        if self.verbose:
-            print(result)
-
-    def fit_lbfgs_task(self, X, g, h):
+    def _fit_lbfgs(self, X, g, h):
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.BUILD_NN
         )
@@ -182,8 +107,7 @@ class NN(BaseModel):
                 )
             )
 
-        # self._fitlbfgs(X, g, h)
-        self.fit_lbfgs_task(X, g, h)
+        self._fit_lbfgs(X, g, h)
         return self
 
     def predict(self, X):

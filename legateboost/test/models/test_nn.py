@@ -9,13 +9,15 @@ import cunumeric as cn
 import legateboost as lb
 
 
-@pytest.mark.parametrize("random_state", [0, 1, 2])
+@pytest.mark.parametrize("random_state", [0, 1])
 @pytest.mark.parametrize("hidden_layer_sizes", [(), (100,), (100, 100), (10, 10, 10)])
 @pytest.mark.parametrize("alpha", [0.0, 0.5])
-def test_nn(random_state, hidden_layer_sizes, alpha):
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_nn(random_state, hidden_layer_sizes, alpha, dtype):
     X, y = fetch_california_housing(return_X_y=True)
-    X = X[:1000]
-    y = y[:1000]
+    X = X[:1000].astype(dtype)
+    y = y[:1000].astype(dtype)
+
     # add some extra outputs to make sure we can handle multiple outputs
     y = np.tile(y.reshape((-1, 1)), (1, 3))
     X = StandardScaler().fit_transform(X)
