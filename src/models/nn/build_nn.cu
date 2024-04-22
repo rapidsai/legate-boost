@@ -118,9 +118,27 @@ struct Matrix {
       deleter);
     auto t   = Matrix<T>(buffer->ptr({0, 0}), extent);
     t.buffer = buffer;
+
+    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    LaunchN(t.size(), stream, [=] __device__(int64_t idx) { t.data[idx] = 0.0; });
     return t;
   }
 };
+
+void SyncCPU(legate::TaskContext context)
+{
+  auto domain      = context.get_launch_domain();
+  size_t num_ranks = domain.get_volume();
+  if (num_ranks == 1) return;
+  auto comm = context.communicator(1);
+  std::vector<float> gather_result(num_ranks);
+  auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
+  EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
+  float tmp;
+  auto result = legate::comm::coll::collAllgather(
+    &tmp, gather_result.data(), 1, legate::comm::coll::CollDataType::CollFloat, comm_ptr);
+  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
+}
 
 class NNContext {
  public:
@@ -137,11 +155,13 @@ class NNContext {
     : stream(stream)
   {
     CUBLAS_ERROR(cublasCreate(&handle));
-    // Without syncronising, cublas creation hangs
-    auto temp = legate::create_buffer<float>({1});
-    SumAllReduce(context, temp.ptr({0}), 1, stream);
-    CHECK_CUDA(cudaStreamSynchronize(stream));
+    // Without syncronising, cublas creation can hang
+    SyncCPU(context);
     CUBLAS_ERROR(cublasSetStream(handle, stream));
+    cublasStatus_t status = cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+      logger.print() << "WARNING: cuBLAS does not support Tensor cores!";
+    }
     num_parameters = 0;
     for (const auto& c : coefficients) {
       coefficient_extents.push_back(c.extent);
@@ -472,7 +492,7 @@ std::tuple<T, T> line_search(legate::TaskContext context,
                              double alpha)
 {
   T lr  = 1.0;
-  T rho = 0.5;
+  T rho = 0.1;
   T c   = 1e-4;
   T t   = -c * vector_dot(nn_context, grad, direction);
   EXPECT(t >= 0, "Search direction is not a descent direction");
@@ -669,6 +689,9 @@ struct build_nn_fn {
                        total_rows,
                        alpha);
 
+    int max_iterations_no_progress = 5;
+    int iterations_no_progress     = 0;
+
     for (int i = 0; i < max_iter; i++) {
       auto direction      = lbfgs.GetDirection(&nn_context, grad);
       auto [lr, new_cost] = line_search(context,
@@ -684,6 +707,8 @@ struct build_nn_fn {
                                         total_rows,
                                         cost,
                                         alpha);
+
+      iterations_no_progress = cost - new_cost < 1e-6 ? iterations_no_progress + 1 : 0;
 
       update_coefficients(&nn_context, coefficients, coefficients, bias, bias, direction, lr);
 
@@ -702,10 +727,23 @@ struct build_nn_fn {
       grad        = new_grad;
       cost        = new_cost;
       T grad_norm = vector_norm(&nn_context, grad);
+
       if (verbose && i % verbose == 0)
-        std::cout << "L-BFGS Iteration: " << i << " Cost: " << cost << " Grad Norm: " << grad_norm
-                  << std::endl;
-      if (grad_norm < gtol) break;
+        logger.print() << "L-BFGS Iteration: " << i << " Cost: " << cost
+                       << " Grad Norm: " << grad_norm;
+
+      // Stopping conditions
+      if (iterations_no_progress >= max_iterations_no_progress) {
+        if (verbose)
+          logger.print() << "No progress in " << max_iterations_no_progress
+                         << " iterations. Stopping.";
+        break;
+      }
+
+      if (grad_norm < gtol) {
+        if (verbose) logger.print() << "Gradient norm below tolerance " << gtol << ". Stopping.";
+        break;
+      }
     }
   }
 };

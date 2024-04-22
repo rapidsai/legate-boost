@@ -134,16 +134,16 @@ class NN(BaseModel):
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
         for c, b in zip(self.coefficients_, self.biases_):
-            b = b[0]
+            b_ = get_store(b).project(0, 0)
             task.add_input(get_store(c))
-            task.add_input(get_store(b))
+            task.add_input(b_)
             task.add_output(get_store(c))
-            task.add_output(get_store(b))
+            task.add_output(b_)
             task.add_broadcast(get_store(c))
-            task.add_broadcast(get_store(b))
+            task.add_broadcast(b_)
         if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
             task.add_nccl_communicator()
-        elif get_legate_runtime().machine.count() > 1:
+        if get_legate_runtime().machine.count() > 1:
             task.add_cpu_communicator()
         task.execute()
 

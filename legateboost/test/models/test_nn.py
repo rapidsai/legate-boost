@@ -47,7 +47,6 @@ def test_nn(random_state, hidden_layer_sizes, alpha):
     pred = nn.predict(X)
     lb_mse = mean_squared_error(y, pred)
     sklearn_mse = mean_squared_error(y, sklearn.predict(X))
-    print(lb_mse, sklearn_mse)
     baseline = mean_squared_error(y, np.full_like(y, y.mean()))
     # check we are doing better than average
     assert lb_mse < baseline
@@ -87,4 +86,11 @@ def test_alpha(alpha):
     ).fit(X, y)
 
     assert np.allclose(nn.models_[0].coefficients_, sklearn_nn.coefs_, atol=1e-2)
-    assert np.allclose(nn.models_[0].biases_, sklearn_nn.intercepts_, atol=1e-2)
+    assert np.all(
+        (
+            np.isclose(
+                nn.models_[0].biases_[i][0], sklearn_nn.intercepts_[i], atol=1e-2
+            )
+            for i in range(len(sklearn_nn.intercepts_))
+        )
+    )
