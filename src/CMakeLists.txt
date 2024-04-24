@@ -80,4 +80,4 @@ target_include_directories(legateboost
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(legateboost PRIVATE legate::core $<TARGET_NAME_IF_EXISTS:NCCL::NCCL> $<TARGET_NAME_IF_EXISTS:CUDA::cublas>)
+target_link_libraries(legateboost PRIVATE legate::core BLAS::BLAS $<TARGET_NAME_IF_EXISTS:NCCL::NCCL> $<TARGET_NAME_IF_EXISTS:CUDA::cublas>)

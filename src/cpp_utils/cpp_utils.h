@@ -26,6 +26,13 @@ namespace legateboost {
 
 extern Legion::Logger logger;
 
+template <typename T, int NDIM>
+std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
+  legate::PhysicalStore store)
+{
+  return std::make_tuple(store, store.shape<NDIM>(), store.read_accessor<T, NDIM, true>());
+}
+
 inline void expect(bool condition, std::string message, std::string file, int line)
 {
   if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }

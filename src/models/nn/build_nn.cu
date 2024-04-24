@@ -5,6 +5,7 @@
 
 namespace legateboost {
 
+namespace {
 #define CUBLAS_ERROR(x)                                                            \
   do {                                                                             \
     if ((x) != CUBLAS_STATUS_SUCCESS) {                                            \
@@ -176,6 +177,13 @@ Matrix<T> subtract(const Matrix<T>& A, const Matrix<T>& B)
   return result;
 }
 
+template <typename T, typename T2>
+void fill(Matrix<T>& A, T2 val)
+{
+  auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
+  LaunchN(A.size(), stream, [=] __device__(int64_t idx) { A.data[idx] = val; });
+}
+
 template <typename T>
 T vector_norm(NNContext* context, Matrix<T>& A)
 {
@@ -307,7 +315,7 @@ template <typename T>
 void bias_grad(NNContext* context, Matrix<T>& delta, Matrix<T>& bias_grad)
 {
   auto ones = Matrix<T>::Create({1, delta.extent[0]});
-  LaunchN(ones.size(), context->stream, [=] __device__(int64_t idx) { ones.data[idx] = 1.0; });
+  fill(ones, 1.0);
   dot<false, false>(context, ones, delta, bias_grad);
 }
 
@@ -335,7 +343,8 @@ Matrix<T> backward(NNContext* nn_context,
                    std::size_t total_rows,
                    double alpha)
 {
-  auto grads                           = Matrix<T>::Create({nn_context->num_parameters, 1});
+  auto grads = Matrix<T>::Create({nn_context->num_parameters, 1});
+  fill(grads, 0.0);
   auto [coefficient_grads, bias_grads] = nn_context->Unpack(grads);
   forward(nn_context, coefficients, bias, activations);
 
@@ -414,7 +423,8 @@ std::tuple<T, T> line_search(NNContext* nn_context,
   T c   = 1e-4;
   T t   = -c * vector_dot(nn_context, grad, direction);
   EXPECT(t >= 0, "Search direction is not a descent direction");
-  auto coeff_proposal_storage                  = Matrix<T>::Create({nn_context->num_parameters, 1});
+  auto coeff_proposal_storage = Matrix<T>::Create({nn_context->num_parameters, 1});
+  fill(coeff_proposal_storage, 0.0);
   auto [coefficient_proposals, bias_proposals] = nn_context->Unpack(coeff_proposal_storage);
   update_coefficients(
     nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, lr);
@@ -538,13 +548,6 @@ class LBfgs {
   }
 };
 
-template <typename T, int NDIM>
-std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
-  legate::PhysicalStore store)
-{
-  return std::make_tuple(store, store.shape<NDIM>(), store.read_accessor<T, NDIM, true>());
-}
-
 struct build_nn_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
@@ -616,11 +619,12 @@ struct build_nn_fn {
 
       lbfgs.Add(multiply(direction, lr), subtract(new_grad, grad));
       grad      = new_grad;
-      cost      = new_cost;
       grad_norm = vector_norm(&nn_context, grad);
     }
   }
 };
+
+}  // namespace
 
 /*static*/ void BuildNNTask::gpu_variant(legate::TaskContext context)
 {

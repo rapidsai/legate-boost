@@ -93,15 +93,7 @@ struct Matrix {
       deleter);
     auto t   = Matrix<T>(buffer->ptr({0, 0}), extent);
     t.buffer = buffer;
-
-#ifdef __CUDACC__
-    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
-    LaunchN(t.size(), stream, [=] __device__(int64_t idx) { t.data[idx] = 0.0; });
     return t;
-#else
-    for (int64_t i = 0; i < t.size(); i++) t.data[i] = 0.0;
-    return t;
-#endif
   }
 };
 
