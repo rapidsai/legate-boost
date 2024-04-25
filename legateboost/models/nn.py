@@ -1,3 +1,5 @@
+from typing import Any, List, Tuple
+
 import cunumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
 
@@ -9,12 +11,12 @@ from .base_model import BaseModel
 class NN(BaseModel):
     def __init__(
         self,
-        max_iter=100,
-        hidden_layer_sizes=(100,),
-        alpha=0.0001,
-        verbose=False,
-        m=10,
-        gtol=1e-5,
+        max_iter: int = 100,
+        hidden_layer_sizes: Tuple[int] = (100,),
+        alpha: float = 0.0001,
+        verbose: bool = False,
+        m: int = 10,
+        gtol: float = 1e-5,
     ):
         self.max_iter = max_iter
         self.hidden_layer_sizes = hidden_layer_sizes
@@ -23,13 +25,13 @@ class NN(BaseModel):
         self.alpha = alpha
         self.gtol = gtol
 
-    def tanh(self, x):
+    def tanh(self, x: cn.ndarray) -> cn.ndarray:
         return cn.tanh(x, out=x)
 
-    def tanh_prime(self, H, delta):
+    def tanh_prime(self, H: cn.ndarray, delta: cn.ndarray) -> None:
         delta *= 1 - H**2
 
-    def forward(self, X, activations):
+    def forward(self, X: cn.ndarray, activations: List[cn.ndarray]) -> List[cn.ndarray]:
         for i in range(len(self.hidden_layer_sizes) + 1):
             activations[i + 1] = activations[i].dot(self.coefficients_[i])
             activations[i + 1] += self.biases_[i][0]
@@ -37,7 +39,7 @@ class NN(BaseModel):
                 activations[i + 1] = self.tanh(activations[i + 1])
         return activations
 
-    def _fit_lbfgs(self, X, g, h):
+    def _fit_lbfgs(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "NN":
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.BUILD_NN
         )
@@ -71,8 +73,9 @@ class NN(BaseModel):
         if get_legate_runtime().machine.count() > 1:
             task.add_cpu_communicator()
         task.execute()
+        return self
 
-    def fit(self, X, g, h):
+    def fit(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> Any:
         # init layers with glorot initialization
         self.coefficients_ = []
         self.biases_ = []
@@ -107,10 +110,9 @@ class NN(BaseModel):
                 )
             )
 
-        self._fit_lbfgs(X, g, h)
-        return self
+        return self._fit_lbfgs(X, g, h)
 
-    def predict(self, X):
+    def predict(self, X: cn.ndarray) -> cn.ndarray:
         activations = [X] + [None] * len(self.hidden_layer_sizes) + [None]
         return self.forward(X, activations)[-1]
 
@@ -124,7 +126,7 @@ class NN(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "NN":
-        return self._fitlbfgs(X, g, h)
+        return self._fit_lbfgs(X, g, h)
 
     def __str__(self) -> str:
         result = "Coefficients:\n"
@@ -133,6 +135,8 @@ class NN(BaseModel):
         return result
 
     def __eq__(self, other: object) -> bool:
+        if not isinstance(other, NN):
+            return False
         if len(other.coefficients_) != len(self.coefficients_):
             return False
         return all([x == y for x, y in zip(self.coefficients_, other.coefficients_)])
