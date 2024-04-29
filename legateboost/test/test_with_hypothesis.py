@@ -3,6 +3,7 @@ from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategi
 from sklearn.preprocessing import StandardScaler
 
 import legateboost as lb
+from legate.core import TaskTarget, get_legate_runtime
 
 from .utils import non_increasing, sanity_check_models
 
@@ -58,6 +59,11 @@ def krr_strategy(draw):
 
 @st.composite
 def base_model_strategy(draw):
+    available_strategies = [tree_strategy(), linear_strategy(), krr_strategy()]
+    # NN is disabled for CPU as it takes way too long
+    if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
+        available_strategies.append(nn_strategy())
+
     n = draw(st.integers(1, 5))
     base_models = ()
     for _ in range(n):
