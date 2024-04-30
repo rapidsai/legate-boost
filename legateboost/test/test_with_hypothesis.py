@@ -61,19 +61,13 @@ def krr_strategy(draw):
 def base_model_strategy(draw):
     available_strategies = [tree_strategy(), linear_strategy(), krr_strategy()]
     # NN is disabled for CPU as it takes way too long
-    if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
+    if get_legate_runtime().machine.count(TaskTarget.GPU) > 0:
         available_strategies.append(nn_strategy())
 
     n = draw(st.integers(1, 5))
     base_models = ()
     for _ in range(n):
-        base_models += (
-            draw(
-                st.one_of(
-                    [tree_strategy(), linear_strategy(), krr_strategy(), nn_strategy()]
-                )
-            ),
-        )
+        base_models += (draw(st.one_of(available_strategies)),)
     return base_models
 
 
