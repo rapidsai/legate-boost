@@ -82,55 +82,26 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   // further improvements:
   // * quantize values to work with int instead of double
 
-  typedef cub::BlockReduce<double, THREADS_PER_BLOCK> BlockReduce;
-
-  __shared__ bool left_shared[FEATURES_PER_BLOCK][THREADS_PER_BLOCK + 1];
-
-  // mapping from local sampleId to global sample id (also accounting for reordering)
-  __shared__ int32_t index_mapping[THREADS_PER_BLOCK];
-
 #pragma unroll
   for (int32_t elementIdx = 0; elementIdx < ELEMENTS_PER_THREAD; ++elementIdx) {
     // within each iteration a (THREADS_PER_BLOCK, FEATURES_PER_BLOCK)-block of
     // data from X is processed.
 
-    // check if any thread of this block has work to do
-    if ((blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK >= n_local_samples) break;
-
     // check if thread has actual work todo (besides taking part in reductions)
-    int32_t sampleId = (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
-    bool validThread = sampleId < n_local_samples;
+    int32_t localSampleId = (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
+    int32_t globalSampleId = localSampleId + sample_offset;
+    bool validThread       = localSampleId < n_local_samples;
 
-    index_mapping[threadIdx.x] = validThread ? sampleId + sample_offset : -1;
-
-    __syncthreads();
-
-    // read input X and store split decision in shared memory
-    for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
-      // load is done with transpose access to the (THREADS_PER_BLOCK, FEATURES_PER_BLOCK)-block
-      int32_t localFeatureId = (threadIdx.x + featureIdx * THREADS_PER_BLOCK) % FEATURES_PER_BLOCK;
-      int32_t localSampleId  = (threadIdx.x + featureIdx * THREADS_PER_BLOCK) / FEATURES_PER_BLOCK;
-      int32_t feature        = blockIdx.y * FEATURES_PER_BLOCK + localFeatureId;
-      int32_t globalSampleId =
-        (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + localSampleId;
-      left_shared[localFeatureId][localSampleId] =
-        (globalSampleId < n_local_samples && feature < n_features)
-          ? X[{index_mapping[localSampleId], feature, 0}] <= split_proposal[{depth, feature}]
-          : false;
-    }
-
-    // loading left_shared was done in different order
-    __syncthreads();
-
-    int32_t sampleNode = validThread ? positions_local[sampleId] - max_nodes_in_level + 1 : -1;
+    int32_t sampleNode = validThread ? positions_local[localSampleId] - max_nodes_in_level + 1 : -1;
 
     for (int32_t output = 0; output < n_outputs; output++) {
-      double G = validThread ? g[{index_mapping[threadIdx.x], 0, output}] : 0.0;
-      double H = validThread ? h[{index_mapping[threadIdx.x], 0, output}] : 0.0;
+      double G = validThread ? g[{globalSampleId, 0, output}] : 0.0;
+      double H = validThread ? h[{globalSampleId, 0, output}] : 0.0;
       for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
-        if (feature < n_features) {
-          if (left_shared[featureIdx][threadIdx.x] && sampleNode >= 0) {
+        if (feature < n_features && validThread && sampleNode >= 0) {
+          // Sample goes left?
+          if (X[{globalSampleId, feature, 0}] <= split_proposal[{depth, feature}]) {
             double* addPosition =
               reinterpret_cast<double*>(&histogram[{sampleNode, feature, output}]);
             atomicAdd(addPosition, G);
