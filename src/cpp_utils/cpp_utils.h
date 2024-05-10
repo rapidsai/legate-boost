@@ -26,13 +26,6 @@ namespace legateboost {
 
 extern Legion::Logger logger;
 
-template <typename T, int NDIM>
-std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
-  legate::PhysicalStore store)
-{
-  return std::make_tuple(store, store.shape<NDIM>(), store.read_accessor<T, NDIM, true>());
-}
-
 inline void expect(bool condition, std::string message, std::string file, int line)
 {
   if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }
@@ -60,6 +53,20 @@ void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
   }
 }
 #define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
+
+template <typename T, int NDIM, bool assert_row_major = true>
+std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
+  legate::PhysicalStore store)
+{
+  auto shape    = store.shape<NDIM>();
+  auto accessor = store.read_accessor<T, NDIM, true>();
+
+  if constexpr (assert_row_major) {
+    EXPECT(accessor.accessor.is_dense_row_major(shape),
+           "Expected a row-major store, please make a copy.");
+  }
+  return std::make_tuple(store, shape, accessor);
+}
 
 template <typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)

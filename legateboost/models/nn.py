@@ -26,7 +26,7 @@ class NN(BaseModel):
         self.gtol = gtol
 
     def tanh(self, x: cn.ndarray) -> cn.ndarray:
-        return cn.tanh(x, out=x)
+        cn.tanh(x, out=x)
 
     def tanh_prime(self, H: cn.ndarray, delta: cn.ndarray) -> None:
         delta *= 1 - H**2
@@ -36,7 +36,7 @@ class NN(BaseModel):
             activations[i + 1] = activations[i].dot(self.coefficients_[i])
             activations[i + 1] += self.biases_[i][0]
             if i + 1 < len(self.hidden_layer_sizes) + 1:
-                activations[i + 1] = self.tanh(activations[i + 1])
+                self.tanh(activations[i + 1])
         return activations
 
     def _fit_lbfgs(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "NN":
@@ -87,7 +87,7 @@ class NN(BaseModel):
                 else g.shape[1]
             )
             factor = 6.0
-            init_bound = cn.sqrt(factor / (n + m))
+            init_bound = (factor / (n + m)) ** 0.5
             self.coefficients_.append(
                 cn.array(
                     self.random_state.uniform(-init_bound, init_bound, size=(n, m)),

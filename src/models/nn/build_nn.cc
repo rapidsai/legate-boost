@@ -392,7 +392,7 @@ class LBfgs {
     auto delta = Matrix<T>::Create({B.extent[0], 1});
     auto alpha = Matrix<T>::Create({B.extent[0], 1});
     int l      = s.size();
-    for (int i = 0; i < delta.size() - 1; i++) delta.data[i] = 0.0;
+    fill(delta, 0.0);
     delta.data[delta.size() - 1] = -1.0;
     for (int i = l - 1; i >= 0; i--) {
       T sum = 0.0;
@@ -402,7 +402,7 @@ class LBfgs {
     }
 
     T scalar = B[{l - 1, 2 * l - 1}] / B[{2 * l - 1, 2 * l - 1}];
-    for (int i = 0; i < delta.size(); i++) { delta.data[i] *= scalar; }
+    multiply(delta, scalar);
 
     for (int i = 0; i < l; i++) {
       T sum = 0.0;
@@ -458,7 +458,7 @@ struct build_nn_fn {
 
     NNContext nn_context(context, coefficients, bias);
 
-    auto X           = Matrix<T>::Project3dStore(X_store, 2);
+    Matrix<T> X      = Matrix<T>::Project3dStore(X_store, 2);
     Matrix<double> g = Matrix<double>::Project3dStore(g_store, 1);
     Matrix<double> h = Matrix<double>::Project3dStore(h_store, 1);
 
