@@ -29,6 +29,7 @@
 #include <thrust/device_ptr.h>
 #include <thrust/count.h>
 #include <thrust/version.h>
+#include <thrust/binary_search.h>
 
 namespace legateboost {
 
@@ -100,15 +101,19 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
       for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (feature < n_features && validThread && sampleNode >= 0) {
-          // Sample goes left?
-          for (int32_t feature_sample_idx = 0; feature_sample_idx < samples_per_feature;
-               feature_sample_idx++) {
-            if (X[{globalSampleId, feature, 0}] <= split_proposal[{feature_sample_idx, feature}]) {
-              double* addPosition = reinterpret_cast<double*>(
-                &histogram[{sampleNode, feature, feature_sample_idx, output}]);
-              atomicAdd(addPosition, G);
-              atomicAdd(addPosition + 1, H);
-            }
+          auto x_value = X[{globalSampleId, feature, 0}];
+          int bin_idx  = thrust::lower_bound(thrust::seq,
+                                            split_proposal.ptr({feature, 0}),
+                                            split_proposal.ptr({feature, samples_per_feature}),
+                                            x_value) -
+                        split_proposal.ptr({feature, 0});
+
+          // bin_idx is the first sample that is larger than x_value
+          if (bin_idx < samples_per_feature) {
+            double* addPosition =
+              reinterpret_cast<double*>(&histogram[{sampleNode, feature, bin_idx, output}]);
+            atomicAdd(addPosition, G);
+            atomicAdd(addPosition + 1, H);
           }
         }
       }
@@ -172,9 +177,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   int thread_best_feature_sample = -1;
 
   for (int feature_id = threadIdx.x; feature_id < n_features; feature_id += blockDim.x) {
-    double gain = 0;
     for (int feature_sample_idx = 0; feature_sample_idx < samples_per_feature;
          feature_sample_idx++) {
+      double gain = 0;
       for (int output = 0; output < n_outputs; ++output) {
         auto G          = tree_gradient[{global_node_id, output}];
         auto H          = tree_hessian[{global_node_id, output}];
@@ -227,7 +232,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
       if (output == 0) {
         tree_feature[global_node_id] = node_best_feature;
         tree_split_value[global_node_id] =
-          split_proposal[{node_best_feature_sample, node_best_feature}];
+          split_proposal[{node_best_feature, node_best_feature_sample}];
         tree_gain[global_node_id] = node_best_gain;
       }
     }
@@ -426,6 +431,7 @@ struct TreeLevelInfo {
                             (THREADS_PER_BLOCK * elements_per_thread);
     const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
     dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
+    int num_nodes_level   = 1 << current_depth;
     fill_histogram_blockreduce<TYPE, elements_per_thread, features_per_block>
       <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
                                                      num_rows,
@@ -438,8 +444,30 @@ struct TreeLevelInfo {
                                                      samples_per_feature,
                                                      positions.ptr(0),
                                                      histogram_buffer,
-                                                     1 << current_depth);
+                                                     num_nodes_level);
     CHECK_CUDA_STREAM(stream);
+
+    // Scan the histogram
+    // Member variables must be explicity copy captured otherwise the lambda calls the this pointer
+    // (illegal access)
+    LaunchN(num_features * num_nodes_level,
+            stream,
+            [                    =,
+             num_features        = this->num_features,
+             num_outputs         = this->num_outputs,
+             samples_per_feature = this->samples_per_feature,
+             histogram_buffer    = this->histogram_buffer] __device__(int idx) {
+              int node_idx    = idx / num_features;
+              int feature_idx = idx % num_features;
+              for (int output = 0; output < num_outputs; output++) {
+                GPair sum = {0, 0};
+                for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
+                  sum += histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
+                  // printf("sample_idx %d hess %lf\n", sample_idx, sum.hess);
+                  histogram_buffer[{node_idx, feature_idx, sample_idx, output}] = sum;
+                }
+              }
+            });
   }
 
   template <typename TYPE>
@@ -518,9 +546,9 @@ struct build_tree_fn {
     auto h_accessor             = h.read_accessor<double, 3, true>();
     const auto& split_proposals = context.input(3).data();
     auto split_proposals_shape  = split_proposals.shape<2>();
-    EXPECT_AXIS_ALIGNED(1, split_proposals_shape, X_shape);
+    EXPECT_IS_BROADCAST(split_proposals_shape);
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
-    auto samples_per_feature     = split_proposals_shape.hi[0] - split_proposals_shape.lo[0] + 1;
+    auto samples_per_feature     = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
 
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();

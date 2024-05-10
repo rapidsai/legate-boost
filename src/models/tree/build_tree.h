@@ -23,7 +23,7 @@ struct GPair {
   double grad = 0.0;
   double hess = 0.0;
 
-  GPair& operator+=(const GPair& b)
+  __host__ __device__ GPair& operator+=(const GPair& b)
   {
     this->grad += b.grad;
     this->hess += b.hess;

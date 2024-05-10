@@ -46,7 +46,7 @@ class Tree(BaseModel):
     def __init__(
         self,
         max_depth: int = 8,
-        split_samples: int = 16,
+        split_samples: int = 256,
     ) -> None:
         self.max_depth = max_depth
         self.split_samples = split_samples
@@ -62,6 +62,8 @@ class Tree(BaseModel):
             self.random_state.randint(0, X.shape[0], max(2, self.split_samples)),
         )
         split_proposals = gather(X, sample_rows)
+        split_proposals.sort(axis=0)
+        split_proposals = split_proposals.T
 
         num_outputs = g.shape[1]
 
