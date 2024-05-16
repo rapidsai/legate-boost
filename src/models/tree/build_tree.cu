@@ -302,10 +302,10 @@ struct Tree {
   {
     std::vector<double> base_sums_host(2 * num_outputs);
     LegateCheckCUDA(cudaMemcpyAsync(base_sums_host.data(),
-                               base_sums,
-                               sizeof(double) * num_outputs * 2,
-                               cudaMemcpyDeviceToHost,
-                               stream));
+                                    base_sums,
+                                    sizeof(double) * num_outputs * 2,
+                                    cudaMemcpyDeviceToHost,
+                                    stream));
 
     thrust::fill(thrust_exec_policy,
                  leaf_value.ptr({0, 0}),
@@ -328,20 +328,20 @@ struct Tree {
       leaf_value_init[i] = (-base_sums_host[i] / base_sums_host[i + num_outputs]);
     }
     LegateCheckCUDA(cudaMemcpyAsync(leaf_value.ptr({0, 0}),
-                               leaf_value_init.data(),
-                               sizeof(double) * num_outputs,
-                               cudaMemcpyHostToDevice,
-                               stream));
+                                    leaf_value_init.data(),
+                                    sizeof(double) * num_outputs,
+                                    cudaMemcpyHostToDevice,
+                                    stream));
     LegateCheckCUDA(cudaMemcpyAsync(gradient.ptr({0, 0}),
-                               base_sums,
-                               sizeof(double) * num_outputs,
-                               cudaMemcpyDeviceToDevice,
-                               stream));
+                                    base_sums,
+                                    sizeof(double) * num_outputs,
+                                    cudaMemcpyDeviceToDevice,
+                                    stream));
     LegateCheckCUDA(cudaMemcpyAsync(hessian.ptr({0, 0}),
-                               base_sums + num_outputs,
-                               sizeof(double) * num_outputs,
-                               cudaMemcpyDeviceToDevice,
-                               stream));
+                                    base_sums + num_outputs,
+                                    sizeof(double) * num_outputs,
+                                    cudaMemcpyDeviceToDevice,
+                                    stream));
   }
 
   template <typename T, int DIM, typename ThrustPolicyT>
@@ -413,7 +413,8 @@ struct TreeLevelInfo {
   {
     if (current_depth < 0) {
       // some initialization on first pass
-      LegateCheckCUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
+      LegateCheckCUDA(
+        cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
       thrust::sequence(thrust_exec_policy, sequence.ptr(0), sequence.ptr(0) + num_rows);
     } else {
       histogram_buffer.destroy();
@@ -422,9 +423,9 @@ struct TreeLevelInfo {
     int max_nodes    = 1 << depth;
     histogram_buffer = legate::create_buffer<GPair, 3>({max_nodes, num_features, num_outputs});
     LegateCheckCUDA(cudaMemsetAsync(histogram_buffer.ptr(legate::Point<3>::ZEROES()),
-                               0,
-                               max_nodes * num_features * num_outputs * sizeof(GPair),
-                               stream));
+                                    0,
+                                    max_nodes * num_features * num_outputs * sizeof(GPair),
+                                    stream));
   }
 
   template <typename TYPE>
