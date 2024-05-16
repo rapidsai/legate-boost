@@ -301,7 +301,7 @@ struct Tree {
   void InitializeBase(double* base_sums, const THRUST_POLICY& thrust_exec_policy)
   {
     std::vector<double> base_sums_host(2 * num_outputs);
-    CHECK_CUDA(cudaMemcpyAsync(base_sums_host.data(),
+    LegateCheckCUDA(cudaMemcpyAsync(base_sums_host.data(),
                                base_sums,
                                sizeof(double) * num_outputs * 2,
                                cudaMemcpyDeviceToHost,
@@ -321,23 +321,23 @@ struct Tree {
                  gradient.ptr({0, 0}) + max_nodes * num_outputs,
                  0.0);
 
-    CHECK_CUDA(cudaStreamSynchronize(stream));
+    LegateCheckCUDA(cudaStreamSynchronize(stream));
 
     std::vector<double> leaf_value_init(num_outputs);
     for (auto i = 0; i < num_outputs; ++i) {
       leaf_value_init[i] = (-base_sums_host[i] / base_sums_host[i + num_outputs]);
     }
-    CHECK_CUDA(cudaMemcpyAsync(leaf_value.ptr({0, 0}),
+    LegateCheckCUDA(cudaMemcpyAsync(leaf_value.ptr({0, 0}),
                                leaf_value_init.data(),
                                sizeof(double) * num_outputs,
                                cudaMemcpyHostToDevice,
                                stream));
-    CHECK_CUDA(cudaMemcpyAsync(gradient.ptr({0, 0}),
+    LegateCheckCUDA(cudaMemcpyAsync(gradient.ptr({0, 0}),
                                base_sums,
                                sizeof(double) * num_outputs,
                                cudaMemcpyDeviceToDevice,
                                stream));
-    CHECK_CUDA(cudaMemcpyAsync(hessian.ptr({0, 0}),
+    LegateCheckCUDA(cudaMemcpyAsync(hessian.ptr({0, 0}),
                                base_sums + num_outputs,
                                sizeof(double) * num_outputs,
                                cudaMemcpyDeviceToDevice,
@@ -366,7 +366,7 @@ struct Tree {
     WriteOutput(context.output(2).data(), split_value, policy);
     WriteOutput(context.output(3).data(), gain, policy);
     WriteOutput(context.output(4).data(), hessian, policy);
-    CHECK_CUDA_STREAM(stream);
+    LegateCheckCUDAStream(stream);
   }
 
   legate::Buffer<double, 2> leaf_value;
@@ -413,7 +413,7 @@ struct TreeLevelInfo {
   {
     if (current_depth < 0) {
       // some initialization on first pass
-      CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
+      LegateCheckCUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
       thrust::sequence(thrust_exec_policy, sequence.ptr(0), sequence.ptr(0) + num_rows);
     } else {
       histogram_buffer.destroy();
@@ -421,7 +421,7 @@ struct TreeLevelInfo {
     current_depth    = depth;
     int max_nodes    = 1 << depth;
     histogram_buffer = legate::create_buffer<GPair, 3>({max_nodes, num_features, num_outputs});
-    CHECK_CUDA(cudaMemsetAsync(histogram_buffer.ptr(legate::Point<3>::ZEROES()),
+    LegateCheckCUDA(cudaMemsetAsync(histogram_buffer.ptr(legate::Point<3>::ZEROES()),
                                0,
                                max_nodes * num_features * num_outputs * sizeof(GPair),
                                stream));
@@ -446,7 +446,7 @@ struct TreeLevelInfo {
         pos            = left ? 2 * pos + 1 : 2 * pos + 2;
       };
       LaunchN(num_rows, stream, update_positions_lambda);
-      CHECK_CUDA_STREAM(stream);
+      LegateCheckCUDAStream(stream);
     }
   }
 
@@ -491,7 +491,7 @@ struct TreeLevelInfo {
 
       skip_rows = res - positions_reordered.ptr(0);
 
-      CHECK_CUDA_STREAM(stream);
+      LegateCheckCUDAStream(stream);
     }
   }
 
@@ -541,7 +541,7 @@ struct TreeLevelInfo {
                                                        histogram_buffer,
                                                        1 << current_depth,
                                                        current_depth);
-      CHECK_CUDA_STREAM(stream);
+      LegateCheckCUDAStream(stream);
     }
   }
 
@@ -560,7 +560,7 @@ struct TreeLevelInfo {
                                                                                tree.split_value,
                                                                                tree.gain,
                                                                                current_depth);
-    CHECK_CUDA_STREAM(stream);
+    LegateCheckCUDAStream(stream);
   }
 
   legate::Buffer<int32_t> positions;
@@ -590,12 +590,12 @@ void ReduceBaseSums(legate::Buffer<double> base_sums,
                     legate::Rect<3> shape,
                     cudaStream_t stream)
 {
-  CHECK_CUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
+  LegateCheckCUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
   const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
   dim3 grid_shape     = dim3(blocks, num_outputs);
   reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
     g, h, num_rows, shape.lo[0], base_sums, num_outputs);
-  CHECK_CUDA_STREAM(stream);
+  LegateCheckCUDAStream(stream);
 }
 
 struct build_tree_fn {
@@ -644,7 +644,7 @@ struct build_tree_fn {
       tree.InitializeBase(base_sums.ptr(0), thrust_exec_policy);
 
       base_sums.destroy();
-      CHECK_CUDA_STREAM(stream);
+      LegateCheckCUDAStream(stream);
     }
 
     // Begin building the tree
@@ -678,8 +678,8 @@ struct build_tree_fn {
 
     tree.WriteTreeOutput(context, thrust_exec_policy);
 
-    CHECK_CUDA(cudaStreamSynchronize(stream));
-    CHECK_CUDA_STREAM(stream);
+    LegateCheckCUDA(cudaStreamSynchronize(stream));
+    LegateCheckCUDAStream(stream);
   }
 };
 

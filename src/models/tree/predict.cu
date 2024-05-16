@@ -69,7 +69,7 @@ struct predict_fn {
     auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
     LaunchN(X_shape.hi[0] - X_shape.lo[0] + 1, stream, prediction_lambda);
 
-    CHECK_CUDA_STREAM(stream);
+    LegateCheckCUDAStream(stream);
   }
 };
 }  // namespace

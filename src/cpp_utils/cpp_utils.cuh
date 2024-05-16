@@ -18,7 +18,7 @@
 
 #include "legate.h"
 #include "cpp_utils.h"
-#include "core/cuda/cuda_help.h"
+#include "core/cuda/cuda.h"
 #include "core/cuda/stream_pool.h"
 #include <nccl.h>
 
@@ -82,7 +82,7 @@ void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t str
     } else {
       EXPECT(false, "Unsupported type for all reduce.");
     }
-    CHECK_CUDA_STREAM(stream);
+    LegateCheckCUDAStream(stream);
   }
 }
 

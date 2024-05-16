@@ -50,7 +50,7 @@ struct gather_fn {
       }
     });
 
-    CHECK_CUDA_STREAM(stream);
+    LegateCheckCUDAStream(stream);
   }
 };
 }  // namespace
