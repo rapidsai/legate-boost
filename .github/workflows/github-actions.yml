@@ -45,7 +45,7 @@ jobs:
       - name: Install legate core
         working-directory: ./legate.core.internal
         run: |
-          python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
+          python scripts/generate-conda-envs.py --ctk 11.8 --os linux --compilers --openmpi;
           mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi.yaml;
           mamba activate legate;
           mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
