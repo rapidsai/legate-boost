@@ -46,7 +46,7 @@ jobs:
         working-directory: ./legate.core.internal
         run: |
           python scripts/generate-conda-envs.py --ctk 11.8 --os linux --compilers --openmpi;
-          mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi.yaml;
+          mamba env create -n legate -f environment-test-linux-cuda11.8-compilers-openmpi.yaml;
           mamba activate legate;
           mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
           pip install matplotlib seaborn xgboost
@@ -58,7 +58,7 @@ jobs:
             repository: nv-legate/cunumeric.internal
             path: cunumeric.internal
             token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: e8d34a86fb018897ab257c2e77a7ff86cf55cf2d
+            ref: f407887f5d43adaeeec1211fed1e8a1b58e9d3ab
       - name: Install cunumeric
         working-directory: ./cunumeric.internal
         run: |
