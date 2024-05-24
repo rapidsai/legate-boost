@@ -4,7 +4,13 @@ from typing import Any, Callable, List, Optional, Tuple
 import numpy as np
 
 import cunumeric as cn
-from legate.core import LogicalArray, LogicalStore, TaskTarget, get_legate_runtime
+from legate.core import (
+    LogicalArray,
+    LogicalStore,
+    TaskTarget,
+    get_legate_runtime,
+    types,
+)
 
 from .library import user_context, user_lib
 
@@ -362,7 +368,7 @@ def lbfgs(
     return LbfgsResult(x, eval, norm, k + 1, count_f.count)
 
 
-def gather(X: cn.array, samples: cn.array) -> cn.array:
+def gather_from_array(X: cn.array, samples: cn.array) -> cn.array:
     samples = samples.astype(cn.int64)
     if samples.shape[0] == 0:
         return cn.empty(shape=(0, X.shape[1]), dtype=X.dtype)
@@ -377,6 +383,32 @@ def gather(X: cn.array, samples: cn.array) -> cn.array:
     task.add_input(get_store(X))
     task.add_input(get_store(samples))
     task.add_broadcast(get_store(samples))
+    task.add_output(get_store(output))
+    task.add_broadcast(get_store(output))
+
+    if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
+        task.add_nccl_communicator()
+    elif get_legate_runtime().machine.count() > 1:
+        task.add_cpu_communicator()
+
+    task.execute()
+    return output
+
+
+def gather(X: cn.array, samples: Tuple[int, ...]) -> cn.array:
+    num_samples = len(samples)
+    if num_samples == 0:
+        return cn.empty(shape=(0, X.shape[1]), dtype=X.dtype)
+    if num_samples == 1:
+        return X[samples[0]].reshape(1, -1)
+    task = get_legate_runtime().create_auto_task(
+        user_context,
+        user_lib.cffi.GATHER,
+    )
+
+    output = cn.zeros(shape=(num_samples, X.shape[1]), dtype=X.dtype)
+    task.add_input(get_store(X))
+    task.add_scalar_arg(samples, (types.int64,))
     task.add_output(get_store(output))
     task.add_broadcast(get_store(output))
 

@@ -602,9 +602,10 @@ struct build_tree_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
-    const auto X      = context.input(0).data();
-    auto X_shape      = X.shape<3>();
-    auto X_accessor   = X.read_accessor<T, 3>();
+    const auto X    = context.input(0).data();
+    auto X_shape    = X.shape<3>();
+    auto X_accessor = X.read_accessor<T, 3>();
+    EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
     auto num_outputs  = X_shape.hi[2] - X_shape.lo[2] + 1;
@@ -621,6 +622,7 @@ struct build_tree_fn {
     const auto& split_proposals = context.input(3).data();
     EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X_shape);
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
+    EXPECT_DENSE_ROW_MAJOR(split_proposal_accessor.accessor, split_proposals.shape<2>());
 
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();

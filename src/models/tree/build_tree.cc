@@ -142,9 +142,10 @@ struct build_tree_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
-    const auto& X     = context.input(0).data();
-    auto X_shape      = X.shape<3>();  // 3rd dimension is unused
-    auto X_accessor   = X.read_accessor<T, 3>();
+    const auto& X   = context.input(0).data();
+    auto X_shape    = X.shape<3>();  // 3rd dimension is unused
+    auto X_accessor = X.read_accessor<T, 3>();
+    EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
     const auto& g     = context.input(1).data();  // 2nd dimension is unused
@@ -159,6 +160,7 @@ struct build_tree_fn {
     const auto& split_proposals = context.input(3).data();
     EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X.shape<3>());
     auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
+    EXPECT_DENSE_ROW_MAJOR(split_proposal_accessor.accessor, split_proposals.shape<2>());
     EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
     // Scalars
