@@ -92,7 +92,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   __shared__ bool left_shared[FEATURES_PER_BLOCK][THREADS_PER_BLOCK + 1];
 
   // mapping from local sampleId to global sample id (also accounting for reordering)
-  __shared__ int32_t index_mapping[THREADS_PER_BLOCK];
+  __shared__ int64_t index_mapping[THREADS_PER_BLOCK];
 
 #pragma unroll
   for (int32_t elementIdx = 0; elementIdx < ELEMENTS_PER_THREAD; ++elementIdx) {
