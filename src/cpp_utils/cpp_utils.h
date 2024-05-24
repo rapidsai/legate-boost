@@ -60,6 +60,20 @@ constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f
   throw std::runtime_error("Unsupported type.");
 }
 
+template <typename AccessorT, typename ShapeT>
+void expect_dense_row_major(const AccessorT& accessor,
+                            const ShapeT& shape,
+                            std::string file,
+                            int line)
+{
+  expect(shape.empty() || accessor.is_dense_row_major(shape),
+         "Expected a dense row major store",
+         file,
+         line);
+}
+#define EXPECT_DENSE_ROW_MAJOR(accessor, shape) \
+  (expect_dense_row_major(accessor, shape, __FILE__, __LINE__))
+
 template <typename T, typename... Types, typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
