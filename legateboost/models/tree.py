@@ -99,6 +99,12 @@ class Tree(BaseModel):
         task.add_output(split_value)
         task.add_output(gain)
         task.add_output(hessian)
+        task.add_broadcast(leaf_value)
+        task.add_broadcast(feature)
+        task.add_broadcast(split_value)
+        task.add_broadcast(gain)
+        task.add_broadcast(hessian)
+
         if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
             task.add_nccl_communicator()
         elif get_legate_runtime().machine.count() > 1:
