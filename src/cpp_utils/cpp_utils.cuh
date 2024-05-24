@@ -18,7 +18,7 @@
 
 #include "legate.h"
 #include "cpp_utils.h"
-#include "core/cuda/cuda_help.h"
+#include "core/cuda/cuda.h"
 #include "core/cuda/stream_pool.h"
 #include <nccl.h>
 
@@ -38,6 +38,10 @@ __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
     exit(error);
   }
 }
+
+#define CHECK_CUDA(expr) LegateCheckCUDA(expr)
+
+#define CHECK_CUDA_STREAM(expr) LegateCheckCUDAStream(expr)
 
 #define CHECK_NCCL(expr)                    \
   do {                                      \
