@@ -4,7 +4,7 @@ from typing import Any, Callable, List, Optional, Tuple
 import numpy as np
 
 import cunumeric as cn
-from legate.core import LogicalArray, LogicalStore, ReductionOp, get_legate_runtime
+from legate.core import LogicalArray, LogicalStore, TaskTarget, get_legate_runtime
 
 from .library import user_context, user_lib
 
@@ -377,7 +377,13 @@ def gather(X: cn.array, samples: cn.array) -> cn.array:
     task.add_input(get_store(X))
     task.add_input(get_store(samples))
     task.add_broadcast(get_store(samples))
-    task.add_reduction(get_store(output), ReductionOp.ADD)
+    task.add_output(get_store(output))
     task.add_broadcast(get_store(output))
+
+    if get_legate_runtime().machine.count(TaskTarget.GPU) > 1:
+        task.add_nccl_communicator()
+    elif get_legate_runtime().machine.count() > 1:
+        task.add_cpu_communicator()
+
     task.execute()
     return output

@@ -37,18 +37,19 @@ struct gather_fn {
     auto split_proposals      = context.reduction(0).data();
     EXPECT_IS_BROADCAST(split_proposals.shape<2>());
     auto n_features = split_proposals.shape<2>().hi[1] - split_proposals.shape<2>().lo[1] + 1;
-    auto split_proposals_accessor =
-      split_proposals.reduce_accessor<legate::SumReduction<T>, true, 2>();
+    auto split_proposals_accessor = split_proposals.write_accessor<T, 2>();
 
     for (int i = sample_rows_shape.lo[0]; i <= sample_rows_shape.hi[0]; i++) {
       auto row = sample_rows_accessor[i];
       for (int j = 0; j < n_features; j++) {
-        if (row >= X_shape.lo[0] && row <= X_shape.hi[0] && j >= X_shape.lo[1] &&
-            j <= X_shape.hi[1]) {
-          split_proposals_accessor.reduce({i, j}, X_accessor[{row, j}]);
-        }
+        bool has_data =
+          row >= X_shape.lo[0] && row <= X_shape.hi[0] && j >= X_shape.lo[1] && j <= X_shape.hi[1];
+        split_proposals_accessor[{i, j}] = has_data ? X_accessor[{row, j}] : T(0);
       }
     }
+
+    SumAllReduce(
+      context, reinterpret_cast<T*>(split_proposals_accessor.ptr({0, 0})), n_samples * n_features);
   }
 };
 
