@@ -51,7 +51,7 @@ jobs:
           mamba activate legate;
           mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
           pip install matplotlib seaborn xgboost
-          ./configure --with-python --cuda-arch 70 --with-cuda --with-nccl && make && pip install .;
+          LEGATE_CORE_ARCH='arch-linux' ./configure --with-python --cuda-arch 70 --with-cuda --with-nccl && make && pip install .;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v4
