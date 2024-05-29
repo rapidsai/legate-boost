@@ -60,11 +60,6 @@ std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM
 {
   auto shape    = store.shape<NDIM>();
   auto accessor = store.read_accessor<T, NDIM, true>();
-
-  if constexpr (assert_row_major) {
-    EXPECT(accessor.accessor.is_dense_row_major(shape),
-           "Expected a row-major store, please make a copy.");
-  }
   return std::make_tuple(store, shape, accessor);
 }
 
