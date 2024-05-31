@@ -41,16 +41,18 @@ jobs:
             repository: nv-legate/legate.core.internal
             path: legate.core.internal
             token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: a9a386038f6a1131ddb5ad262f00492cf04ac6c1
+            ref: ba57a43800a00d57d2c6e19b74b00f36ba921b48
       - name: Install legate core
         working-directory: ./legate.core.internal
         run: |
-          python scripts/generate-conda-envs.py --python 3.10 --ctk 11.8 --os linux --compilers --openmpi;
-          mamba env create -n legate -f environment-test-linux-py3.10-cuda11.8-compilers-openmpi.yaml;
+          python scripts/generate-conda-envs.py --ctk 11.8 --os linux --compilers --openmpi;
+          echo "  - python=3.10" >> environment-test-linux-cuda11.8-compilers-openmpi.yaml;
+          mamba env create -n legate -f environment-test-linux-cuda11.8-compilers-openmpi.yaml;
           mamba activate legate;
           mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
           pip install matplotlib seaborn xgboost
-          ./install.py --cuda --arch volta;
+          export LEGATE_CORE_ARCH='arch-linux-py-relwithdebinfo';
+          ./configure --with-python --cuda-arch 70 --with-cuda --build-type=relwithdebinfo --with-nccl && make && pip install .;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v4
@@ -58,7 +60,7 @@ jobs:
             repository: nv-legate/cunumeric.internal
             path: cunumeric.internal
             token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: e8d34a86fb018897ab257c2e77a7ff86cf55cf2d
+            ref: f407887f5d43adaeeec1211fed1e8a1b58e9d3ab
       - name: Install cunumeric
         working-directory: ./cunumeric.internal
         run: |
