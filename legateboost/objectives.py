@@ -495,8 +495,12 @@ class LogLossObjective(FitInterceptRegMixIn):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
         n_targets = num_class if num_class > 2 else 1
-        init = self.transform(cn.zeros((1, n_targets), dtype=cn.float64))
-        return self.one_step_newton(y, w, boost_from_average, init)
+        if n_targets == 1:
+            prob = y.sum() / y.size
+            return -cn.log(1 / prob - 1).reshape(1)
+        else:
+            prob = cn.bincount(y.squeeze().astype(cn.int32)) / y.size
+            return cn.log(prob)
 
 
 class ExponentialObjective(FitInterceptRegMixIn):
