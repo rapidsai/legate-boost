@@ -115,7 +115,7 @@ class LearningMonitor {
   template <typename T>
   bool IsConverged(T cost, T grad_norm)
   {
-    iterations_no_progress = old_cost - cost < 1e-6 ? iterations_no_progress + 1 : 0;
+    iterations_no_progress = old_cost - cost < 1e-16 ? iterations_no_progress + 1 : 0;
     old_cost               = cost;
 
     if (verbose && iteration % verbose == 0) {
