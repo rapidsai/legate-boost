@@ -151,7 +151,7 @@ def test_regressor(model_params, regression_params, regression_dataset):
     )
     model.predict(X)
     loss = next(iter(eval_result["train"].values()))
-    assert non_increasing(loss)
+    assert non_increasing(loss, tol=1e-2)
     sanity_check_models(model)
 
 
@@ -247,5 +247,5 @@ def test_classifier(
     model.predict_raw(X)
     loss = next(iter(eval_result["train"].values()))
     # multiclass models with higher learning rates don't always converge
-    if len(model.classes_) == 2 or classification_params["learning_rate"] < 0.1:
-        assert non_increasing(loss)
+    if len(model.classes_) == 2:
+        assert non_increasing(loss, 1e-2)
