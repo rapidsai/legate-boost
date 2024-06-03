@@ -145,6 +145,11 @@ struct GainFeaturePair {
   __device__ bool operator<(const GainFeaturePair& other) const { return gain < other.gain; }
 };
 
+__host__ __device__ inline double CalculateLeafValue(double G, double H, double alpha)
+{
+  return -G / (H + alpha);
+}
+
 template <typename TYPE>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   perform_best_split(legate::Buffer<GPair, 4> histogram,
@@ -153,6 +158,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                      legate::AccessorRO<TYPE, 2> split_proposal,
                      int32_t samples_per_feature,
                      double eps,
+                     double alpha,
                      legate::Buffer<double, 2> tree_leaf_value,
                      legate::Buffer<double, 2> tree_gradient,
                      legate::Buffer<double, 2> tree_hessian,
@@ -191,7 +197,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
           gain = 0;
           break;
         }
-        gain += 0.5 * ((G_L * G_L) / (H_L + eps) + (G_R * G_R) / (H_R + eps) - (G * G) / (H + eps));
+        double reg = std::max(eps, alpha);  // Regularisation term
+        gain += 0.5 * ((G_L * G_L) / (H_L + reg) + (G_R * G_R) / (H_R + reg) - (G * G) / (H + reg));
       }
       if (gain > thread_best_gain) {
         thread_best_gain           = gain;
@@ -222,8 +229,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
       int left_child                         = global_node_id * 2 + 1;
       int right_child                        = left_child + 1;
-      tree_leaf_value[{left_child, output}]  = -G_L / H_L;
-      tree_leaf_value[{right_child, output}] = -G_R / H_R;
+      tree_leaf_value[{left_child, output}]  = CalculateLeafValue(G_L, H_L, alpha);
+      tree_leaf_value[{right_child, output}] = CalculateLeafValue(G_R, H_R, alpha);
       tree_hessian[{left_child, output}]     = H_L;
       tree_hessian[{right_child, output}]    = H_R;
       tree_gradient[{left_child, output}]    = G_L;
@@ -264,7 +271,7 @@ struct Tree {
   }
 
   template <typename THRUST_POLICY>
-  void InitializeBase(double* base_sums, const THRUST_POLICY& thrust_exec_policy)
+  void InitializeBase(double* base_sums, const THRUST_POLICY& thrust_exec_policy, double alpha)
   {
     std::vector<double> base_sums_host(2 * num_outputs);
     CHECK_CUDA(cudaMemcpyAsync(base_sums_host.data(),
@@ -291,7 +298,8 @@ struct Tree {
 
     std::vector<double> leaf_value_init(num_outputs);
     for (auto i = 0; i < num_outputs; ++i) {
-      leaf_value_init[i] = (-base_sums_host[i] / base_sums_host[i + num_outputs]);
+      leaf_value_init[i] =
+        CalculateLeafValue(base_sums_host[i], base_sums_host[i + num_outputs], alpha);
     }
     CHECK_CUDA(cudaMemcpyAsync(leaf_value.ptr({0, 0}),
                                leaf_value_init.data(),
@@ -471,7 +479,10 @@ struct TreeLevelInfo {
   }
 
   template <typename TYPE>
-  void PerformBestSplit(Tree& tree, legate::AccessorRO<TYPE, 2> split_proposal, double eps)
+  void PerformBestSplit(Tree& tree,
+                        legate::AccessorRO<TYPE, 2> split_proposal,
+                        double eps,
+                        double alpha)
   {
     perform_best_split<<<(1 << current_depth), THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
                                                                                num_features,
@@ -479,6 +490,7 @@ struct TreeLevelInfo {
                                                                                split_proposal,
                                                                                samples_per_feature,
                                                                                eps,
+                                                                               alpha,
                                                                                tree.leaf_value,
                                                                                tree.gradient,
                                                                                tree.hessian,
@@ -553,6 +565,7 @@ struct build_tree_fn {
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();
     auto max_nodes = context.scalars().at(1).value<int>();
+    auto alpha     = context.scalars().at(2).value<double>();
 
     auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
@@ -569,7 +582,7 @@ struct build_tree_fn {
       SumAllReduce(context, reinterpret_cast<double*>(base_sums.ptr(0)), num_outputs * 2, stream);
 
       // base sums contain g-sums first, h sums second
-      tree.InitializeBase(base_sums.ptr(0), thrust_exec_policy);
+      tree.InitializeBase(base_sums.ptr(0), thrust_exec_policy, alpha);
 
       base_sums.destroy();
       CHECK_CUDA_STREAM(stream);
@@ -599,7 +612,7 @@ struct build_tree_fn {
 
       // Select the best split
       double eps = 1e-5;
-      tree_state.PerformBestSplit(tree, split_proposal_accessor, eps);
+      tree_state.PerformBestSplit(tree, split_proposal_accessor, eps, alpha);
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);

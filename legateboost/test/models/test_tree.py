@@ -35,3 +35,18 @@ def test_improving_with_depth(num_outputs):
 
     assert non_increasing(metrics)
     assert metrics[-1] < metrics[0]
+
+
+def test_alpha():
+    X = cn.random.random((2, 1))
+    y = cn.array([500.0, 500.0])
+    alpha = 10.0
+    model = lb.LBRegressor(
+        init=None,
+        base_models=(lb.models.Tree(alpha=alpha, max_depth=0),),
+        learning_rate=1.0,
+        n_estimators=1,
+        random_state=0,
+    )
+    model.fit(X, y)
+    assert model.predict(X)[0] == y.sum() / (y.size + alpha)
