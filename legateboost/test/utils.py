@@ -16,6 +16,7 @@ def sanity_check_models(model):
     trees = [m for m in model.models_ if isinstance(m, lb.models.Tree)]
     linear_models = [m for m in model.models_ if isinstance(m, lb.models.Linear)]
     krr_models = [m for m in model.models_ if isinstance(m, lb.models.KRR)]
+    nn_models = [m for m in model.models_ if isinstance(m, lb.models.NN)]
 
     for m in trees:
         # Check that we have no 0 hessian splits
@@ -32,6 +33,11 @@ def sanity_check_models(model):
 
     for m in linear_models:
         assert cn.isfinite(m.betas_).all()
+
+    for m in nn_models:
+        for c, b in zip(m.coefficients_, m.biases_):
+            assert cn.isfinite(c).all()
+            assert cn.isfinite(b).all()
 
     for m in krr_models:
         assert cn.isfinite(m.betas_).all()

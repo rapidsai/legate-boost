@@ -16,12 +16,14 @@ set(BUILD_SHARED_LIBS ON)
 # Not required. We will build it if not found.
 find_package(legateboost QUIET)
 find_package(legate_core REQUIRED)
+find_package(BLAS REQUIRED)
 
 legate_add_cpp_subdirectory(src TARGET legateboost EXPORT legateboost-export)
 
 legate_add_cffi(${CMAKE_SOURCE_DIR}/src/legateboost.h TARGET legateboost)
 legate_python_library_template(legateboost)
 legate_default_python_install(legateboost EXPORT legateboost-export)
+
 
 if (SANITIZE)
   message(STATUS "Adding sanitizer flags")

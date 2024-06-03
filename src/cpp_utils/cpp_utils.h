@@ -54,6 +54,15 @@ void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
 }
 #define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
 
+template <typename T, int NDIM, bool assert_row_major = true>
+std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
+  legate::PhysicalStore store)
+{
+  auto shape    = store.shape<NDIM>();
+  auto accessor = store.read_accessor<T, NDIM, true>();
+  return std::make_tuple(store, shape, accessor);
+}
+
 template <typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
