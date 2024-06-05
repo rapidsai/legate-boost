@@ -145,11 +145,6 @@ struct GainFeaturePair {
   __device__ bool operator<(const GainFeaturePair& other) const { return gain < other.gain; }
 };
 
-__host__ __device__ inline double CalculateLeafValue(double G, double H, double alpha)
-{
-  return -G / (H + alpha);
-}
-
 template <typename TYPE>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   perform_best_split(legate::Buffer<GPair, 4> histogram,

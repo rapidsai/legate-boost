@@ -151,7 +151,7 @@ class Tree(BaseModel):
         X_ = get_store(X).promote(2, g.shape[1])
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
-        task.add_scalar_arg(self.max_depth, types.int32)
+        task.add_scalar_arg(self.alpha, types.float64)
         task.add_input(X_)
         task.add_broadcast(X_, 1)
         task.add_input(g_)

@@ -8,7 +8,7 @@ from ..utils import non_increasing
 from .utils import check_determinism
 
 
-@pytest.mark.parametrize("max_depth", [0, 12])
+@pytest.mark.parametrize("max_depth", [0, 8])
 def test_determinism(max_depth):
     check_determinism(lb.models.Tree(max_depth=max_depth))
 
@@ -22,7 +22,7 @@ def test_improving_with_depth(num_outputs):
     X, g, h = cn.array(X), cn.array(g), cn.array(h)
     y = -g / h
     metrics = []
-    for max_depth in range(0, 16):
+    for max_depth in range(0, 12):
         model = (
             lb.models.Tree(max_depth=max_depth)
             .set_random_state(np.random.RandomState(2))

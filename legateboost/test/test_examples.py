@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from legate.core import TaskTarget, get_legate_runtime
+
 dirname = Path(__file__).parent
 example_dir = dirname / "../../examples"
 sys.path.append(str(example_dir))
@@ -26,7 +28,11 @@ def test_examples(path):
 notebooks = list(noteboook_dir.glob("*.ipynb"))
 
 
+using_gpu = get_legate_runtime().machine.count(TaskTarget.GPU) > 0
+
+
 @pytest.mark.parametrize("path", notebooks, ids=[str(e) for e in notebooks])
+@pytest.mark.skipif(not using_gpu, reason="Notebooks too slow without GPU")
 def test_notebooks(path):
     os.environ["CI"] = "1"
     # use nbconvert to convert notebook to python script

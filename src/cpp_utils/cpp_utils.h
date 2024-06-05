@@ -99,7 +99,6 @@ void SumAllReduce(legate::TaskContext context, T* x, int count)
          "Expected a CPU communicator for multi-rank task.");
   if (count == 0 || context.num_communicators() == 0) return;
   auto comm = context.communicator(0);
-  std::vector<T> gather_result(num_ranks * count);
   legate::comm::coll::CollDataType type;
   if (std::is_same<T, float>::value)
     type = legate::comm::coll::CollDataType::CollFloat;
@@ -109,12 +108,24 @@ void SumAllReduce(legate::TaskContext context, T* x, int count)
     EXPECT(false, "Unsupported type.");
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
-  auto result = legate::comm::coll::collAllgather(x, gather_result.data(), count, type, comm_ptr);
+  size_t items_per_rank = (count + num_ranks - 1) / num_ranks;
+  std::vector<T> data(items_per_rank * num_ranks);
+  std::copy(x, x + count, data.begin());
+  std::vector<T> recvbuf(items_per_rank * num_ranks);
+  auto result =
+    legate::comm::coll::collAlltoall(data.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
   EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
-  for (std::size_t j = 0; j < count; j++) { x[j] = 0.0; }
-  for (std::size_t i = 0; i < num_ranks; i++) {
-    for (std::size_t j = 0; j < count; j++) { x[j] += gather_result[i * count + j]; }
+
+  // Sum partials
+  std::vector<T> partials(items_per_rank, 0.0);
+  for (size_t j = 0; j < items_per_rank; j++) {
+    for (size_t i = 0; i < num_ranks; i++) { partials[j] += recvbuf[i * items_per_rank + j]; }
   }
+
+  result = legate::comm::coll::collAllgather(
+    partials.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
+  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
+  std::copy(recvbuf.begin(), recvbuf.begin() + count, x);
 }
 
 /**
