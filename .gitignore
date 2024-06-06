@@ -4,8 +4,6 @@ _skbuild
 *.egg-info
 legateboost/library.py
 legateboost/install_info.py
-src/legate_library.cc
-src/legate_library.h
 legate_prof*
 .hypothesis
 examples/notebook/*.py

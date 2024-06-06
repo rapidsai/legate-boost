@@ -1,5 +1,4 @@
 
-legate_cpp_library_template(legateboost TEMPLATE_SOURCES)
 if(Legion_USE_CUDA)
   rapids_find_generate_module(NCCL
     HEADER_NAMES  nccl.h
@@ -23,6 +22,8 @@ endif()
 set(legateboost_srcs
   legateboost
   legateboost.h
+  legate_library.cc
+  mapper.cc
 
   models/tree/build_tree.cc
   models/tree/update_tree.cc
@@ -45,7 +46,6 @@ endif()
 add_library(
   legateboost
   ${legateboost_srcs}
-  ${TEMPLATE_SOURCES}
 )
 
 set_target_properties(legateboost
