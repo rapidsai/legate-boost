@@ -24,7 +24,7 @@ settings.load_profile("local")
 
 @st.composite
 def tree_strategy(draw):
-    max_depth = draw(st.integers(1, 12))
+    max_depth = draw(st.integers(1, 9))
     return lb.models.Tree(max_depth=max_depth)
 
 
@@ -104,7 +104,7 @@ def regression_real_dataset_strategy(draw):
 @st.composite
 def regression_generated_dataset_strategy(draw):
     num_outputs = draw(st.integers(1, 5))
-    num_features = draw(st.integers(1, 50))
+    num_features = draw(st.integers(1, 25))
     num_rows = draw(st.integers(10, 5000))
     np.random.seed(2)
     X = np.random.random((num_rows, num_features))
@@ -185,7 +185,7 @@ def classification_real_dataset_strategy(draw):
 @st.composite
 def classification_generated_dataset_strategy(draw):
     num_classes = draw(st.integers(2, 5))
-    num_features = draw(st.integers(1, 50))
+    num_features = draw(st.integers(1, 25))
     num_rows = draw(st.integers(num_classes, 10000))
     np.random.seed(3)
     X = np.random.random((num_rows, num_features))

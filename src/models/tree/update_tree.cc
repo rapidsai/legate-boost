@@ -15,6 +15,7 @@
  */
 #include "legate_library.h"
 #include "legateboost.h"
+#include "build_tree.h"
 #include "../../cpp_utils/cpp_utils.h"
 
 namespace legateboost {
@@ -48,6 +49,8 @@ struct update_tree_fn {
     auto h_accessor             = h.read_accessor<double, 3>();
     const auto& split_proposals = context.input(3).data();
     EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
+
+    auto alpha = context.scalars().at(0).value<double>();
 
     // Tree structure
     auto feature     = context.input(3).data().read_accessor<int32_t, 1>();
@@ -95,7 +98,7 @@ struct update_tree_fn {
       for (int j = 0; j < num_outputs; j++) {
         auto H = new_hessian[{i, j}];
         if (H > 0.0) {
-          new_leaf_value[{i, j}] = -new_gradient[{i, j}] / H;
+          new_leaf_value[{i, j}] = CalculateLeafValue(new_gradient[{i, j}], H, alpha);
         } else {
           new_leaf_value[{i, j}] = 0.0;
         }

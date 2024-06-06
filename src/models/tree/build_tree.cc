@@ -110,31 +110,50 @@ struct GradientHistogram {
   // Dimensions
   // 0. Depth
   // 1. Feature
-  // 2. Output
-  legate::Buffer<GPair, 3> gradient_sums;
+  // 2. Bin
+  // 3. Output
+  legate::Buffer<GPair, 4> gradient_sums;
   int size;
   int num_features;
   int depth;
   int num_outputs;
+  int samples_per_feature;
 
-  GradientHistogram(int num_features, int depth, int num_outputs)
+  GradientHistogram(int num_features, int depth, int num_outputs, int samples_per_feature)
     : num_features(num_features),
       depth(depth),
+      samples_per_feature(samples_per_feature),
       num_outputs(num_outputs),
-      size((1 << depth) * num_features * num_outputs),
-      gradient_sums(legate::create_buffer<GPair, 3>({1 << depth, num_features, num_outputs}))
+      size((1 << depth) * num_features * num_outputs * samples_per_feature),
+      gradient_sums(legate::create_buffer<GPair, 4>(
+        {1 << depth, num_features, samples_per_feature, num_outputs}))
   {
-    auto ptr = gradient_sums.ptr({0, 0, 0});
+    auto ptr = gradient_sums.ptr({0, 0, 0, 0});
     std::fill(ptr, ptr + size, GPair{0.0, 0.0});
   }
-  void Add(int feature, int position_in_level, int output, GPair g)
+  ~GradientHistogram() { gradient_sums.destroy(); }
+  void Add(int position_in_level, int feature, int bin_idx, int output, GPair g)
   {
-    gradient_sums[{position_in_level, feature, output}] += g;
+    gradient_sums[{position_in_level, feature, bin_idx, output}] += g;
   }
-  GPair Get(int feature, int position, int output)
+  GPair Get(int feature, int position, int output, int bin_idx)
   {
     int position_in_level = position - ((1 << depth) - 1);
-    return gradient_sums[{position_in_level, feature, output}];
+    return gradient_sums[{position_in_level, feature, bin_idx, output}];
+  }
+  void Scan()
+  {
+    for (int feature = 0; feature < num_features; feature++) {
+      for (int node_id = 0; node_id < 1 << depth; node_id++) {
+        for (int output = 0; output < num_outputs; output++) {
+          GPair sum = {0.0, 0.0};
+          for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
+            sum += gradient_sums[{node_id, feature, bin_idx, output}];
+            gradient_sums[{node_id, feature, bin_idx, output}] = sum;
+          }
+        }
+      }
+    }
   }
 };
 
@@ -142,30 +161,27 @@ struct build_tree_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
-    const auto& X   = context.input(0).data();
-    auto X_shape    = X.shape<3>();  // 3rd dimension is unused
-    auto X_accessor = X.read_accessor<T, 3>();
+    auto [X, X_shape, X_accessor] = GetInputStore<T, 3>(context.input(0).data());
+    auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(1).data());
+    auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
+    auto [split_proposals, split_proposals_shape, split_proposals_accessor] =
+      GetInputStore<T, 2>(context.input(3).data());
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
+    EXPECT_DENSE_ROW_MAJOR(split_proposals_accessor.accessor, split_proposals_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
-    const auto& g     = context.input(1).data();  // 2nd dimension is unused
-    const auto& h     = context.input(2).data();  // 2nd dimension is unused
-    EXPECT_AXIS_ALIGNED(0, X.shape<3>(), g.shape<3>());
-    EXPECT_AXIS_ALIGNED(0, g.shape<3>(), h.shape<3>());
-    EXPECT_AXIS_ALIGNED(1, g.shape<3>(), h.shape<3>());
-    auto g_shape                = context.input(1).data().shape<3>();
-    auto num_outputs            = g.shape<3>().hi[2] - g.shape<3>().lo[2] + 1;
-    auto g_accessor             = g.read_accessor<double, 3>();
-    auto h_accessor             = h.read_accessor<double, 3>();
-    const auto& split_proposals = context.input(3).data();
-    EXPECT_AXIS_ALIGNED(1, split_proposals.shape<2>(), X.shape<3>());
-    auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
-    EXPECT_DENSE_ROW_MAJOR(split_proposal_accessor.accessor, split_proposals.shape<2>());
+    EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
+    EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
+    EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
+    auto num_outputs = g.shape<3>().hi[2] - g.shape<3>().lo[2] + 1;
+    EXPECT_IS_BROADCAST(split_proposals_shape);
+    auto samples_per_feature = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
     EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();
     auto max_nodes = context.scalars().at(1).value<int>();
+    auto alpha     = context.scalars().at(2).value<double>();
 
     Tree tree(max_nodes, num_outputs);
 
@@ -179,7 +195,7 @@ struct build_tree_fn {
     SumAllReduce(context, reinterpret_cast<double*>(base_sums.data()), num_outputs * 2);
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = base_sums[i];
-      tree.leaf_value[{0, i}] = -G / H;
+      tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, alpha);
       tree.gradient[{0, i}]   = G;
       tree.hessian[{0, i}]    = H;
     }
@@ -187,43 +203,60 @@ struct build_tree_fn {
     // Begin building the tree
     std::vector<int32_t> positions(num_rows);
     for (int64_t depth = 0; depth < max_depth; ++depth) {
-      GradientHistogram histogram(num_features, depth, num_outputs);
+      // Build the histogram
+      GradientHistogram histogram(num_features, depth, num_outputs, samples_per_feature);
       for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
         auto index_local = i - X_shape.lo[0];
         auto position    = positions[index_local];
         if (position < 0) continue;
         auto position_in_level = position - ((1 << depth) - 1);
         for (int64_t j = 0; j < num_features; j++) {
-          if (X_accessor[{i, j, 0}] <= split_proposal_accessor[{depth, j}]) {
+          auto x_value = X_accessor[{i, j, 0}];
+          int bin_idx  = std::lower_bound(split_proposals_accessor.ptr({j, 0}),
+                                         split_proposals_accessor.ptr({j, samples_per_feature}),
+                                         x_value) -
+                        split_proposals_accessor.ptr({j, 0});
+
+          if (bin_idx < samples_per_feature) {
             for (int64_t k = 0; k < num_outputs; ++k) {
-              histogram.Add(
-                j, position_in_level, k, GPair{g_accessor[{i, 0, k}], h_accessor[{i, 0, k}]});
+              histogram.Add(position_in_level,
+                            j,
+                            bin_idx,
+                            k,
+                            GPair{g_accessor[{i, 0, k}], h_accessor[{i, 0, k}]});
             }
           }
         }
       }
+
+      histogram.Scan();
       SumAllReduce(context,
-                   reinterpret_cast<double*>(histogram.gradient_sums.ptr({0, 0, 0})),
+                   reinterpret_cast<double*>(histogram.gradient_sums.ptr({0, 0, 0, 0})),
                    histogram.size * 2);
       // Find the best split
       double eps = 1e-5;
       for (int node_id = (1 << depth) - 1; node_id < (1 << (depth + 1)) - 1; node_id++) {
         double best_gain = 0;
         int best_feature = -1;
+        int best_bin     = -1;
         for (int feature = 0; feature < num_features; feature++) {
-          double gain = 0;
-          for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L] = histogram.Get(feature, node_id, output);
-            auto G          = tree.gradient[{node_id, output}];
-            auto H          = tree.hessian[{node_id, output}];
-            auto G_R        = G - G_L;
-            auto H_R        = H - H_L;
-            gain +=
-              0.5 * ((G_L * G_L) / (H_L + eps) + (G_R * G_R) / (H_R + eps) - (G * G) / (H + eps));
-          }
-          if (gain > best_gain) {
-            best_gain    = gain;
-            best_feature = feature;
+          for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
+            double gain = 0;
+            for (int output = 0; output < num_outputs; ++output) {
+              auto [G_L, H_L] = histogram.Get(feature, node_id, output, bin_idx);  // TODO: bin idx
+              auto G          = tree.gradient[{node_id, output}];
+              auto H          = tree.hessian[{node_id, output}];
+              auto G_R        = G - G_L;
+              auto H_R        = H - H_L;
+              double reg      = std::max(eps, alpha);  // Regularisation term
+              gain +=
+                0.5 * ((G_L * G_L) / (H_L + reg) + (G_R * G_R) / (H_R + reg) - (G * G) / (H + reg));
+            }
+            if (gain > best_gain) {
+              best_gain    = gain;
+              best_feature = feature;
+              best_bin     = bin_idx;
+            }
           }
         }
         if (best_gain > eps) {
@@ -234,13 +267,14 @@ struct build_tree_fn {
           std::vector<double> hessian_left(num_outputs);
           std::vector<double> hessian_right(num_outputs);
           for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L]        = histogram.Get(best_feature, node_id, output);
+            auto [G_L, H_L] =
+              histogram.Get(best_feature, node_id, output, best_bin);  // TODO: bin idx
             auto G                 = tree.gradient[{node_id, output}];
             auto H                 = tree.hessian[{node_id, output}];
             auto G_R               = G - G_L;
             auto H_R               = H - H_L;
-            left_leaf[output]      = -G_L / H_L;
-            right_leaf[output]     = -G_R / H_R;
+            left_leaf[output]      = CalculateLeafValue(G_L, H_L, alpha);
+            right_leaf[output]     = CalculateLeafValue(G_R, H_R, alpha);
             gradient_left[output]  = G_L;
             gradient_right[output] = G_R;
             hessian_left[output]   = H_L;
@@ -249,7 +283,7 @@ struct build_tree_fn {
           if (hessian_left[0] <= 0.0 || hessian_right[0] <= 0.0) continue;
           tree.AddSplit(node_id,
                         best_feature,
-                        split_proposal_accessor[{depth, best_feature}],
+                        split_proposals_accessor[{best_feature, best_bin}],
                         left_leaf,
                         right_leaf,
                         best_gain,
