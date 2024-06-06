@@ -90,7 +90,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
     // check if thread has actual work todo (besides taking part in reductions)
     int32_t localSampleId = (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
-    int32_t globalSampleId = localSampleId + sample_offset;
+    int64_t globalSampleId = localSampleId + sample_offset;
     bool validThread       = localSampleId < n_local_samples;
 
     int32_t sampleNode = validThread ? positions_local[localSampleId] - max_nodes_in_level + 1 : -1;
