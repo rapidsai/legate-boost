@@ -21,7 +21,8 @@ def test_init():
     assert cn.allclose(model.model_init_, y[0:50].mean(axis=0))
 
 
-def test_update():
+@pytest.mark.parametrize("init", [None, "average"])
+def test_update(init):
     np.random.seed(2)
     X = np.random.random((1000, 10))
     y = np.random.random((X.shape[0], 2))
@@ -30,9 +31,11 @@ def test_update():
 
     eval_result = {}
     model = lb.LBRegressor(
+        init=init,
         n_estimators=20,
         random_state=2,
         learning_rate=0.1,
+        base_models=(lb.models.Tree(alpha=2.0),),
     )
     # fit the model on a half dataset
     metric = lb.MSEMetric()

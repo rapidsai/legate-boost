@@ -19,11 +19,16 @@
 
 namespace legateboost {
 
+__host__ __device__ inline double CalculateLeafValue(double G, double H, double alpha)
+{
+  return -G / (H + alpha);
+}
+
 struct GPair {
   double grad = 0.0;
   double hess = 0.0;
 
-  GPair& operator+=(const GPair& b)
+  __host__ __device__ GPair& operator+=(const GPair& b)
   {
     this->grad += b.grad;
     this->hess += b.hess;

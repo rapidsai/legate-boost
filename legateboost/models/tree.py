@@ -17,9 +17,22 @@ class LegateBoostOpCode(IntEnum):
 
 
 class Tree(BaseModel):
-    """A structure of arrays representing a decision tree.
+    """Decision tree model for gradient boosting.
 
-    A leaf node has value -1 at feature[node_idx]
+    Instead of exhaustive search over all possible split values, a random sample
+    of size `split_samples` is taken from the dataset and used as split candidates.
+    The tree learner matches very closely a histogram type algorithm from
+    XGBoost/LightGBM, where the `split_samples` parameter can be tuned like
+    the number of bins.
+
+    Parameters
+    ----------
+    max_depth : int
+        The maximum depth of the tree.
+    split_samples : int
+        The number of data points to sample for each split decision.
+    alpha : float
+        The L2 regularization parameter.
     """
 
     leaf_value: cn.ndarray
@@ -45,9 +58,13 @@ class Tree(BaseModel):
 
     def __init__(
         self,
-        max_depth: int,
+        max_depth: int = 8,
+        split_samples: int = 256,
+        alpha: float = 1.0,
     ) -> None:
         self.max_depth = max_depth
+        self.split_samples = split_samples
+        self.alpha = alpha
 
     def fit(
         self,
@@ -57,9 +74,11 @@ class Tree(BaseModel):
     ) -> "Tree":
         # dont let legate create a future - make sure at least 2 sample rows
         sample_rows = cn.array(
-            self.random_state.randint(0, X.shape[0], max(2, self.max_depth))
+            self.random_state.randint(0, X.shape[0], max(2, self.split_samples)),
         )
         split_proposals = gather(X, sample_rows)
+        split_proposals.sort(axis=0)
+        split_proposals = split_proposals.T
 
         num_outputs = g.shape[1]
 
@@ -73,6 +92,10 @@ class Tree(BaseModel):
         h_ = get_store(h).promote(1, X.shape[1])
 
         task.add_scalar_arg(self.max_depth, types.int32)
+        max_nodes = 2 ** (self.max_depth + 1)
+        task.add_scalar_arg(max_nodes, types.int32)
+        task.add_scalar_arg(self.alpha, types.float64)
+
         task.add_input(X_)
         task.add_broadcast(X_, 1)
         task.add_input(g_)
@@ -83,8 +106,6 @@ class Tree(BaseModel):
         task.add_broadcast(get_store(split_proposals))
 
         # outputs
-        max_nodes = 2 ** (self.max_depth + 1)
-        task.add_scalar_arg(max_nodes, types.int32)
         leaf_value = get_legate_runtime().create_store(
             types.float64, (max_nodes, num_outputs)
         )
@@ -130,7 +151,7 @@ class Tree(BaseModel):
         X_ = get_store(X).promote(2, g.shape[1])
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
-        task.add_scalar_arg(self.max_depth, types.int32)
+        task.add_scalar_arg(self.alpha, types.float64)
         task.add_input(X_)
         task.add_broadcast(X_, 1)
         task.add_input(g_)

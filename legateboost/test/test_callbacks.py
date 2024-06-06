@@ -30,7 +30,7 @@ def test_early_stopping(regression_dataset):
         n_estimators=n_estimators,
         metric=m,
         learning_rate=0.5,
-        base_models=(lb.models.Tree(max_depth=16),),
+        base_models=(lb.models.Tree(max_depth=12),),
         callbacks=[cb],
         random_state=1,
     )
