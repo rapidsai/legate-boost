@@ -24,10 +24,10 @@ set(legateboost_srcs
   legateboost.h
   legate_library.cc
   mapper.cc
-
   models/tree/build_tree.cc
   models/tree/update_tree.cc
   models/tree/predict.cc
+  models/nn/build_nn.cc
   cpp_utils/cpp_utils.h
   cpp_utils/cpp_utils.cc
   utils/gather.cc
@@ -38,6 +38,7 @@ if(Legion_USE_CUDA)
     models/tree/predict.cu
     models/tree/build_tree.cu
     models/krr/rbf.cu
+    models/nn/build_nn.cu
     special/special.cu
     utils/gather.cu
   )
@@ -79,4 +80,4 @@ target_include_directories(legateboost
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(legateboost PRIVATE legate::core $<TARGET_NAME_IF_EXISTS:NCCL::NCCL>)
+target_link_libraries(legateboost PRIVATE legate::core BLAS::BLAS $<TARGET_NAME_IF_EXISTS:NCCL::NCCL> $<TARGET_NAME_IF_EXISTS:CUDA::cublas>)

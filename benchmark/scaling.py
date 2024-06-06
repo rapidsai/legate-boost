@@ -15,6 +15,8 @@ def train_model(X, y, model_type, args, dry_run=False):
         base_models = (lb.models.Linear(solver="lbfgs"),)
     elif model_type == "krr":
         base_models = (lb.models.KRR(sigma=1.0, n_components=2 if dry_run else 50),)
+    elif model_type == "nn":
+        base_models = (lb.models.NN(alpha=0.0, verbose=1),)
     model = lb.LBClassifier(
         base_models=base_models, n_estimators=2 if dry_run else args.niters
     ).fit(X, y)
@@ -101,7 +103,7 @@ def main():
         type=str,
         default="tree,linear,krr",
         help="Comma separated list of base model types."
-        " Can be 'tree', 'linear', 'krr'.",
+        " Can be 'tree', 'linear', 'krr', 'nn'.",
     )
     args = parser.parse_args()
     benchmark(args)
