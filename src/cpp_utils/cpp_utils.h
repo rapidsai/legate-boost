@@ -69,13 +69,18 @@ constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f
   throw std::runtime_error("Unsupported type.");
 }
 
-template <typename AccessorT, typename ShapeT>
+template <typename AccessorT, int N, typename T>
 void expect_dense_row_major(const AccessorT& accessor,
-                            const ShapeT& shape,
+                            const legate::Rect<N, T>& shape,
                             std::string file,
                             int line)
 {
-  expect(shape.empty() || accessor.is_dense_row_major(shape),
+  // workaround to check 'row-major' for more than 2 dimensions, with
+  // dim[i] being promoted with stride[i] == 0 for i > 1
+  auto shape_mod = shape;
+  for (int i = 2; i < N; ++i) shape_mod.hi[i] = 0;
+
+  expect(shape_mod.empty() || accessor.is_dense_row_major(shape_mod),
          "Expected a dense row major store",
          file,
          line);
