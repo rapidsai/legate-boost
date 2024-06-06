@@ -535,27 +535,20 @@ struct build_tree_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
-    const auto X      = context.input(0).data();
-    auto X_shape      = X.shape<3>();
-    auto X_accessor   = X.read_accessor<T, 3, true>();
+    auto [X, X_shape, X_accessor] = GetInputStore<T, 3>(context.input(0).data());
+    auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(1).data());
+    auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
+    auto [split_proposals, split_proposals_shape, split_proposals_accessor] =
+      GetInputStore<T, 2>(context.input(3).data());
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
     auto num_outputs  = X_shape.hi[2] - X_shape.lo[2] + 1;
-    const auto g      = context.input(1).data();
-    const auto h      = context.input(2).data();
-    auto g_shape      = g.shape<3>();
-    auto h_shape      = h.shape<3>();
     EXPECT(g_shape.lo[2] == 0, "Outputs should not be split between workers.");
     EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
-    auto g_accessor             = g.read_accessor<double, 3, true>();
-    auto h_accessor             = h.read_accessor<double, 3, true>();
-    const auto& split_proposals = context.input(3).data();
-    auto split_proposals_shape  = split_proposals.shape<2>();
     EXPECT_IS_BROADCAST(split_proposals_shape);
-    auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
-    auto samples_per_feature     = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
+    auto samples_per_feature = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
 
     // Scalars
     auto max_depth = context.scalars().at(0).value<int>();
@@ -597,7 +590,7 @@ struct build_tree_fn {
 
       // actual histogram creation
       tree_state.FillHistogram(
-        tree, X_accessor, X_shape, split_proposal_accessor, g_accessor, h_accessor);
+        tree, X_accessor, X_shape, split_proposals_accessor, g_accessor, h_accessor);
 
       SumAllReduce(
         context,
@@ -607,7 +600,7 @@ struct build_tree_fn {
 
       // Select the best split
       double eps = 1e-5;
-      tree_state.PerformBestSplit(tree, split_proposal_accessor, eps, alpha);
+      tree_state.PerformBestSplit(tree, split_proposals_accessor, eps, alpha);
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);

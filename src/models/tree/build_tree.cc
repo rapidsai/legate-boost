@@ -161,25 +161,19 @@ struct build_tree_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
-    const auto& X     = context.input(0).data();
-    auto X_shape      = X.shape<3>();  // 3rd dimension is unused
-    auto X_accessor   = X.read_accessor<T, 3>();
+    auto [X, X_shape, X_accessor] = GetInputStore<T, 3>(context.input(0).data());
+    auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(1).data());
+    auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
+    auto [split_proposals, split_proposals_shape, split_proposals_accessor] =
+      GetInputStore<T, 2>(context.input(3).data());
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
-    const auto& g     = context.input(1).data();  // 2nd dimension is unused
-    const auto& h     = context.input(2).data();  // 2nd dimension is unused
-    EXPECT_AXIS_ALIGNED(0, X.shape<3>(), g.shape<3>());
-    EXPECT_AXIS_ALIGNED(0, g.shape<3>(), h.shape<3>());
-    EXPECT_AXIS_ALIGNED(1, g.shape<3>(), h.shape<3>());
-    auto g_shape                = context.input(1).data().shape<3>();
-    auto num_outputs            = g.shape<3>().hi[2] - g.shape<3>().lo[2] + 1;
-    auto g_accessor             = g.read_accessor<double, 3>();
-    auto h_accessor             = h.read_accessor<double, 3>();
-    const auto& split_proposals = context.input(3).data();
-    auto split_proposals_shape  = split_proposals.shape<2>();
+    EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
+    EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
+    EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
+    auto num_outputs = g.shape<3>().hi[2] - g.shape<3>().lo[2] + 1;
     EXPECT_IS_BROADCAST(split_proposals_shape);
-    auto split_proposal_accessor = split_proposals.read_accessor<T, 2>();
-    auto samples_per_feature     = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
+    auto samples_per_feature = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
     EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
     // Scalars
@@ -216,10 +210,10 @@ struct build_tree_fn {
         auto position_in_level = position - ((1 << depth) - 1);
         for (int64_t j = 0; j < num_features; j++) {
           auto x_value = X_accessor[{i, j, 0}];
-          int bin_idx  = std::lower_bound(split_proposal_accessor.ptr({j, 0}),
-                                         split_proposal_accessor.ptr({j, samples_per_feature}),
+          int bin_idx  = std::lower_bound(split_proposals_accessor.ptr({j, 0}),
+                                         split_proposals_accessor.ptr({j, samples_per_feature}),
                                          x_value) -
-                        split_proposal_accessor.ptr({j, 0});
+                        split_proposals_accessor.ptr({j, 0});
 
           if (bin_idx < samples_per_feature) {
             for (int64_t k = 0; k < num_outputs; ++k) {
@@ -287,7 +281,7 @@ struct build_tree_fn {
           if (hessian_left[0] <= 0.0 || hessian_right[0] <= 0.0) continue;
           tree.AddSplit(node_id,
                         best_feature,
-                        split_proposal_accessor[{best_feature, best_bin}],
+                        split_proposals_accessor[{best_feature, best_bin}],
                         left_leaf,
                         right_leaf,
                         best_gain,
