@@ -55,7 +55,7 @@ struct gather_fn {
     if (host_samples) {
       CHECK_CUDA(cudaMemcpyAsync(samples_buffer.ptr(0),
                                  sample_row_host_ptr,
-                                 host_samples * sizeof(int64_t),
+                                 n_samples * sizeof(int64_t),
                                  cudaMemcpyHostToDevice,
                                  stream));
       sample_row_ptr = samples_buffer.ptr(0);
