@@ -540,6 +540,8 @@ struct build_tree_fn {
     auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
     auto [split_proposals, split_proposals_shape, split_proposals_accessor] =
       GetInputStore<T, 2>(context.input(3).data());
+    EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
+    EXPECT_DENSE_ROW_MAJOR(split_proposals_accessor.accessor, split_proposals_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
     auto num_outputs  = X_shape.hi[2] - X_shape.lo[2] + 1;

@@ -26,6 +26,7 @@ struct predict_fn {
     auto X          = context.input(0).data();
     auto X_shape    = X.shape<3>();
     auto X_accessor = X.read_accessor<T, 3>();
+    EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
 
     auto leaf_value  = context.input(1).data().read_accessor<double, 2>();
     auto feature     = context.input(2).data().read_accessor<int32_t, 1>();

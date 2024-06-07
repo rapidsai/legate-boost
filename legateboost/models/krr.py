@@ -170,7 +170,7 @@ class KRR(BaseModel):
         # samples from large population
         while len(selected) < usable_num_components:
             selected.add(self.random_state.randint(0, X.shape[0]))
-        return gather(X, cn.array(np.fromiter(selected, int, len(selected))))
+        return gather(X, tuple(np.fromiter(selected, int, len(selected))))
 
     def _fit_components(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> "KRR":
         if self.solver == "direct":
