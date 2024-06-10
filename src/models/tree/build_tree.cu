@@ -24,7 +24,6 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <thrust/execution_policy.h>
 #include <thrust/system/cuda/execution_policy.h>
-#include <thrust/sequence.h>
 #include <thrust/sort.h>
 #include <thrust/device_ptr.h>
 #include <thrust/count.h>
@@ -73,8 +72,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                              legate::AccessorRO<TYPE, 2> split_proposal,
                              int32_t samples_per_feature,
                              int32_t* positions_local,
-                             legate::Buffer<GPair, 4> histogram,
-                             int32_t max_nodes_in_level)
+                             legate::Buffer<GPair, 4> histogram)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
   // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
@@ -93,7 +91,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     int64_t globalSampleId = localSampleId + sample_offset;
     bool validThread       = localSampleId < n_local_samples;
 
-    int32_t sampleNode = validThread ? positions_local[localSampleId] - max_nodes_in_level + 1 : -1;
+    int32_t sampleNode = validThread ? positions_local[localSampleId] : -1;
 
     for (int32_t output = 0; output < n_outputs; output++) {
       double G = validThread ? g[{globalSampleId, 0, output}] : 0.0;
@@ -163,8 +161,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                      int depth)
 {
   // using one block per (level) node to have blockwise reductions
-  int node_id        = blockIdx.x;
-  int global_node_id = node_id + ((1 << depth) - 1);
+  int node_id = blockIdx.x + ((1 << depth) - 1);
 
   typedef cub::BlockReduce<GainFeaturePair, THREADS_PER_BLOCK> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
@@ -182,8 +179,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
          feature_sample_idx++) {
       double gain = 0;
       for (int output = 0; output < n_outputs; ++output) {
-        auto G          = tree_gradient[{global_node_id, output}];
-        auto H          = tree_hessian[{global_node_id, output}];
+        auto G          = tree_gradient[{node_id, output}];
+        auto H          = tree_hessian[{node_id, output}];
         auto [G_L, H_L] = histogram[{node_id, feature_id, feature_sample_idx, output}];
         auto G_R        = G - G_L;
         auto H_R        = H - H_L;
@@ -219,10 +216,10 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   if (node_best_gain > eps) {
     for (int output = threadIdx.x; output < n_outputs; output += blockDim.x) {
       auto [G_L, H_L] = histogram[{node_id, node_best_feature, node_best_feature_sample, output}];
-      auto G_R        = tree_gradient[{global_node_id, output}] - G_L;
-      auto H_R        = tree_hessian[{global_node_id, output}] - H_L;
+      auto G_R        = tree_gradient[{node_id, output}] - G_L;
+      auto H_R        = tree_hessian[{node_id, output}] - H_L;
 
-      int left_child                         = global_node_id * 2 + 1;
+      int left_child                         = node_id * 2 + 1;
       int right_child                        = left_child + 1;
       tree_leaf_value[{left_child, output}]  = CalculateLeafValue(G_L, H_L, alpha);
       tree_leaf_value[{right_child, output}] = CalculateLeafValue(G_R, H_R, alpha);
@@ -232,10 +229,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
       tree_gradient[{right_child, output}]   = G_R;
 
       if (output == 0) {
-        tree_feature[global_node_id] = node_best_feature;
-        tree_split_value[global_node_id] =
-          split_proposal[{node_best_feature, node_best_feature_sample}];
-        tree_gain[global_node_id] = node_best_gain;
+        tree_feature[node_id]     = node_best_feature;
+        tree_split_value[node_id] = split_proposal[{node_best_feature, node_best_feature_sample}];
+        tree_gain[node_id]        = node_best_gain;
       }
     }
   }
@@ -364,29 +360,6 @@ struct TreeLevelInfo {
       samples_per_feature(samples_per_feature)
   {
     positions = legate::create_buffer<int32_t>(num_rows);
-    sequence  = legate::create_buffer<int32_t>(num_rows);
-  }
-
-  ~TreeLevelInfo()
-  {
-    positions.destroy();
-    sequence.destroy();
-    if (cub_buffer_size > 0) cub_buffer.destroy();
-    if (current_depth >= 0) histogram_buffer.destroy();
-  }
-
-  template <typename THRUST_POLICY>
-  void InitializeHistogramForDepth(int32_t depth, const THRUST_POLICY& thrust_exec_policy)
-  {
-    if (current_depth < 0) {
-      // some initialization on first pass
-      CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
-      thrust::sequence(thrust_exec_policy, sequence.ptr(0), sequence.ptr(0) + num_rows);
-    } else {
-      histogram_buffer.destroy();
-    }
-    current_depth = depth;
-    int max_nodes = 1 << depth;
     histogram_buffer =
       legate::create_buffer<GPair, 4>({max_nodes, num_features, samples_per_feature, num_outputs});
     CHECK_CUDA(
@@ -394,6 +367,15 @@ struct TreeLevelInfo {
                       0,
                       max_nodes * num_features * samples_per_feature * num_outputs * sizeof(GPair),
                       stream));
+    // some initialization on first pass
+    CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
+  }
+
+  ~TreeLevelInfo()
+  {
+    positions.destroy();
+    histogram_buffer.destroy();
+    if (cub_buffer_size > 0) cub_buffer.destroy();
   }
 
   template <typename TYPE>
@@ -427,6 +409,7 @@ struct TreeLevelInfo {
                      legate::AccessorRO<double, 3> g,
                      legate::AccessorRO<double, 3> h)
   {
+    current_depth++;
     // TODO adjust kernel parameters dynamically
     constexpr size_t elements_per_thread = 1;
     constexpr size_t features_per_block  = 8;
@@ -434,7 +417,6 @@ struct TreeLevelInfo {
                             (THREADS_PER_BLOCK * elements_per_thread);
     const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
     dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
-    int num_nodes_level   = 1 << current_depth;
     fill_histogram_blockreduce<TYPE, elements_per_thread, features_per_block>
       <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
                                                      num_rows,
@@ -446,27 +428,27 @@ struct TreeLevelInfo {
                                                      split_proposal,
                                                      samples_per_feature,
                                                      positions.ptr(0),
-                                                     histogram_buffer,
-                                                     num_nodes_level);
+                                                     histogram_buffer);
     CHECK_CUDA_STREAM(stream);
 
     // Scan the histogram
     // Member variables must be explicity copy captured otherwise the lambda calls the this pointer
     // (illegal access)
+    int num_nodes_level = 1 << current_depth;
     LaunchN(num_features * num_nodes_level,
             stream,
             [                    =,
              num_features        = this->num_features,
              num_outputs         = this->num_outputs,
+             depth               = this->current_depth,
              samples_per_feature = this->samples_per_feature,
              histogram_buffer    = this->histogram_buffer] __device__(int idx) {
-              int node_idx    = idx / num_features;
+              int node_idx    = idx / num_features + ((1 << depth) - 1);
               int feature_idx = idx % num_features;
               for (int output = 0; output < num_outputs; output++) {
                 GPair sum = {0, 0};
                 for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
                   sum += histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
-                  // printf("sample_idx %d hess %lf\n", sample_idx, sum.hess);
                   histogram_buffer[{node_idx, feature_idx, sample_idx, output}] = sum;
                 }
               }
@@ -498,7 +480,6 @@ struct TreeLevelInfo {
 
   legate::Buffer<int32_t> positions;
   legate::Buffer<int32_t> positions_reordered;
-  legate::Buffer<int32_t> sequence;
   legate::Buffer<int32_t> indices_reordered;
   const int32_t num_rows;
   const int32_t num_features;
@@ -582,8 +563,6 @@ struct build_tree_fn {
 
     for (int depth = 0; depth < max_depth; ++depth) {
       int max_nodes = 1 << depth;
-
-      tree_state.InitializeHistogramForDepth(depth, thrust_exec_policy);
 
       // update positions from previous step
       tree_state.UpdatePositions(tree, X_accessor, X_shape);
