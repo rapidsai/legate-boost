@@ -32,6 +32,15 @@
 
 namespace legateboost {
 
+class BinaryTree {
+ public:
+  __host__ __device__ static int Parent(int i) { return (i - 1) / 2; }
+  __host__ __device__ static int LeftChild(int i) { return 2 * i + 1; }
+  __host__ __device__ static int RightChild(int i) { return 2 * i + 2; }
+  __host__ __device__ static int LevelBegin(int level) { return (1 << level) - 1; }
+  __host__ __device__ static int NodesInLevel(int level) { return 1 << level; }
+};
+
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
@@ -63,8 +72,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 // Compute the left sides - infer the right side
 __host__ __device__ bool ComputeHistogramBin(int node_id, int depth)
 {
-  int parent = (node_id - 1) >> 1;
-  return (node_id == 0 || node_id == parent * 2 + 1) && node_id >= 0;
+  return (node_id == 0 || node_id == BinaryTree::LeftChild(BinaryTree::Parent(node_id))) &&
+         node_id >= 0;
 }
 
 template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
@@ -171,7 +180,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                      int depth)
 {
   // using one block per (level) node to have blockwise reductions
-  int node_id = blockIdx.x + ((1 << depth) - 1);
+  int node_id = blockIdx.x + BinaryTree::LevelBegin(depth);
 
   typedef cub::BlockReduce<GainFeaturePair, THREADS_PER_BLOCK> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
@@ -228,8 +237,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
       auto G_R        = tree_gradient[{node_id, output}] - G_L;
       auto H_R        = tree_hessian[{node_id, output}] - H_L;
 
-      int left_child                         = node_id * 2 + 1;
-      int right_child                        = left_child + 1;
+      int left_child                         = BinaryTree::LeftChild(node_id);
+      int right_child                        = BinaryTree::RightChild(node_id);
       tree_leaf_value[{left_child, output}]  = CalculateLeafValue(G_L, H_L, alpha);
       tree_leaf_value[{right_child, output}] = CalculateLeafValue(G_R, H_R, alpha);
       tree_hessian[{left_child, output}]     = H_L;
@@ -444,69 +453,70 @@ struct TreeLevelInfo {
                                                      depth);
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
-    int level_start = (1 << depth) - 1;
-    SumAllReduce(context,
-                 reinterpret_cast<double*>(histogram_buffer.ptr({level_start, 0, 0, 0})),
-                 (1 << depth) * num_features * samples_per_feature * num_outputs * 2,
-                 stream);
+    SumAllReduce(
+      context,
+      reinterpret_cast<double*>(histogram_buffer.ptr({BinaryTree::LevelBegin(depth), 0, 0, 0})),
+      BinaryTree::NodesInLevel(depth) * num_features * samples_per_feature * num_outputs * 2,
+      stream);
 
     // Scan the histogram
     // Then do subtraction trick to infer right side from parent and left side
     // Member variables must be explicity copy captured otherwise the lambda calls the this pointer
     // (illegal access)
     // Process every second node on this level
-    int num_nodes_to_process = std::max((1 << depth) / 2, 1);
-    LaunchN(num_features * num_nodes_to_process,
-            stream,
-            [num_features        = this->num_features,
-             num_outputs         = this->num_outputs,
-             samples_per_feature = this->samples_per_feature,
-             histogram_buffer    = this->histogram_buffer,
-             depth               = depth] __device__(int idx) {
-              int level_begin = (1 << depth) - 1;
-              int node_idx    = ((idx / num_features) * 2) + level_begin;
-              int feature_idx = idx % num_features;
-              for (int output = 0; output < num_outputs; output++) {
-                // Scan left side
-                GPair sum = {0, 0};
-                for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
-                  sum += histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
-                  histogram_buffer[{node_idx, feature_idx, sample_idx, output}] = sum;
-                  sum = histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
-                }
-              }
-              if (depth == 0) return;
-              for (int output = 0; output < num_outputs; output++) {
-                // Infer right side
-                for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
-                  GPair left_sum = histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
-                  GPair parent_sum =
-                    histogram_buffer[{(node_idx - 1) >> 1, feature_idx, sample_idx, output}];
-                  GPair right_sum = parent_sum - left_sum;
-                  histogram_buffer[{node_idx + 1, feature_idx, sample_idx, output}] = right_sum;
-                }
-              }
-            });
+    int num_nodes_to_process = std::max(BinaryTree::NodesInLevel(depth) / 2, 1);
+    LaunchN(
+      num_features * num_nodes_to_process,
+      stream,
+      [num_features        = this->num_features,
+       num_outputs         = this->num_outputs,
+       samples_per_feature = this->samples_per_feature,
+       histogram_buffer    = this->histogram_buffer,
+       depth               = depth] __device__(int idx) {
+        int node_idx    = BinaryTree::LevelBegin(depth) + (idx / num_features) * 2;
+        int feature_idx = idx % num_features;
+        for (int output = 0; output < num_outputs; output++) {
+          // Scan left side
+          GPair sum = {0, 0};
+          for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
+            sum += histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
+            histogram_buffer[{node_idx, feature_idx, sample_idx, output}] = sum;
+            sum = histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
+          }
+        }
+        if (depth == 0) return;
+        for (int output = 0; output < num_outputs; output++) {
+          // Infer right side
+          for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
+            GPair left_sum = histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
+            GPair parent_sum =
+              histogram_buffer[{BinaryTree::Parent(node_idx), feature_idx, sample_idx, output}];
+            GPair right_sum = parent_sum - left_sum;
+            histogram_buffer[{node_idx + 1, feature_idx, sample_idx, output}] = right_sum;
+          }
+        }
+      });
   }
 
   template <typename TYPE>
   void PerformBestSplit(
     int depth, Tree& tree, legate::AccessorRO<TYPE, 2> split_proposal, double eps, double alpha)
   {
-    perform_best_split<<<(1 << depth), THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
-                                                                       num_features,
-                                                                       num_outputs,
-                                                                       split_proposal,
-                                                                       samples_per_feature,
-                                                                       eps,
-                                                                       alpha,
-                                                                       tree.leaf_value,
-                                                                       tree.gradient,
-                                                                       tree.hessian,
-                                                                       tree.feature,
-                                                                       tree.split_value,
-                                                                       tree.gain,
-                                                                       depth);
+    perform_best_split<<<BinaryTree::NodesInLevel(depth), THREADS_PER_BLOCK, 0, stream>>>(
+      histogram_buffer,
+      num_features,
+      num_outputs,
+      split_proposal,
+      samples_per_feature,
+      eps,
+      alpha,
+      tree.leaf_value,
+      tree.gradient,
+      tree.hessian,
+      tree.feature,
+      tree.split_value,
+      tree.gain,
+      depth);
     CHECK_CUDA_STREAM(stream);
   }
 
