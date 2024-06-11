@@ -36,6 +36,11 @@ struct GPair {
   }
 };
 
+inline __host__ __device__ GPair operator-(const GPair& a, const GPair& b)
+{
+  return GPair{a.grad - b.grad, a.hess - b.hess};
+}
+
 class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
  public:
   static void cpu_variant(legate::TaskContext context);

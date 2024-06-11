@@ -60,19 +60,27 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   }
 }
 
+// Compute the left sides - infer the right side
+__host__ __device__ bool ComputeHistogramBin(int node_id, int depth)
+{
+  int parent = (node_id - 1) >> 1;
+  return (node_id == 0 || node_id == parent * 2 + 1) && node_id >= 0;
+}
+
 template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  fill_histogram_blockreduce(legate::AccessorRO<TYPE, 3> X,
-                             size_t n_local_samples,
-                             size_t n_features,
-                             int64_t sample_offset,
-                             legate::AccessorRO<double, 3> g,
-                             legate::AccessorRO<double, 3> h,
-                             size_t n_outputs,
-                             legate::AccessorRO<TYPE, 2> split_proposal,
-                             int32_t samples_per_feature,
-                             int32_t* positions_local,
-                             legate::Buffer<GPair, 4> histogram)
+  fill_histogram(legate::AccessorRO<TYPE, 3> X,
+                 size_t n_local_samples,
+                 size_t n_features,
+                 int64_t sample_offset,
+                 legate::AccessorRO<double, 3> g,
+                 legate::AccessorRO<double, 3> h,
+                 size_t n_outputs,
+                 legate::AccessorRO<TYPE, 2> split_proposal,
+                 int32_t samples_per_feature,
+                 int32_t* positions_local,
+                 legate::Buffer<GPair, 4> histogram,
+                 int depth)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
   // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
@@ -86,19 +94,21 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     // within each iteration a (THREADS_PER_BLOCK, FEATURES_PER_BLOCK)-block of
     // data from X is processed.
 
-    // check if thread has actual work todo (besides taking part in reductions)
+    // check if thread has actual work to do
     int32_t localSampleId = (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
     int64_t globalSampleId = localSampleId + sample_offset;
     bool validThread       = localSampleId < n_local_samples;
+    if (!validThread) continue;
 
-    int32_t sampleNode = validThread ? positions_local[localSampleId] : -1;
+    int32_t sampleNode    = positions_local[localSampleId];
+    bool computeHistogram = ComputeHistogramBin(sampleNode, depth);
 
     for (int32_t output = 0; output < n_outputs; output++) {
-      double G = validThread ? g[{globalSampleId, 0, output}] : 0.0;
-      double H = validThread ? h[{globalSampleId, 0, output}] : 0.0;
+      double G = g[{globalSampleId, 0, output}];
+      double H = h[{globalSampleId, 0, output}];
       for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
-        if (feature < n_features && validThread && sampleNode >= 0) {
+        if (computeHistogram && feature < n_features) {
           auto x_value = X[{globalSampleId, feature, 0}];
           int bin_idx  = thrust::lower_bound(thrust::seq,
                                             split_proposal.ptr({feature, 0}),
@@ -212,7 +222,6 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   }
   __syncthreads();
 
-  // from here on we need the global node id
   if (node_best_gain > eps) {
     for (int output = threadIdx.x; output < n_outputs; output += blockDim.x) {
       auto [G_L, H_L] = histogram[{node_id, node_best_feature, node_best_feature_sample, output}];
@@ -379,45 +388,48 @@ struct TreeLevelInfo {
   }
 
   template <typename TYPE>
-  void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 3> X, legate::Rect<3> X_shape)
+  void UpdatePositions(int depth,
+                       Tree& tree,
+                       legate::AccessorRO<TYPE, 3> X,
+                       legate::Rect<3> X_shape)
   {
-    if (current_depth > 0) {
-      auto tree_split_value_ptr    = tree.split_value.ptr(0);
-      auto tree_feature_ptr        = tree.feature.ptr(0);
-      auto positions_ptr           = positions.ptr(0);
-      auto max_nodes_              = this->max_nodes;
-      auto update_positions_lambda = [=] __device__(size_t idx) {
-        int32_t& pos = positions_ptr[idx];
-        if (pos < 0 || pos >= max_nodes_ || tree_feature_ptr[pos] == -1) {
-          pos = -1;
-          return;
-        }
-        double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos], 0}];
-        bool left      = x_value <= tree_split_value_ptr[pos];
-        pos            = left ? 2 * pos + 1 : 2 * pos + 2;
-      };
-      LaunchN(num_rows, stream, update_positions_lambda);
-      CHECK_CUDA_STREAM(stream);
-    }
+    if (depth == 0) return;
+    auto tree_split_value_ptr    = tree.split_value.ptr(0);
+    auto tree_feature_ptr        = tree.feature.ptr(0);
+    auto positions_ptr           = positions.ptr(0);
+    auto max_nodes_              = this->max_nodes;
+    auto update_positions_lambda = [=] __device__(size_t idx) {
+      int32_t& pos = positions_ptr[idx];
+      if (pos < 0 || pos >= max_nodes_ || tree_feature_ptr[pos] == -1) {
+        pos = -1;
+        return;
+      }
+      double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos], 0}];
+      bool left      = x_value <= tree_split_value_ptr[pos];
+      pos            = left ? 2 * pos + 1 : 2 * pos + 2;
+    };
+    LaunchN(num_rows, stream, update_positions_lambda);
+    CHECK_CUDA_STREAM(stream);
   }
 
   template <typename TYPE>
-  void FillHistogram(Tree& tree,
-                     legate::AccessorRO<TYPE, 3> X,
-                     legate::Rect<3> X_shape,
-                     legate::AccessorRO<TYPE, 2> split_proposal,
-                     legate::AccessorRO<double, 3> g,
-                     legate::AccessorRO<double, 3> h)
+  void ComputeHistogram(int depth,
+                        legate::TaskContext context,
+                        Tree& tree,
+                        legate::AccessorRO<TYPE, 3> X,
+                        legate::Rect<3> X_shape,
+                        legate::AccessorRO<TYPE, 2> split_proposal,
+                        legate::AccessorRO<double, 3> g,
+                        legate::AccessorRO<double, 3> h)
   {
-    current_depth++;
     // TODO adjust kernel parameters dynamically
-    constexpr size_t elements_per_thread = 1;
-    constexpr size_t features_per_block  = 8;
+    constexpr size_t elements_per_thread = 8;
+    constexpr size_t features_per_block  = 16;
     const size_t blocks_x = (num_rows + THREADS_PER_BLOCK * elements_per_thread - 1) /
                             (THREADS_PER_BLOCK * elements_per_thread);
     const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
     dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
-    fill_histogram_blockreduce<TYPE, elements_per_thread, features_per_block>
+    fill_histogram<TYPE, elements_per_thread, features_per_block>
       <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
                                                      num_rows,
                                                      num_features,
@@ -428,53 +440,73 @@ struct TreeLevelInfo {
                                                      split_proposal,
                                                      samples_per_feature,
                                                      positions.ptr(0),
-                                                     histogram_buffer);
+                                                     histogram_buffer,
+                                                     depth);
     CHECK_CUDA_STREAM(stream);
+    static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
+    int level_start = (1 << depth) - 1;
+    SumAllReduce(context,
+                 reinterpret_cast<double*>(histogram_buffer.ptr({level_start, 0, 0, 0})),
+                 (1 << depth) * num_features * samples_per_feature * num_outputs * 2,
+                 stream);
 
     // Scan the histogram
+    // Then do subtraction trick to infer right side from parent and left side
     // Member variables must be explicity copy captured otherwise the lambda calls the this pointer
     // (illegal access)
-    int num_nodes_level = 1 << current_depth;
-    LaunchN(num_features * num_nodes_level,
+    // Process every second node on this level
+    int num_nodes_to_process = std::max((1 << depth) / 2, 1);
+    LaunchN(num_features * num_nodes_to_process,
             stream,
-            [                    =,
-             num_features        = this->num_features,
+            [num_features        = this->num_features,
              num_outputs         = this->num_outputs,
-             depth               = this->current_depth,
              samples_per_feature = this->samples_per_feature,
-             histogram_buffer    = this->histogram_buffer] __device__(int idx) {
-              int node_idx    = idx / num_features + ((1 << depth) - 1);
+             histogram_buffer    = this->histogram_buffer,
+             depth               = depth] __device__(int idx) {
+              int level_begin = (1 << depth) - 1;
+              int node_idx    = ((idx / num_features) * 2) + level_begin;
               int feature_idx = idx % num_features;
               for (int output = 0; output < num_outputs; output++) {
+                // Scan left side
                 GPair sum = {0, 0};
                 for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
                   sum += histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
                   histogram_buffer[{node_idx, feature_idx, sample_idx, output}] = sum;
+                  sum = histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
+                }
+              }
+              if (depth == 0) return;
+              for (int output = 0; output < num_outputs; output++) {
+                // Infer right side
+                for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
+                  GPair left_sum = histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
+                  GPair parent_sum =
+                    histogram_buffer[{(node_idx - 1) >> 1, feature_idx, sample_idx, output}];
+                  GPair right_sum = parent_sum - left_sum;
+                  histogram_buffer[{node_idx + 1, feature_idx, sample_idx, output}] = right_sum;
                 }
               }
             });
   }
 
   template <typename TYPE>
-  void PerformBestSplit(Tree& tree,
-                        legate::AccessorRO<TYPE, 2> split_proposal,
-                        double eps,
-                        double alpha)
+  void PerformBestSplit(
+    int depth, Tree& tree, legate::AccessorRO<TYPE, 2> split_proposal, double eps, double alpha)
   {
-    perform_best_split<<<(1 << current_depth), THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
-                                                                               num_features,
-                                                                               num_outputs,
-                                                                               split_proposal,
-                                                                               samples_per_feature,
-                                                                               eps,
-                                                                               alpha,
-                                                                               tree.leaf_value,
-                                                                               tree.gradient,
-                                                                               tree.hessian,
-                                                                               tree.feature,
-                                                                               tree.split_value,
-                                                                               tree.gain,
-                                                                               current_depth);
+    perform_best_split<<<(1 << depth), THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
+                                                                       num_features,
+                                                                       num_outputs,
+                                                                       split_proposal,
+                                                                       samples_per_feature,
+                                                                       eps,
+                                                                       alpha,
+                                                                       tree.leaf_value,
+                                                                       tree.gradient,
+                                                                       tree.hessian,
+                                                                       tree.feature,
+                                                                       tree.split_value,
+                                                                       tree.gain,
+                                                                       depth);
     CHECK_CUDA_STREAM(stream);
   }
 
@@ -491,7 +523,6 @@ struct TreeLevelInfo {
   size_t cub_buffer_size = 0;
 
   legate::Buffer<GPair, 4> histogram_buffer;
-  int32_t current_depth = -1;
 
   cudaStream_t stream;
 };
@@ -562,24 +593,22 @@ struct build_tree_fn {
       num_rows, num_features, num_outputs, stream, tree.max_nodes, samples_per_feature);
 
     for (int depth = 0; depth < max_depth; ++depth) {
-      int max_nodes = 1 << depth;
-
       // update positions from previous step
-      tree_state.UpdatePositions(tree, X_accessor, X_shape);
+      tree_state.UpdatePositions(depth, tree, X_accessor, X_shape);
 
       // actual histogram creation
-      tree_state.FillHistogram(
-        tree, X_accessor, X_shape, split_proposals_accessor, g_accessor, h_accessor);
-
-      SumAllReduce(
-        context,
-        reinterpret_cast<double*>(tree_state.histogram_buffer.ptr(legate::Point<4>::ZEROES())),
-        max_nodes * num_features * num_outputs * sizeof(GPair),
-        stream);
+      tree_state.ComputeHistogram(depth,
+                                  context,
+                                  tree,
+                                  X_accessor,
+                                  X_shape,
+                                  split_proposals_accessor,
+                                  g_accessor,
+                                  h_accessor);
 
       // Select the best split
       double eps = 1e-5;
-      tree_state.PerformBestSplit(tree, split_proposals_accessor, eps, alpha);
+      tree_state.PerformBestSplit(depth, tree, split_proposals_accessor, eps, alpha);
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);
