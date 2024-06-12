@@ -29,6 +29,9 @@
 #include <thrust/count.h>
 #include <thrust/version.h>
 #include <thrust/binary_search.h>
+#include <cooperative_groups.h>
+#include <cooperative_groups/scan.h>
+namespace cg = cooperative_groups;
 
 namespace legateboost {
 
@@ -138,6 +141,63 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   }
 }
 
+__global__ static void __launch_bounds__(THREADS_PER_BLOCK)
+  scan_kernel(legate::Buffer<GPair, 4> histogram,
+              int n_features,
+              int n_outputs,
+              int samples_per_feature,
+              int depth,
+              int num_nodes_to_process)
+
+{
+  auto warp = cg::tiled_partition<32>(cg::this_thread_block());
+  int rank  = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+  int i     = rank / num_nodes_to_process;
+  int j     = rank % num_nodes_to_process;
+
+  // Specialize WarpScan for type int
+  typedef cub::WarpScan<GPair> WarpScan;
+
+  __shared__ typename WarpScan::TempStorage temp_storage[THREADS_PER_BLOCK / 32];
+
+  if (i >= n_features) return;
+
+  int node_idx    = BinaryTree::LevelBegin(depth) + j * 2;
+  int feature_idx = i;
+
+  int num_tiles = (samples_per_feature + warp.num_threads() - 1) / warp.num_threads();
+
+  for (int output = 0; output < n_outputs; output++) {
+    GPair aggregate;
+    // Scan left side
+    for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
+      int sample_idx           = tile_idx * warp.num_threads() + warp.thread_rank();
+      bool thread_participates = sample_idx < samples_per_feature;
+      auto e =
+        thread_participates ? histogram[{node_idx, feature_idx, sample_idx, output}] : GPair{0, 0};
+      GPair tile_aggregate;
+      WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
+      __syncwarp();
+      if (thread_participates) {
+        histogram[{node_idx, feature_idx, sample_idx, output}] = e + aggregate;
+      }
+      aggregate += tile_aggregate;
+    }
+  }
+
+  if (depth == 0) return;
+
+  for (int output = 0; output < n_outputs; output++) {
+    // Infer right side
+    for (int sample_idx = warp.thread_rank(); sample_idx < samples_per_feature;
+         sample_idx += warp.num_threads()) {
+      GPair left_sum   = histogram[{node_idx, feature_idx, sample_idx, output}];
+      GPair parent_sum = histogram[{BinaryTree::Parent(node_idx), feature_idx, sample_idx, output}];
+      GPair right_sum  = parent_sum - left_sum;
+      histogram[{node_idx + 1, feature_idx, sample_idx, output}] = right_sum;
+    }
+  }
+}
 // Key/value pair to simplify reduction
 struct GainFeaturePair {
   double gain;
@@ -416,6 +476,8 @@ struct TreeLevelInfo {
       double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos], 0}];
       bool left      = x_value <= tree_split_value_ptr[pos];
       pos            = left ? 2 * pos + 1 : 2 * pos + 2;
+      // printf("Sample %d, feature %d, value %f, split value %f, left %d, pos %d\n", int(idx),
+      // tree_feature_ptr[pos], x_value, tree_split_value_ptr[pos], int(left), int(pos));
     };
     LaunchN(num_rows, stream, update_positions_lambda);
     CHECK_CUDA_STREAM(stream);
@@ -459,43 +521,20 @@ struct TreeLevelInfo {
       BinaryTree::NodesInLevel(depth) * num_features * samples_per_feature * num_outputs * 2,
       stream);
 
+    const int num_nodes_to_process = std::max(BinaryTree::NodesInLevel(depth) / 2, 1);
+    const size_t warps_needed      = num_features * num_nodes_to_process;
+    const size_t warps_per_block   = THREADS_PER_BLOCK / 32;
+    const size_t blocks_needed     = (warps_needed + warps_per_block - 1) / warps_per_block;
+
     // Scan the histogram
     // Then do subtraction trick to infer right side from parent and left side
-    // Member variables must be explicity copy captured otherwise the lambda calls the this pointer
-    // (illegal access)
-    // Process every second node on this level
-    int num_nodes_to_process = std::max(BinaryTree::NodesInLevel(depth) / 2, 1);
-    LaunchN(
-      num_features * num_nodes_to_process,
-      stream,
-      [num_features        = this->num_features,
-       num_outputs         = this->num_outputs,
-       samples_per_feature = this->samples_per_feature,
-       histogram_buffer    = this->histogram_buffer,
-       depth               = depth] __device__(int idx) {
-        int node_idx    = BinaryTree::LevelBegin(depth) + (idx / num_features) * 2;
-        int feature_idx = idx % num_features;
-        for (int output = 0; output < num_outputs; output++) {
-          // Scan left side
-          GPair sum = {0, 0};
-          for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
-            sum += histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
-            histogram_buffer[{node_idx, feature_idx, sample_idx, output}] = sum;
-            sum = histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
-          }
-        }
-        if (depth == 0) return;
-        for (int output = 0; output < num_outputs; output++) {
-          // Infer right side
-          for (int sample_idx = 0; sample_idx < samples_per_feature; sample_idx++) {
-            GPair left_sum = histogram_buffer[{node_idx, feature_idx, sample_idx, output}];
-            GPair parent_sum =
-              histogram_buffer[{BinaryTree::Parent(node_idx), feature_idx, sample_idx, output}];
-            GPair right_sum = parent_sum - left_sum;
-            histogram_buffer[{node_idx + 1, feature_idx, sample_idx, output}] = right_sum;
-          }
-        }
-      });
+    scan_kernel<<<blocks_needed, THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
+                                                                 num_features,
+                                                                 num_outputs,
+                                                                 samples_per_feature,
+                                                                 depth,
+                                                                 num_nodes_to_process);
+    CHECK_CUDA_STREAM(stream);
   }
 
   template <typename TYPE>
