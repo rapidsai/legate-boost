@@ -131,7 +131,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
           // bin_idx is the first sample that is larger than x_value
           if (bin_idx < samples_per_feature) {
             double* addPosition =
-              reinterpret_cast<double*>(&histogram[{sampleNode, feature, bin_idx, output}]);
+              reinterpret_cast<double*>(&histogram[{sampleNode, feature, output, bin_idx}]);
             atomicAdd(addPosition, G);
             atomicAdd(addPosition + 1, H);
           }
@@ -174,12 +174,12 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
       int sample_idx           = tile_idx * warp.num_threads() + warp.thread_rank();
       bool thread_participates = sample_idx < samples_per_feature;
       auto e =
-        thread_participates ? histogram[{node_idx, feature_idx, sample_idx, output}] : GPair{0, 0};
+        thread_participates ? histogram[{node_idx, feature_idx, output, sample_idx}] : GPair{0, 0};
       GPair tile_aggregate;
       WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
       __syncwarp();
       if (thread_participates) {
-        histogram[{node_idx, feature_idx, sample_idx, output}] = e + aggregate;
+        histogram[{node_idx, feature_idx, output, sample_idx}] = e + aggregate;
       }
       aggregate += tile_aggregate;
     }
@@ -191,10 +191,10 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
     // Infer right side
     for (int sample_idx = warp.thread_rank(); sample_idx < samples_per_feature;
          sample_idx += warp.num_threads()) {
-      GPair left_sum   = histogram[{node_idx, feature_idx, sample_idx, output}];
-      GPair parent_sum = histogram[{BinaryTree::Parent(node_idx), feature_idx, sample_idx, output}];
+      GPair left_sum   = histogram[{node_idx, feature_idx, output, sample_idx}];
+      GPair parent_sum = histogram[{BinaryTree::Parent(node_idx), feature_idx, output, sample_idx}];
       GPair right_sum  = parent_sum - left_sum;
-      histogram[{node_idx + 1, feature_idx, sample_idx, output}] = right_sum;
+      histogram[{node_idx + 1, feature_idx, output, sample_idx}] = right_sum;
     }
   }
 }
@@ -253,14 +253,14 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   int thread_best_feature        = -1;
   int thread_best_feature_sample = -1;
 
-  for (int feature_id = threadIdx.x; feature_id < n_features; feature_id += blockDim.x) {
-    for (int feature_sample_idx = 0; feature_sample_idx < samples_per_feature;
-         feature_sample_idx++) {
+  for (int feature_id = 0; feature_id < n_features; feature_id++) {
+    for (int feature_sample_idx = threadIdx.x; feature_sample_idx < samples_per_feature;
+         feature_sample_idx += blockDim.x) {
       double gain = 0;
       for (int output = 0; output < n_outputs; ++output) {
         auto G          = tree_gradient[{node_id, output}];
         auto H          = tree_hessian[{node_id, output}];
-        auto [G_L, H_L] = histogram[{node_id, feature_id, feature_sample_idx, output}];
+        auto [G_L, H_L] = histogram[{node_id, feature_id, output, feature_sample_idx}];
         auto G_R        = G - G_L;
         auto H_R        = H - H_L;
 
@@ -293,7 +293,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
   if (node_best_gain > eps) {
     for (int output = threadIdx.x; output < n_outputs; output += blockDim.x) {
-      auto [G_L, H_L] = histogram[{node_id, node_best_feature, node_best_feature_sample, output}];
+      auto [G_L, H_L] = histogram[{node_id, node_best_feature, output, node_best_feature_sample}];
       auto G_R        = tree_gradient[{node_id, output}] - G_L;
       auto H_R        = tree_hessian[{node_id, output}] - H_L;
 
@@ -439,7 +439,7 @@ struct TreeLevelInfo {
   {
     positions = legate::create_buffer<int32_t>(num_rows);
     histogram_buffer =
-      legate::create_buffer<GPair, 4>({max_nodes, num_features, samples_per_feature, num_outputs});
+      legate::create_buffer<GPair, 4>({max_nodes, num_features, num_outputs, samples_per_feature});
     CHECK_CUDA(
       cudaMemsetAsync(histogram_buffer.ptr(legate::Point<4>::ZEROES()),
                       0,
@@ -476,8 +476,6 @@ struct TreeLevelInfo {
       double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos], 0}];
       bool left      = x_value <= tree_split_value_ptr[pos];
       pos            = left ? 2 * pos + 1 : 2 * pos + 2;
-      // printf("Sample %d, feature %d, value %f, split value %f, left %d, pos %d\n", int(idx),
-      // tree_feature_ptr[pos], x_value, tree_split_value_ptr[pos], int(left), int(pos));
     };
     LaunchN(num_rows, stream, update_positions_lambda);
     CHECK_CUDA_STREAM(stream);
