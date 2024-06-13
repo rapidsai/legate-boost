@@ -21,7 +21,7 @@
 #include "build_tree.h"
 #include <numeric>
 
-#include <cub/device/device_radix_sort.cuh>
+#include <cuda/std/tuple>
 #include <thrust/execution_policy.h>
 #include <thrust/system/cuda/execution_policy.h>
 #include <thrust/sort.h>
@@ -72,11 +72,27 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   }
 }
 
-// Compute the left sides - infer the right side
-__host__ __device__ bool ComputeHistogramBin(int node_id, int depth)
+// Estimate if the left or right child has less data
+// We compute the histogram for the child with less data
+// And infer the other side by subtraction from the parent
+__device__ cuda::std::pair<int, int> SelectHistogramNode(int parent,
+                                                         legate::Buffer<double, 2> node_hessians)
 {
-  return (node_id == 0 || node_id == BinaryTree::LeftChild(BinaryTree::Parent(node_id))) &&
-         node_id >= 0;
+  int left_child  = BinaryTree::LeftChild(parent);
+  int right_child = BinaryTree::RightChild(parent);
+  if (node_hessians[{left_child, 0}] < node_hessians[{right_child, 0}]) {
+    return {left_child, right_child};
+  }
+  return {right_child, left_child};
+}
+
+__device__ bool ComputeHistogramBin(int node_id, int depth, legate::Buffer<double, 2> node_hessians)
+{
+  if (node_id == 0) return true;
+  if (node_id < 0) return false;
+  int parent                           = BinaryTree::Parent(node_id);
+  auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_hessians);
+  return histogram_node == node_id;
 }
 
 template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
@@ -92,6 +108,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  int32_t samples_per_feature,
                  int32_t* positions_local,
                  legate::Buffer<GPair, 4> histogram,
+                 legate::Buffer<double, 2> node_hessians,
                  int depth)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
@@ -113,7 +130,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     if (!validThread) continue;
 
     int32_t sampleNode    = positions_local[localSampleId];
-    bool computeHistogram = ComputeHistogramBin(sampleNode, depth);
+    bool computeHistogram = ComputeHistogramBin(sampleNode, depth, node_hessians);
 
     for (int32_t output = 0; output < n_outputs; output++) {
       double G = g[{globalSampleId, 0, output}];
@@ -143,6 +160,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   scan_kernel(legate::Buffer<GPair, 4> histogram,
+              legate::Buffer<double, 2> node_hessians,
               int n_features,
               int n_outputs,
               int samples_per_feature,
@@ -162,10 +180,18 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
 
   if (i >= n_features) return;
 
-  int node_idx    = BinaryTree::LevelBegin(depth) + j * 2;
-  int feature_idx = i;
+  int scan_node_idx, subtract_node_idx;
+  if (depth == 0) {
+    scan_node_idx     = 0;
+    subtract_node_idx = -1;
+  } else {
+    int parent_idx = BinaryTree::LevelBegin(depth - 1) + j;
+    cuda::std::tie(scan_node_idx, subtract_node_idx) =
+      SelectHistogramNode(parent_idx, node_hessians);
+  }
 
-  int num_tiles = (samples_per_feature + warp.num_threads() - 1) / warp.num_threads();
+  int feature_idx = i;
+  int num_tiles   = (samples_per_feature + warp.num_threads() - 1) / warp.num_threads();
 
   for (int output = 0; output < n_outputs; output++) {
     GPair aggregate;
@@ -173,13 +199,13 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
     for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
       int sample_idx           = tile_idx * warp.num_threads() + warp.thread_rank();
       bool thread_participates = sample_idx < samples_per_feature;
-      auto e =
-        thread_participates ? histogram[{node_idx, feature_idx, output, sample_idx}] : GPair{0, 0};
+      auto e = thread_participates ? histogram[{scan_node_idx, feature_idx, output, sample_idx}]
+                                   : GPair{0, 0};
       GPair tile_aggregate;
       WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
       __syncwarp();
       if (thread_participates) {
-        histogram[{node_idx, feature_idx, output, sample_idx}] = e + aggregate;
+        histogram[{scan_node_idx, feature_idx, output, sample_idx}] = e + aggregate;
       }
       aggregate += tile_aggregate;
     }
@@ -191,10 +217,11 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
     // Infer right side
     for (int sample_idx = warp.thread_rank(); sample_idx < samples_per_feature;
          sample_idx += warp.num_threads()) {
-      GPair left_sum   = histogram[{node_idx, feature_idx, output, sample_idx}];
-      GPair parent_sum = histogram[{BinaryTree::Parent(node_idx), feature_idx, output, sample_idx}];
-      GPair right_sum  = parent_sum - left_sum;
-      histogram[{node_idx + 1, feature_idx, output, sample_idx}] = right_sum;
+      GPair scanned_sum = histogram[{scan_node_idx, feature_idx, output, sample_idx}];
+      GPair parent_sum =
+        histogram[{BinaryTree::Parent(scan_node_idx), feature_idx, output, sample_idx}];
+      GPair other_sum                                                 = parent_sum - scanned_sum;
+      histogram[{subtract_node_idx, feature_idx, output, sample_idx}] = other_sum;
     }
   }
 }
@@ -510,6 +537,7 @@ struct TreeLevelInfo {
                                                      samples_per_feature,
                                                      positions.ptr(0),
                                                      histogram_buffer,
+                                                     tree.hessian,
                                                      depth);
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
@@ -527,6 +555,7 @@ struct TreeLevelInfo {
     // Scan the histogram
     // Then do subtraction trick to infer right side from parent and left side
     scan_kernel<<<blocks_needed, THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
+                                                                 tree.hessian,
                                                                  num_features,
                                                                  num_outputs,
                                                                  samples_per_feature,
