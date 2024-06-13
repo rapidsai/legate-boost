@@ -32,9 +32,10 @@ struct update_tree_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
-    const auto& X     = context.input(0).data();
-    auto X_shape      = X.shape<3>();  // 3rd dimension is unused
-    auto X_accessor   = X.read_accessor<T, 3>();
+    const auto& X   = context.input(0).data();
+    auto X_shape    = X.shape<3>();  // 3rd dimension is unused
+    auto X_accessor = X.read_accessor<T, 3>();
+    EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
     const auto& g     = context.input(1).data();  // 2nd dimension is unused

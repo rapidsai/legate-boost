@@ -24,7 +24,10 @@ settings.load_profile("local")
 
 @st.composite
 def tree_strategy(draw):
-    max_depth = draw(st.integers(1, 9))
+    if get_legate_runtime().machine.count(TaskTarget.GPU) > 0:
+        max_depth = draw(st.integers(1, 12))
+    else:
+        max_depth = draw(st.integers(1, 6))
     alpha = draw(st.floats(0.0, 1.0))
     split_samples = draw(st.integers(1, 1000))
     return lb.models.Tree(max_depth=max_depth, alpha=alpha, split_samples=split_samples)

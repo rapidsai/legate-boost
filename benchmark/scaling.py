@@ -8,16 +8,18 @@ import legateboost as lb
 from legate.core import get_legate_runtime
 
 
-def train_model(X, y, model_type, args):
+def train_model(X, y, model_type, args, dry_run=False):
     if model_type == "tree":
-        base_models = (lb.models.Tree(max_depth=8),)
+        base_models = (lb.models.Tree(max_depth=2 if dry_run else 8),)
     elif model_type == "linear":
         base_models = (lb.models.Linear(solver="lbfgs"),)
     elif model_type == "krr":
-        base_models = (lb.models.KRR(sigma=1.0, n_components=50),)
+        base_models = (lb.models.KRR(sigma=1.0, n_components=2 if dry_run else 50),)
     elif model_type == "nn":
         base_models = (lb.models.NN(alpha=0.0, verbose=1),)
-    model = lb.LBClassifier(base_models=base_models, n_estimators=args.niters).fit(X, y)
+    model = lb.LBClassifier(
+        base_models=base_models, n_estimators=2 if dry_run else args.niters
+    ).fit(X, y)
     # force legate to realise result
     x = model.predict(X[0:2])[0]  # noqa
     del model
@@ -32,10 +34,9 @@ def benchmark(args):
     rows = args.nrows if args.strong_scaling else args.nrows * n_processors
     X = gen.normal(size=(rows, args.ncols), dtype=cn.float32)
     y = gen.integers(0, args.nclasses, size=X.shape[0], dtype=cn.int32)
-    # dry run
-    n_dry_run = X.shape[0] // 10
+    # dry run / limit models instead of data - prevent data shuffeling
     for model_type in model_types:
-        train_model(X[0:n_dry_run], y[0:n_dry_run], model_type, args)
+        train_model(X, y, model_type, args, True)
     dfs = []
     for model_type in model_types:
         for j in range(args.repeats):
