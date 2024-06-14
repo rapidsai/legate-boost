@@ -55,18 +55,14 @@ struct Tree {
     this->split_value[node_id] = split_value;
     this->gain[node_id]        = gain;
     for (int output = 0; output < num_outputs; output++) {
-      this->gradient[{LeftChild(node_id), output}]    = gradient_left[output];
-      this->gradient[{RightChild(node_id), output}]   = gradient_right[output];
-      this->hessian[{LeftChild(node_id), output}]     = hessian_left[output];
-      this->hessian[{RightChild(node_id), output}]    = hessian_right[output];
-      this->leaf_value[{LeftChild(node_id), output}]  = left_leaf_value[output];
-      this->leaf_value[{RightChild(node_id), output}] = right_leaf_value[output];
+      this->gradient[{BinaryTree::LeftChild(node_id), output}]    = gradient_left[output];
+      this->gradient[{BinaryTree::RightChild(node_id), output}]   = gradient_right[output];
+      this->hessian[{BinaryTree::LeftChild(node_id), output}]     = hessian_left[output];
+      this->hessian[{BinaryTree::RightChild(node_id), output}]    = hessian_right[output];
+      this->leaf_value[{BinaryTree::LeftChild(node_id), output}]  = left_leaf_value[output];
+      this->leaf_value[{BinaryTree::RightChild(node_id), output}] = right_leaf_value[output];
     }
   }
-  static int LeftChild(int id) { return id * 2 + 1; }
-  static int RightChild(int id) { return id * 2 + 2; }
-  static int Parent(int id) { return (id - 1) / 2; }
-
   bool IsLeaf(int node_id) const { return feature[node_id] == -1; }
 
   legate::Buffer<double, 2> leaf_value;
@@ -108,43 +104,42 @@ void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
 
 struct GradientHistogram {
   // Dimensions
-  // 0. Depth
+  // 0. Node idx
   // 1. Feature
   // 2. Bin
   // 3. Output
   legate::Buffer<GPair, 4> gradient_sums;
   int size;
   int num_features;
-  int depth;
   int num_outputs;
   int samples_per_feature;
 
-  GradientHistogram(int num_features, int depth, int num_outputs, int samples_per_feature)
+  GradientHistogram(int num_features, int max_nodes, int num_outputs, int samples_per_feature)
     : num_features(num_features),
-      depth(depth),
       samples_per_feature(samples_per_feature),
       num_outputs(num_outputs),
-      size((1 << depth) * num_features * num_outputs * samples_per_feature),
+      size(max_nodes * num_features * num_outputs * samples_per_feature),
       gradient_sums(legate::create_buffer<GPair, 4>(
-        {1 << depth, num_features, samples_per_feature, num_outputs}))
+        {max_nodes, num_features, samples_per_feature, num_outputs}))
   {
     auto ptr = gradient_sums.ptr({0, 0, 0, 0});
     std::fill(ptr, ptr + size, GPair{0.0, 0.0});
   }
   ~GradientHistogram() { gradient_sums.destroy(); }
-  void Add(int position_in_level, int feature, int bin_idx, int output, GPair g)
+  void Add(int position, int feature, int bin_idx, int output, GPair g)
   {
-    gradient_sums[{position_in_level, feature, bin_idx, output}] += g;
+    gradient_sums[{position, feature, bin_idx, output}] += g;
   }
   GPair Get(int feature, int position, int output, int bin_idx)
   {
-    int position_in_level = position - ((1 << depth) - 1);
-    return gradient_sums[{position_in_level, feature, bin_idx, output}];
+    return gradient_sums[{position, feature, bin_idx, output}];
   }
-  void Scan()
+  void Scan(int depth)
   {
+    int level_offset = BinaryTree::LevelBegin(depth);
     for (int feature = 0; feature < num_features; feature++) {
-      for (int node_id = 0; node_id < 1 << depth; node_id++) {
+      for (int node_id = level_offset; node_id < level_offset + BinaryTree::NodesInLevel(depth);
+           node_id++) {
         for (int output = 0; output < num_outputs; output++) {
           GPair sum = {0.0, 0.0};
           for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
@@ -154,6 +149,13 @@ struct GradientHistogram {
         }
       }
     }
+  }
+  void AllReduce(legate::TaskContext context, int depth)
+  {
+    SumAllReduce(
+      context,
+      reinterpret_cast<double*>(gradient_sums.ptr({BinaryTree::LevelBegin(depth), 0, 0, 0})),
+      BinaryTree::NodesInLevel(depth) * num_features * samples_per_feature * num_outputs * 2);
   }
 };
 
@@ -201,15 +203,14 @@ struct build_tree_fn {
     }
 
     // Begin building the tree
+    GradientHistogram histogram(num_features, max_nodes, num_outputs, samples_per_feature);
     std::vector<int32_t> positions(num_rows);
     for (int64_t depth = 0; depth < max_depth; ++depth) {
       // Build the histogram
-      GradientHistogram histogram(num_features, depth, num_outputs, samples_per_feature);
       for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
         auto index_local = i - X_shape.lo[0];
         auto position    = positions[index_local];
         if (position < 0) continue;
-        auto position_in_level = position - ((1 << depth) - 1);
         for (int64_t j = 0; j < num_features; j++) {
           auto x_value = X_accessor[{i, j, 0}];
           int bin_idx  = std::lower_bound(split_proposals_accessor.ptr({j, 0}),
@@ -219,23 +220,19 @@ struct build_tree_fn {
 
           if (bin_idx < samples_per_feature) {
             for (int64_t k = 0; k < num_outputs; ++k) {
-              histogram.Add(position_in_level,
-                            j,
-                            bin_idx,
-                            k,
-                            GPair{g_accessor[{i, 0, k}], h_accessor[{i, 0, k}]});
+              histogram.Add(
+                position, j, bin_idx, k, GPair{g_accessor[{i, 0, k}], h_accessor[{i, 0, k}]});
             }
           }
         }
       }
 
-      histogram.Scan();
-      SumAllReduce(context,
-                   reinterpret_cast<double*>(histogram.gradient_sums.ptr({0, 0, 0, 0})),
-                   histogram.size * 2);
+      histogram.Scan(depth);
+      histogram.AllReduce(context, depth);
       // Find the best split
       double eps = 1e-5;
-      for (int node_id = (1 << depth) - 1; node_id < (1 << (depth + 1)) - 1; node_id++) {
+      for (int node_id = BinaryTree::LevelBegin(depth); node_id < BinaryTree::LevelBegin(depth + 1);
+           node_id++) {
         double best_gain = 0;
         int best_feature = -1;
         int best_bin     = -1;
@@ -243,7 +240,7 @@ struct build_tree_fn {
           for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
             double gain = 0;
             for (int output = 0; output < num_outputs; ++output) {
-              auto [G_L, H_L] = histogram.Get(feature, node_id, output, bin_idx);  // TODO: bin idx
+              auto [G_L, H_L] = histogram.Get(feature, node_id, output, bin_idx);
               auto G          = tree.gradient[{node_id, output}];
               auto H          = tree.hessian[{node_id, output}];
               auto G_R        = G - G_L;
@@ -304,7 +301,7 @@ struct build_tree_fn {
         }
         auto x    = X_accessor[{i, tree.feature[pos], 0}];
         bool left = x <= tree.split_value[pos];
-        pos       = left ? Tree::LeftChild(pos) : Tree::RightChild(pos);
+        pos       = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
       }
     }
 

@@ -35,15 +35,6 @@ namespace cg = cooperative_groups;
 
 namespace legateboost {
 
-class BinaryTree {
- public:
-  __host__ __device__ static int Parent(int i) { return (i - 1) / 2; }
-  __host__ __device__ static int LeftChild(int i) { return 2 * i + 1; }
-  __host__ __device__ static int RightChild(int i) { return 2 * i + 2; }
-  __host__ __device__ static int LevelBegin(int level) { return (1 << level) - 1; }
-  __host__ __device__ static int NodesInLevel(int level) { return 1 << level; }
-};
-
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
