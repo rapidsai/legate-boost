@@ -19,6 +19,9 @@
 
 namespace legateboost {
 
+inline const double eps = 1e-5;  // Add this term to the hessian to prevent division by zero
+
+// Some helpers for indexing into a binary tree
 class BinaryTree {
  public:
   __host__ __device__ static int Parent(int i) { return (i - 1) / 2; }

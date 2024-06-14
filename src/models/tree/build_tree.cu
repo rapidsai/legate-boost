@@ -538,8 +538,10 @@ struct TreeBuilder {
   }
 
   template <typename TYPE>
-  void PerformBestSplit(
-    int depth, Tree& tree, legate::AccessorRO<TYPE, 2> split_proposal, double eps, double alpha)
+  void PerformBestSplit(int depth,
+                        Tree& tree,
+                        legate::AccessorRO<TYPE, 2> split_proposal,
+                        double alpha)
   {
     perform_best_split<<<BinaryTree::NodesInLevel(depth), THREADS_PER_BLOCK, 0, stream>>>(
       histogram_buffer,
@@ -584,8 +586,6 @@ struct TreeBuilder {
   }
 
   legate::Buffer<int32_t> positions;
-  legate::Buffer<int32_t> positions_reordered;
-  legate::Buffer<int32_t> indices_reordered;
   const int32_t num_rows;
   const int32_t num_features;
   const int32_t num_outputs;
@@ -653,8 +653,7 @@ struct build_tree_fn {
                                h_accessor);
 
       // Select the best split
-      double eps = 1e-5;
-      builder.PerformBestSplit(depth, tree, split_proposals_accessor, eps, alpha);
+      builder.PerformBestSplit(depth, tree, split_proposals_accessor, alpha);
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);
