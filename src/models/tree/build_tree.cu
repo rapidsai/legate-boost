@@ -336,7 +336,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 namespace {
 
 struct Tree {
-  Tree(int max_nodes, int num_outputs, cudaStream_t stream)
+  template <typename THRUST_POLICY>
+  Tree(int max_nodes, int num_outputs, cudaStream_t stream, const THRUST_POLICY& thrust_exec_policy)
     : num_outputs(num_outputs), max_nodes(max_nodes), stream(stream)
   {
     leaf_value  = legate::create_buffer<double, 2>({max_nodes, num_outputs});
@@ -345,28 +346,6 @@ struct Tree {
     gain        = legate::create_buffer<double, 1>({max_nodes});
     hessian     = legate::create_buffer<double, 2>({max_nodes, num_outputs});
     gradient    = legate::create_buffer<double, 2>({max_nodes, num_outputs});
-  }
-
-  ~Tree()
-  {
-    leaf_value.destroy();
-    feature.destroy();
-    split_value.destroy();
-    gain.destroy();
-    hessian.destroy();
-    gradient.destroy();
-  }
-
-  template <typename THRUST_POLICY>
-  void InitializeBase(double* base_sums, const THRUST_POLICY& thrust_exec_policy, double alpha)
-  {
-    std::vector<double> base_sums_host(2 * num_outputs);
-    CHECK_CUDA(cudaMemcpyAsync(base_sums_host.data(),
-                               base_sums,
-                               sizeof(double) * num_outputs * 2,
-                               cudaMemcpyDeviceToHost,
-                               stream));
-
     thrust::fill(thrust_exec_policy,
                  leaf_value.ptr({0, 0}),
                  leaf_value.ptr({0, 0}) + max_nodes * num_outputs,
@@ -380,29 +359,32 @@ struct Tree {
                  gradient.ptr({0, 0}),
                  gradient.ptr({0, 0}) + max_nodes * num_outputs,
                  0.0);
+  }
 
-    CHECK_CUDA(cudaStreamSynchronize(stream));
+  ~Tree()
+  {
+    leaf_value.destroy();
+    feature.destroy();
+    split_value.destroy();
+    gain.destroy();
+    hessian.destroy();
+    gradient.destroy();
+  }
 
-    std::vector<double> leaf_value_init(num_outputs);
-    for (auto i = 0; i < num_outputs; ++i) {
-      leaf_value_init[i] =
-        CalculateLeafValue(base_sums_host[i], base_sums_host[i + num_outputs], alpha);
-    }
-    CHECK_CUDA(cudaMemcpyAsync(leaf_value.ptr({0, 0}),
-                               leaf_value_init.data(),
-                               sizeof(double) * num_outputs,
-                               cudaMemcpyHostToDevice,
-                               stream));
-    CHECK_CUDA(cudaMemcpyAsync(gradient.ptr({0, 0}),
-                               base_sums,
-                               sizeof(double) * num_outputs,
-                               cudaMemcpyDeviceToDevice,
-                               stream));
-    CHECK_CUDA(cudaMemcpyAsync(hessian.ptr({0, 0}),
-                               base_sums + num_outputs,
-                               sizeof(double) * num_outputs,
-                               cudaMemcpyDeviceToDevice,
-                               stream));
+  void InitializeBase(legate::Buffer<double, 1> base_sums, double alpha)
+  {
+    LaunchN(num_outputs,
+            stream,
+            [            =,
+             num_outputs = this->num_outputs,
+             leaf_value  = this->leaf_value,
+             gradient    = this->gradient,
+             hessian     = this->hessian] __device__(int output) {
+              leaf_value[{0, output}] =
+                CalculateLeafValue(base_sums[output], base_sums[output + num_outputs], alpha);
+              gradient[{0, output}] = base_sums[output];
+              hessian[{0, output}]  = base_sums[output + num_outputs];
+            });
   }
 
   template <typename T, int DIM, typename ThrustPolicyT>
@@ -441,13 +423,13 @@ struct Tree {
   cudaStream_t stream;
 };
 
-struct TreeLevelInfo {
-  TreeLevelInfo(int32_t num_rows,
-                int32_t num_features,
-                int32_t num_outputs,
-                cudaStream_t stream,
-                int32_t max_nodes,
-                int32_t samples_per_feature)
+struct TreeBuilder {
+  TreeBuilder(int32_t num_rows,
+              int32_t num_features,
+              int32_t num_outputs,
+              cudaStream_t stream,
+              int32_t max_nodes,
+              int32_t samples_per_feature)
     : num_rows(num_rows),
       num_features(num_features),
       num_outputs(num_outputs),
@@ -467,7 +449,7 @@ struct TreeLevelInfo {
     CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
   }
 
-  ~TreeLevelInfo()
+  ~TreeBuilder()
   {
     positions.destroy();
     histogram_buffer.destroy();
@@ -576,6 +558,30 @@ struct TreeLevelInfo {
       depth);
     CHECK_CUDA_STREAM(stream);
   }
+  void InitialiseRoot(legate::TaskContext context,
+                      Tree& tree,
+                      legate::AccessorRO<double, 3> g,
+                      legate::AccessorRO<double, 3> h,
+                      legate::Rect<3> g_shape,
+                      double alpha)
+  {
+    auto base_sums = legate::create_buffer<double, 1>(num_outputs * 2);
+
+    CHECK_CUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
+    const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    dim3 grid_shape     = dim3(blocks, num_outputs);
+    reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
+      g, h, num_rows, g_shape.lo[0], base_sums, num_outputs);
+    CHECK_CUDA_STREAM(stream);
+
+    SumAllReduce(context, reinterpret_cast<double*>(base_sums.ptr(0)), num_outputs * 2, stream);
+
+    // base sums contain g-sums first, h sums second
+    tree.InitializeBase(base_sums, alpha);
+
+    base_sums.destroy();
+    CHECK_CUDA_STREAM(stream);
+  }
 
   legate::Buffer<int32_t> positions;
   legate::Buffer<int32_t> positions_reordered;
@@ -593,22 +599,6 @@ struct TreeLevelInfo {
 
   cudaStream_t stream;
 };
-
-void ReduceBaseSums(legate::Buffer<double> base_sums,
-                    int32_t num_rows,
-                    int32_t num_outputs,
-                    legate::AccessorRO<double, 3> g,
-                    legate::AccessorRO<double, 3> h,
-                    legate::Rect<3> shape,
-                    cudaStream_t stream)
-{
-  CHECK_CUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
-  const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-  dim3 grid_shape     = dim3(blocks, num_outputs);
-  reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
-    g, h, num_rows, shape.lo[0], base_sums, num_outputs);
-  CHECK_CUDA_STREAM(stream);
-}
 
 struct build_tree_fn {
   template <typename T>
@@ -640,44 +630,31 @@ struct build_tree_fn {
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
 
-    Tree tree(max_nodes, num_outputs, stream);
-
-    // Initialize the root node
-    {
-      auto base_sums = legate::create_buffer<double, 1>(num_outputs * 2);
-
-      ReduceBaseSums(base_sums, num_rows, num_outputs, g_accessor, h_accessor, g_shape, stream);
-
-      SumAllReduce(context, reinterpret_cast<double*>(base_sums.ptr(0)), num_outputs * 2, stream);
-
-      // base sums contain g-sums first, h sums second
-      tree.InitializeBase(base_sums.ptr(0), thrust_exec_policy, alpha);
-
-      base_sums.destroy();
-      CHECK_CUDA_STREAM(stream);
-    }
+    Tree tree(max_nodes, num_outputs, stream, thrust_exec_policy);
 
     // Begin building the tree
-    TreeLevelInfo tree_state(
+    TreeBuilder builder(
       num_rows, num_features, num_outputs, stream, tree.max_nodes, samples_per_feature);
+
+    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
     for (int depth = 0; depth < max_depth; ++depth) {
       // update positions from previous step
-      tree_state.UpdatePositions(depth, tree, X_accessor, X_shape);
+      builder.UpdatePositions(depth, tree, X_accessor, X_shape);
 
       // actual histogram creation
-      tree_state.ComputeHistogram(depth,
-                                  context,
-                                  tree,
-                                  X_accessor,
-                                  X_shape,
-                                  split_proposals_accessor,
-                                  g_accessor,
-                                  h_accessor);
+      builder.ComputeHistogram(depth,
+                               context,
+                               tree,
+                               X_accessor,
+                               X_shape,
+                               split_proposals_accessor,
+                               g_accessor,
+                               h_accessor);
 
       // Select the best split
       double eps = 1e-5;
-      tree_state.PerformBestSplit(depth, tree, split_proposals_accessor, eps, alpha);
+      builder.PerformBestSplit(depth, tree, split_proposals_accessor, eps, alpha);
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);
