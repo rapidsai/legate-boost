@@ -114,7 +114,7 @@ struct TreeBuilder {
       max_nodes(max_nodes),
       samples_per_feature(samples_per_feature),
       histogram_buffer(legate::create_buffer<GPair, 4>(
-        {max_nodes, num_features, samples_per_feature, num_outputs})),
+        {max_nodes, num_features, num_outputs, samples_per_feature})),
       positions(num_rows, 0)
   {
     auto ptr = histogram_buffer.ptr({0, 0, 0, 0});
@@ -136,7 +136,8 @@ struct TreeBuilder {
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       auto index_local = i - X_shape.lo[0];
       auto position    = positions[index_local];
-      if (position < 0) continue;
+      bool compute     = ComputeHistogramBin(position, depth, tree.hessian);
+      if (position < 0 || !compute) continue;
       for (int64_t j = 0; j < num_features; j++) {
         auto x_value = X[{i, j, 0}];
         int bin_idx =
@@ -146,7 +147,7 @@ struct TreeBuilder {
 
         if (bin_idx < samples_per_feature) {
           for (int64_t k = 0; k < num_outputs; ++k) {
-            histogram_buffer[{position, j, bin_idx, k}] += GPair{g[{i, 0, k}], h[{i, 0, k}]};
+            histogram_buffer[{position, j, k, bin_idx}] += GPair{g[{i, 0, k}], h[{i, 0, k}]};
           }
         }
       }
@@ -156,22 +157,46 @@ struct TreeBuilder {
       context,
       reinterpret_cast<double*>(histogram_buffer.ptr({BinaryTree::LevelBegin(depth), 0, 0, 0})),
       BinaryTree::NodesInLevel(depth) * num_features * samples_per_feature * num_outputs * 2);
-    this->Scan(depth);
+    this->Scan(depth, tree);
   }
-  void Scan(int depth)
+
+  void Scan(int depth, Tree& tree)
   {
-    int level_offset = BinaryTree::LevelBegin(depth);
-    for (int feature = 0; feature < num_features; feature++) {
-      for (int node_id = level_offset; node_id < level_offset + BinaryTree::NodesInLevel(depth);
-           node_id++) {
+    auto scan_node = [&](int node_id) {
+      for (int feature = 0; feature < num_features; feature++) {
         for (int output = 0; output < num_outputs; output++) {
           GPair sum = {0.0, 0.0};
           for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
-            sum += histogram_buffer[{node_id, feature, bin_idx, output}];
-            histogram_buffer[{node_id, feature, bin_idx, output}] = sum;
+            sum += histogram_buffer[{node_id, feature, output, bin_idx}];
+            histogram_buffer[{node_id, feature, output, bin_idx}] = sum;
           }
         }
       }
+    };
+
+    auto subtract_node = [&](int subtract_node, int scanned_node, int parent_node) {
+      for (int feature = 0; feature < num_features; feature++) {
+        for (int output = 0; output < num_outputs; output++) {
+          for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
+            auto scanned_sum = histogram_buffer[{scanned_node, feature, output, bin_idx}];
+            auto parent_sum  = histogram_buffer[{parent_node, feature, output, bin_idx}];
+            histogram_buffer[{subtract_node, feature, output, bin_idx}] = parent_sum - scanned_sum;
+          }
+        }
+      }
+    };
+
+    if (depth == 0) {
+      scan_node(0);
+      return;
+    }
+
+    for (int parent_id = BinaryTree::LevelBegin(depth - 1);
+         parent_id < BinaryTree::LevelBegin(depth - 1) + BinaryTree::NodesInLevel(depth - 1);
+         parent_id++) {
+      auto [histogram_node_idx, subtract_node_idx] = SelectHistogramNode(parent_id, tree.hessian);
+      scan_node(histogram_node_idx);
+      subtract_node(subtract_node_idx, histogram_node_idx, parent_id);
     }
   }
   template <typename TYPE>
@@ -189,7 +214,7 @@ struct TreeBuilder {
         for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
           double gain = 0;
           for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L] = histogram_buffer[{node_id, feature, bin_idx, output}];
+            auto [G_L, H_L] = histogram_buffer[{node_id, feature, output, bin_idx}];
             auto G          = tree.gradient[{node_id, output}];
             auto H          = tree.hessian[{node_id, output}];
             auto G_R        = G - G_L;
@@ -213,7 +238,7 @@ struct TreeBuilder {
         std::vector<double> hessian_left(num_outputs);
         std::vector<double> hessian_right(num_outputs);
         for (int output = 0; output < num_outputs; ++output) {
-          auto [G_L, H_L]        = histogram_buffer[{node_id, best_feature, best_bin, output}];
+          auto [G_L, H_L]        = histogram_buffer[{node_id, best_feature, output, best_bin}];
           auto G                 = tree.gradient[{node_id, output}];
           auto H                 = tree.hessian[{node_id, output}];
           auto G_R               = G - G_L;

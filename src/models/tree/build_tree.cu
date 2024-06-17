@@ -63,29 +63,6 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   }
 }
 
-// Estimate if the left or right child has less data
-// We compute the histogram for the child with less data
-// And infer the other side by subtraction from the parent
-__device__ cuda::std::pair<int, int> SelectHistogramNode(int parent,
-                                                         legate::Buffer<double, 2> node_hessians)
-{
-  int left_child  = BinaryTree::LeftChild(parent);
-  int right_child = BinaryTree::RightChild(parent);
-  if (node_hessians[{left_child, 0}] < node_hessians[{right_child, 0}]) {
-    return {left_child, right_child};
-  }
-  return {right_child, left_child};
-}
-
-__device__ bool ComputeHistogramBin(int node_id, int depth, legate::Buffer<double, 2> node_hessians)
-{
-  if (node_id == 0) return true;
-  if (node_id < 0) return false;
-  int parent                           = BinaryTree::Parent(node_id);
-  auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_hessians);
-  return histogram_node == node_id;
-}
-
 template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   fill_histogram(legate::AccessorRO<TYPE, 3> X,
@@ -176,9 +153,10 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
     scan_node_idx     = 0;
     subtract_node_idx = -1;
   } else {
-    int parent_idx = BinaryTree::LevelBegin(depth - 1) + j;
-    cuda::std::tie(scan_node_idx, subtract_node_idx) =
-      SelectHistogramNode(parent_idx, node_hessians);
+    int parent_idx    = BinaryTree::LevelBegin(depth - 1) + j;
+    auto [scan, sub]  = SelectHistogramNode(parent_idx, node_hessians);
+    scan_node_idx     = scan;
+    subtract_node_idx = sub;
   }
 
   int feature_idx = i;
