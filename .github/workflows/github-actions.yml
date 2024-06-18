@@ -45,14 +45,14 @@ jobs:
       - name: Install legate core
         working-directory: ./legate.core.internal
         run: |
-          python scripts/generate-conda-envs.py --ctk 11.8 --os linux --compilers --openmpi;
-          echo "  - python=3.10" >> environment-test-linux-cuda11.8-compilers-openmpi.yaml;
-          mamba env create -n legate -f environment-test-linux-cuda11.8-compilers-openmpi.yaml;
+          python scripts/generate-conda-envs.py --ctk 11.8 --os linux --compilers --openmpi --ucx;
+          echo "  - python=3.10" >> environment-test-linux-cuda11.8-compilers-openmpi-ucx.yaml;
+          mamba env create -n legate -f environment-test-linux-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
           mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
           pip install matplotlib seaborn xgboost
           export LEGATE_CORE_ARCH='arch-linux-py-relwithdebinfo';
-          ./configure --with-python --cuda-arch 70 --with-cuda --build-type=relwithdebinfo --with-nccl && make && pip install .;
+          ./configure --with-python --cuda-arch 70 --with-cuda --build-type=relwithdebinfo --with-nccl --with-ucx && make && pip install .;
         if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout cunumeric
         uses: actions/checkout@v4
