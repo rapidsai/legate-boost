@@ -1,5 +1,7 @@
 import numpy as np
 import pytest
+from sklearn.datasets import make_regression
+from sklearn.model_selection import train_test_split
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cunumeric as cn
@@ -164,3 +166,39 @@ def test_normal_distribution():
     pred = model.predict(X)[0]
     assert cn.allclose(pred[0], y.mean(), atol=1e-2)
     assert cn.all(pred[1] == -5)
+
+
+def test_subsample():
+    for i in range(5):
+        X, y = make_regression(
+            n_samples=1000, n_features=10, noise=10.0, random_state=i
+        )
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.5, random_state=i
+        )
+        params = {
+            "n_estimators": 20,
+            "random_state": i,
+            "learning_rate": 0.5,
+            "base_models": (lb.models.Tree(max_depth=12, alpha=0.0),),
+        }
+        # Overfit the data and check if subsample improves the model
+        subsample_eval_result = {}
+        lb.LBRegressor(**params, subsample=0.5,).fit(
+            X_train,
+            y_train,
+            eval_result=subsample_eval_result,
+            eval_set=[(X_test, y_test)],
+        )
+        full_eval_result = {}
+        lb.LBRegressor(**params,).fit(
+            X_train, y_train, eval_result=full_eval_result, eval_set=[(X_test, y_test)]
+        )
+        assert (
+            subsample_eval_result["eval-0"]["mse"][-1]
+            < full_eval_result["eval-0"]["mse"][-1]
+        )
+        assert (
+            full_eval_result["train"]["mse"][-1]
+            < subsample_eval_result["train"]["mse"][-1]
+        )
