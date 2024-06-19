@@ -162,32 +162,34 @@ struct TreeBuilder {
 
   void Scan(int depth, Tree& tree)
   {
-    auto scan_node = [&](int node_id) {
+    auto scan_node_histogram = [&](int node_idx) {
       for (int feature = 0; feature < num_features; feature++) {
         for (int output = 0; output < num_outputs; output++) {
           GPair sum = {0.0, 0.0};
           for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
-            sum += histogram_buffer[{node_id, feature, output, bin_idx}];
-            histogram_buffer[{node_id, feature, output, bin_idx}] = sum;
+            sum += histogram_buffer[{node_idx, feature, output, bin_idx}];
+            histogram_buffer[{node_idx, feature, output, bin_idx}] = sum;
           }
         }
       }
     };
 
-    auto subtract_node = [&](int subtract_node, int scanned_node, int parent_node) {
-      for (int feature = 0; feature < num_features; feature++) {
-        for (int output = 0; output < num_outputs; output++) {
-          for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
-            auto scanned_sum = histogram_buffer[{scanned_node, feature, output, bin_idx}];
-            auto parent_sum  = histogram_buffer[{parent_node, feature, output, bin_idx}];
-            histogram_buffer[{subtract_node, feature, output, bin_idx}] = parent_sum - scanned_sum;
+    auto subtract_node_histogram =
+      [&](int subtract_node_idx, int scanned_node_idx, int parent_node_idx) {
+        for (int feature = 0; feature < num_features; feature++) {
+          for (int output = 0; output < num_outputs; output++) {
+            for (int bin_idx = 0; bin_idx < samples_per_feature; bin_idx++) {
+              auto scanned_sum = histogram_buffer[{scanned_node_idx, feature, output, bin_idx}];
+              auto parent_sum  = histogram_buffer[{parent_node_idx, feature, output, bin_idx}];
+              histogram_buffer[{subtract_node_idx, feature, output, bin_idx}] =
+                parent_sum - scanned_sum;
+            }
           }
         }
-      }
-    };
+      };
 
     if (depth == 0) {
-      scan_node(0);
+      scan_node_histogram(0);
       return;
     }
 
@@ -195,8 +197,8 @@ struct TreeBuilder {
          parent_id < BinaryTree::LevelBegin(depth - 1) + BinaryTree::NodesInLevel(depth - 1);
          parent_id++) {
       auto [histogram_node_idx, subtract_node_idx] = SelectHistogramNode(parent_id, tree.hessian);
-      scan_node(histogram_node_idx);
-      subtract_node(subtract_node_idx, histogram_node_idx, parent_id);
+      scan_node_histogram(histogram_node_idx);
+      subtract_node_histogram(subtract_node_idx, histogram_node_idx, parent_id);
     }
   }
   template <typename TYPE>

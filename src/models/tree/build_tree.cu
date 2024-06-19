@@ -453,7 +453,7 @@ struct TreeBuilder {
       }
       double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos], 0}];
       bool left      = x_value <= tree_split_value_ptr[pos];
-      pos            = left ? 2 * pos + 1 : 2 * pos + 2;
+      pos            = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
     };
     LaunchN(num_rows, stream, update_positions_lambda);
     CHECK_CUDA_STREAM(stream);
