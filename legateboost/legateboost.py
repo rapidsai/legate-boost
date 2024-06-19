@@ -31,6 +31,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         objective: Union[str, BaseObjective] = "squared_error",
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
+        subsample: float = 1.0,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
         callbacks: Sequence[TrainingCallback] = (),
@@ -41,6 +42,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.objective = objective
         self.metric = metric
         self.learning_rate = learning_rate
+        self.subsample = subsample
         self.init = init
         self.verbose = verbose
         self.random_state = random_state
@@ -186,6 +188,16 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         g = g * sample_weight[:, None] * learning_rate
         # ensure hessians are not too small for numerical stability
         h = cn.maximum(h * sample_weight[:, None], 1e-8)
+
+        # apply subsample
+        if self.subsample < 1.0:
+            generator = cn.random.Generator(
+                cn.random.XORWOW(seed=self.random_state_.randint(0, 2**32))
+            )
+            mask = generator.binomial(1, self.subsample, size=y.shape[0])
+            g *= mask[:, None]
+            h *= mask[:, None]
+
         return preround(g), preround(h)
 
     def _partial_fit(
@@ -449,6 +461,8 @@ class LBRegressor(LBBase, RegressorMixin):
         be a list multiple metrics.
     learning_rate :
         The learning rate shrinks the contribution of each model.
+    subsample :
+        The fraction of samples to be used for fitting the individual base models.
     init :
         The initial prediction of the model. If `None`, the initial prediction
         is zero. If 'average', the initial prediction minimises a second order
@@ -497,6 +511,7 @@ class LBRegressor(LBBase, RegressorMixin):
         objective: Union[str, BaseObjective] = "squared_error",
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
+        subsample: float = 1.0,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
         callbacks: Sequence[TrainingCallback] = (),
@@ -508,6 +523,7 @@ class LBRegressor(LBBase, RegressorMixin):
             objective=objective,
             metric=metric,
             learning_rate=learning_rate,
+            subsample=subsample,
             init=init,
             base_models=base_models,
             callbacks=callbacks,
@@ -620,6 +636,8 @@ class LBClassifier(LBBase, ClassifierMixin):
         instance of BaseMetric. Can be a list multiple metrics.
     learning_rate :
         The learning rate shrinks the contribution of each model.
+    subsample :
+        The fraction of samples to be used for fitting the individual base models.
     init :
         The initial prediction of the model. If `None`, the initial prediction
         is zero. If 'average', the initial prediction minimises a second order
@@ -668,6 +686,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         objective: Union[str, BaseObjective] = "log_loss",
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
         learning_rate: float = 0.1,
+        subsample: float = 1.0,
         init: Union[str, None] = "average",
         base_models: Tuple[BaseModel, ...] = (Tree(max_depth=3),),
         callbacks: Sequence[TrainingCallback] = (),
@@ -679,6 +698,7 @@ class LBClassifier(LBBase, ClassifierMixin):
             objective=objective,
             metric=metric,
             learning_rate=learning_rate,
+            subsample=subsample,
             init=init,
             base_models=base_models,
             callbacks=callbacks,
