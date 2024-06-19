@@ -125,7 +125,7 @@ jobs:
           pip install -e .
       - name: Run cpu tests
         run: |
-          legate --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
+          legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
       - name: Run cpu multi-node tests
         run: |
           # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
@@ -133,7 +133,8 @@ jobs:
         if: ${{ false }} # disabled due to issue #5
       - name: Run gpu tests
         run: |
-          legate --gpus 1 --fbmem 16000 --sysmem 16000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
+          nvidia-smi
+          legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
       - name: Build legateboost docs
         working-directory: docs
         run: |
