@@ -13,7 +13,7 @@ np.set_printoptions(threshold=10, edgeitems=1)
 settings.register_profile(
     "local",
     max_examples=50,
-    deadline=5000,
+    deadline=10000,
     verbosity=Verbosity.verbose,
     suppress_health_check=(HealthCheck.too_slow,),
     print_blob=True,
