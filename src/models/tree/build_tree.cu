@@ -63,7 +63,83 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   }
 }
 
-template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
+template <typename TYPE, bool TRANSPOSE, int TPB, int SAMPLES_PER_BLOCK, int FEATURES_PER_BLOCK>
+__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+  prepare_histogram_bins(legate::AccessorRO<TYPE, 3> X,
+                         size_t n_local_samples,
+                         size_t n_features,
+                         int64_t sample_offset,
+                         legate::AccessorRO<TYPE, 2> split_proposal,
+                         int32_t samples_per_feature,
+                         legate::Buffer<short, 2> bin_idx_buffer)
+{
+  // example :
+  // TDB = 128
+  // SAMPLES_PER_BLOCK = 16
+  // FEATURES_PER_BLOCK = 16
+  // ELEMENTS_PER_THREAD = 2
+  // SMEM -> 16*17*8 = 2176
+  // TRANSPOSE true  : returns features x samples
+  // TRANSPOSE false : returns samples x features
+  constexpr int ELEMENTS_PER_THREAD = SAMPLES_PER_BLOCK * FEATURES_PER_BLOCK / TPB;
+  __shared__ double buffer_dbl[SAMPLES_PER_BLOCK][FEATURES_PER_BLOCK + 1];
+
+  // load sample block into shared memory (row-wise strided)
+  int32_t blockSample   = threadIdx.x / FEATURES_PER_BLOCK;
+  int32_t blockFeature  = threadIdx.x % FEATURES_PER_BLOCK;
+  int32_t localSampleId = blockIdx.x * SAMPLES_PER_BLOCK + blockSample;
+  int32_t feature       = blockIdx.y * FEATURES_PER_BLOCK + blockFeature;
+  int32_t stride        = TPB / FEATURES_PER_BLOCK;
+  for (int32_t i = 0; i < ELEMENTS_PER_THREAD;
+       i++, blockSample += stride, localSampleId += stride) {
+    buffer_dbl[blockSample][blockFeature] = localSampleId < n_local_samples && feature < n_features
+                                              ? X[{localSampleId + sample_offset, feature, 0}]
+                                              : 0.0;  // TODO maybe inf?
+  }
+
+  __syncthreads();
+
+  // compute bins --> now we access buffer col-wise strided
+  blockSample   = threadIdx.x % SAMPLES_PER_BLOCK;
+  blockFeature  = threadIdx.x / SAMPLES_PER_BLOCK;
+  localSampleId = blockIdx.x * SAMPLES_PER_BLOCK + blockSample;
+  feature       = blockIdx.y * FEATURES_PER_BLOCK + blockFeature;
+  stride        = TPB / SAMPLES_PER_BLOCK;
+  for (int32_t i = 0; i < ELEMENTS_PER_THREAD; i++, blockFeature += stride, feature += stride) {
+    if (localSampleId < n_local_samples && feature < n_features) {
+      int bin_idx = thrust::lower_bound(thrust::seq,
+                                        split_proposal.ptr({feature, 0}),
+                                        split_proposal.ptr({feature, samples_per_feature}),
+                                        buffer_dbl[blockSample][blockFeature]) -
+                    split_proposal.ptr({feature, 0});
+      if constexpr (TRANSPOSE) {
+        bin_idx_buffer[{feature, localSampleId}] = (short)bin_idx;
+      } else {
+        reinterpret_cast<int*>(&buffer_dbl[blockSample][blockFeature])[0] = bin_idx;
+      }
+    }
+  }
+
+  if constexpr (!TRANSPOSE) {
+    __syncthreads();
+
+    blockSample   = threadIdx.x / FEATURES_PER_BLOCK;
+    blockFeature  = threadIdx.x % FEATURES_PER_BLOCK;
+    localSampleId = blockIdx.x * SAMPLES_PER_BLOCK + blockSample;
+    feature       = blockIdx.y * FEATURES_PER_BLOCK + blockFeature;
+    stride        = TPB / FEATURES_PER_BLOCK;
+    for (int32_t i = 0; i < ELEMENTS_PER_THREAD;
+         i++, blockSample += stride, localSampleId += stride) {
+      if (localSampleId < n_local_samples && feature < n_features) {
+        bin_idx_buffer[{localSampleId, feature}] =
+          reinterpret_cast<int*>(&buffer_dbl[blockSample][blockFeature])[0];
+      }
+    }
+  }
+}
+
+// kernel without smem -- utilizes 1 warp per 32 samples, processing all features/outputs at once
+template <typename TYPE>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   fill_histogram(legate::AccessorRO<TYPE, 3> X,
                  size_t n_local_samples,
@@ -72,58 +148,94 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  legate::AccessorRO<double, 3> g,
                  legate::AccessorRO<double, 3> h,
                  size_t n_outputs,
-                 legate::AccessorRO<TYPE, 2> split_proposal,
                  int32_t samples_per_feature,
                  int32_t* positions_local,
                  legate::Buffer<GPair, 4> histogram,
                  legate::Buffer<double, 2> node_hessians,
-                 int depth)
+                 int32_t depth,
+                 legate::Buffer<short, 2> bin_idx_buffer)
 {
-  // block dimensions are (THREADS_PER_BLOCK, 1, 1)
-  // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
-  // the features to process are defined via blockIdx.y
+  constexpr int32_t WarpSize    = 32;
+  const int32_t warp_id         = threadIdx.x / WarpSize;
+  const int32_t lane_id         = threadIdx.x % WarpSize;
+  const bool enable_gh_prefetch = n_outputs <= WarpSize;
 
-  // further improvements:
-  // * quantize values to work with int instead of double
+  int32_t localSampleId0 = blockIdx.x * THREADS_PER_BLOCK + warp_id * WarpSize;
 
-#pragma unroll
-  for (int32_t elementIdx = 0; elementIdx < ELEMENTS_PER_THREAD; ++elementIdx) {
-    // within each iteration a (THREADS_PER_BLOCK, FEATURES_PER_BLOCK)-block of
-    // data from X is processed.
+  // prefetch sampleNode information for all 32 ids
+  const int32_t sampleNode_lane =
+    (localSampleId0 + lane_id) < n_local_samples ? positions_local[(localSampleId0 + lane_id)] : 0;
+  bool computeHistogram = (localSampleId0 + lane_id) < n_local_samples &&
+                          ComputeHistogramBin(sampleNode_lane, depth, node_hessians);
 
-    // check if thread has actual work to do
-    int32_t localSampleId = (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
-    int64_t globalSampleId = localSampleId + sample_offset;
-    bool validThread       = localSampleId < n_local_samples;
-    if (!validThread) continue;
+  // mask contains all sample bits of the next 32 ids that need to be bin'ed
+  auto lane_mask = ballot(computeHistogram);
 
-    int32_t sampleNode    = positions_local[localSampleId];
-    bool computeHistogram = ComputeHistogramBin(sampleNode, depth, node_hessians);
+  if (lane_mask == 0) return;
 
-    for (int32_t output = 0; output < n_outputs; output++) {
-      double G = g[{globalSampleId, 0, output}];
-      double H = h[{globalSampleId, 0, output}];
-      for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
-        int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
-        if (computeHistogram && feature < n_features) {
-          auto x_value = X[{globalSampleId, feature, 0}];
-          int bin_idx  = thrust::lower_bound(thrust::seq,
-                                            split_proposal.ptr({feature, 0}),
-                                            split_proposal.ptr({feature, samples_per_feature}),
-                                            x_value) -
-                        split_proposal.ptr({feature, 0});
+  // preload G,H
+  // every thread in the warp holds one element each
+  int32_t cache_start  = 0;
+  int32_t cache_sample = localSampleId0 + lane_id / n_outputs;
+  int32_t last_warp_sample =
+    enable_gh_prefetch ? min(localSampleId0 + WarpSize, (int32_t)n_local_samples) : 0;
+  double G_lane = cache_sample < last_warp_sample
+                    ? g[{sample_offset + cache_sample, 0, lane_id % (int)n_outputs}]
+                    : 0.0;
+  double H_lane = cache_sample < last_warp_sample
+                    ? h[{sample_offset + cache_sample, 0, lane_id % (int)n_outputs}]
+                    : 0.0;
 
-          // bin_idx is the first sample that is larger than x_value
-          if (bin_idx < samples_per_feature) {
-            double* addPosition =
-              reinterpret_cast<double*>(&histogram[{sampleNode, feature, output, bin_idx}]);
-            atomicAdd(addPosition, G);
-            atomicAdd(addPosition + 1, H);
-          }
+  // reverse to use __clz instead of __ffs
+  lane_mask = __brev(lane_mask);
+
+  do {
+    // look for next lane_offset
+    const uint32_t lane_offset = __clz(lane_mask);
+    const int32_t sampleNode   = shfl(sampleNode_lane, lane_offset);
+
+    // ensure all G.H for current sample are cached
+    if (enable_gh_prefetch && (((lane_offset + 1) * n_outputs - cache_start) >= WarpSize)) {
+      cache_start  = lane_offset * n_outputs;
+      cache_sample = localSampleId0 + lane_offset + lane_id / n_outputs;
+      G_lane       = cache_sample < last_warp_sample
+                       ? g[{sample_offset + cache_sample, 0, lane_id % (int)n_outputs}]
+                       : 0.0;
+      H_lane       = cache_sample < last_warp_sample
+                       ? h[{sample_offset + cache_sample, 0, lane_id % (int)n_outputs}]
+                       : 0.0;
+    }
+
+    // remove lane_offset bit from lane_mask for next iteration
+    lane_mask &= (0x7fffffff >> lane_offset);
+
+#pragma nounroll
+    for (int32_t feature0 = 0; feature0 < n_features; feature0 += WarpSize) {
+      auto bin_idx = (feature0 + lane_id) < n_features
+                       ? (int)bin_idx_buffer[{localSampleId0 + lane_offset, (feature0 + lane_id)}]
+                       : samples_per_feature;
+#pragma nounroll
+      for (int32_t output = 0; output < n_outputs; output++) {
+        // get G/H from cache
+        int32_t cache_pos = lane_offset * n_outputs + output - cache_start;
+        double val        = enable_gh_prefetch
+                              ? shfl(G_lane, cache_pos)
+                              : g[{sample_offset + localSampleId0 + lane_offset, 0, output}];
+        double* addPosition =
+          reinterpret_cast<double*>(&histogram[{sampleNode, feature0 + lane_id, output, bin_idx}]);
+        if (bin_idx < samples_per_feature) {
+          // add G
+          atomicAdd(addPosition, val);
+        }
+        val = enable_gh_prefetch ? shfl(H_lane, cache_pos)
+                                 : h[{sample_offset + localSampleId0 + lane_offset, 0, output}];
+        if (bin_idx < samples_per_feature) {
+          // add H
+          atomicAdd(addPosition + 1, val);
         }
       }
     }
-  }
+  } while (lane_mask);
 }
 
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
@@ -432,6 +544,7 @@ struct TreeBuilder {
     positions.destroy();
     histogram_buffer.destroy();
     if (cub_buffer_size > 0) cub_buffer.destroy();
+    bin_idx_buffer.destroy();
   }
 
   template <typename TYPE>
@@ -469,27 +582,41 @@ struct TreeBuilder {
                         legate::AccessorRO<double, 3> g,
                         legate::AccessorRO<double, 3> h)
   {
-    // TODO adjust kernel parameters dynamically
-    constexpr size_t elements_per_thread = 8;
-    constexpr size_t features_per_block  = 16;
-    const size_t blocks_x = (num_rows + THREADS_PER_BLOCK * elements_per_thread - 1) /
-                            (THREADS_PER_BLOCK * elements_per_thread);
-    const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
-    dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
-    fill_histogram<TYPE, elements_per_thread, features_per_block>
-      <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
-                                                     num_rows,
-                                                     num_features,
-                                                     X_shape.lo[0],
-                                                     g,
-                                                     h,
-                                                     num_outputs,
-                                                     split_proposal,
-                                                     samples_per_feature,
-                                                     positions.ptr(0),
-                                                     histogram_buffer,
-                                                     tree.hessian,
-                                                     depth);
+    if (depth == 0) {
+      bin_idx_buffer = legate::create_buffer<short, 2>({num_rows, num_features});
+      constexpr size_t features_per_block = 16;
+      constexpr size_t samples_per_block  = 16;
+      const size_t blocks_x               = (num_rows + samples_per_block - 1) / samples_per_block;
+      const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
+      dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
+      prepare_histogram_bins<TYPE, false, THREADS_PER_BLOCK, samples_per_block, features_per_block>
+        <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
+                                                       num_rows,
+                                                       num_features,
+                                                       X_shape.lo[0],
+                                                       split_proposal,
+                                                       samples_per_feature,
+                                                       bin_idx_buffer);
+      CHECK_CUDA_STREAM(stream);
+    }
+
+    const size_t blocks_x = (num_rows + THREADS_PER_BLOCK - 1) / (THREADS_PER_BLOCK);
+    dim3 grid_shape       = dim3(blocks_x, 1, 1);
+
+    fill_histogram<TYPE><<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
+                                                                       num_rows,
+                                                                       num_features,
+                                                                       X_shape.lo[0],
+                                                                       g,
+                                                                       h,
+                                                                       num_outputs,
+                                                                       samples_per_feature,
+                                                                       positions.ptr(0),
+                                                                       histogram_buffer,
+                                                                       tree.hessian,
+                                                                       depth,
+                                                                       bin_idx_buffer);
+
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
     SumAllReduce(
@@ -564,6 +691,7 @@ struct TreeBuilder {
   }
 
   legate::Buffer<int32_t> positions;
+  legate::Buffer<short, 2> bin_idx_buffer;
   const int32_t num_rows;
   const int32_t num_features;
   const int32_t num_outputs;
