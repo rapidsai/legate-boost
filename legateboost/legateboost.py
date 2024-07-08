@@ -16,6 +16,7 @@ from .input_validation import check_sample_weight, check_X_y
 from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
+from .shapley import global_shapley_attributions
 from .utils import PickleCunumericMixin, preround
 
 if TYPE_CHECKING:
@@ -618,6 +619,78 @@ class LBRegressor(LBBase, RegressorMixin):
         if pred.shape[1] == 1:
             pred = pred.squeeze(axis=1)
         return pred
+
+    def global_attributions(
+        self,
+        X: cn.array,
+        y: cn.array,
+        metric: Optional[BaseMetric] = None,
+        n_background_samples=100,
+        random_state=None,
+        n_samples: int = 5,
+        assert_efficiency: bool = False,
+    ) -> Tuple[float, cn.array, cn.array]:
+        """Compute global feature attributions for the model. Global
+        attributions show the effect of a feature on a model's loss function.
+
+        We use a Shapley value approach to compute the attributions:
+        :math:`Sh_i(v)=\\frac{1}{|N|!} \\sum_{\\sigma \\in \\mathfrak{S}_d} \\big[ v([\\sigma]_{i-1} \\cup\\{i\\}) - v([\\sigma]_{i-1}) \\big],`
+        where :math:`v` is the model's loss function, :math:`N` is the set of features, and :math:`\\mathfrak{S}_d` is the set of all permutations of the features.
+        :math:`[\\sigma]_{i-1}` represents the set of players ranked lower than :math:`i` in the ordering :math:`\\sigma`.
+
+        In effect the shapley value shows the effect of adding a feature to the model, averaged over all possible orderings of the features. In our case the above function is approximated using an antithetic-sampling method [#Sampling]_, where `n_samples` corresponds to pairs of permutation samples. This method also returns estimates of the standard deviation, which decreases according to :math:`1/\\sqrt{n\\_samples}`.
+
+        This definition of attributions requires removing a feature from the active set. We use a random sample of values from X to fill in the missing feature values. This choice of background distribution corresponds to an 'interventional' Shapley value approach discussed in [#Global]_.
+
+
+        .. [#Sampling] Mitchell, Rory, et al. "Sampling permutations for shapley value estimation." Journal of Machine Learning Research 23.43 (2022): 1-46.
+        .. [#Global] Covert, Ian, Scott M. Lundberg, and Su-In Lee. "Understanding global feature contributions with additive importance measures." Advances in Neural Information Processing Systems 33 (2020): 17212-17223.
+
+        The method uses memory (and time) proportional to :math:`n\\_samples \\times n\\_features \\times n\\_background\\_samples`. Reduce the number of background samples or the size of X to speed up computation and reduce memory usage. X does not need to be the entire training set to get useful estimates.
+
+        See the method :func:`~legateboost.BaseModel.local_attributions` for the effect of features on individual prediction outputs.
+
+        Parameters
+        ----------
+        X : cn.array
+            The input data.
+        y : cn.array
+            The target values.
+        metric : BaseMetric, optional
+            The metric to evaluate the model. If None, the model default metric is used.
+        n_background_samples : int, optional
+            The number of background samples to use for missing feature values.
+        random_state : int, optional
+            The random state for reproducibility.
+        n_samples : int, optional
+            The number of samples to use in the antithetic sampling method.
+        assert_efficiency : bool, optional
+            If True, check that shapley values + null coalition add up to the final loss for X, y (the so called efficiency property of Shapley values)'.
+
+        Returns
+        -------
+        float
+            The loss of the null coalition (all features deactivated).
+        cn.array
+            The Shapley values for each feature.
+        cn.array
+            An estimate of the standard deviation of the Shapley values, with respect to `n_samples`. The standard deviation decreases according to :math:`1/\\sqrt{n\\_samples}`.
+        """  # noqa: E501
+        check_is_fitted(self, "is_fitted_")
+        return global_shapley_attributions(
+            self,
+            X,
+            y,
+            metric,
+            n_background_samples,
+            random_state,
+            n_samples,
+            assert_efficiency,
+        )
+
+    def local_attributions():
+        """Local attributions."""
+        pass
 
 
 class LBClassifier(LBBase, ClassifierMixin):
