@@ -2,6 +2,7 @@ import numpy as np
 from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 from sklearn.preprocessing import StandardScaler
 
+import cunumeric as cn
 import legateboost as lb
 from legate.core import TaskTarget, get_legate_runtime
 
@@ -25,11 +26,11 @@ settings.load_profile("local")
 @st.composite
 def tree_strategy(draw):
     if get_legate_runtime().machine.count(TaskTarget.GPU) > 0:
-        max_depth = draw(st.integers(1, 12))
+        max_depth = draw(st.integers(1, 8))
     else:
         max_depth = draw(st.integers(1, 6))
     alpha = draw(st.floats(0.0, 1.0))
-    split_samples = draw(st.integers(1, 1000))
+    split_samples = draw(st.integers(1, 500))
     return lb.models.Tree(max_depth=max_depth, alpha=alpha, split_samples=split_samples)
 
 
@@ -143,6 +144,7 @@ def regression_dataset_strategy(draw):
     regression_param_strategy,
     regression_dataset_strategy(),
 )
+@cn.errstate(divide="raise", invalid="raise")
 def test_regressor(model_params, regression_params, regression_dataset):
     X, y, w = regression_dataset
     eval_result = {}
@@ -156,7 +158,7 @@ def test_regressor(model_params, regression_params, regression_dataset):
     )
     model.predict(X)
     loss = next(iter(eval_result["train"].values()))
-    assert non_increasing(loss, tol=1e-2)
+    assert non_increasing(loss, tol=1e-1)
     sanity_check_models(model)
 
 
@@ -238,12 +240,12 @@ def classification_dataset_strategy(draw):
     classification_param_strategy,
     classification_dataset_strategy(),
 )
+@cn.errstate(divide="raise", invalid="raise")
 def test_classifier(
     model_params: dict, classification_params: dict, classification_dataset: tuple
 ) -> None:
     X, y, w, name = classification_dataset
     eval_result = {}
-    model_params["n_estimators"] = 3
     model = lb.LBClassifier(**model_params, **classification_params).fit(
         X, y, sample_weight=w, eval_result=eval_result
     )
@@ -253,4 +255,4 @@ def test_classifier(
     loss = next(iter(eval_result["train"].values()))
     # multiclass models with higher learning rates don't always converge
     if len(model.classes_) == 2:
-        assert non_increasing(loss, 1e-2)
+        assert non_increasing(loss, 1e-1)

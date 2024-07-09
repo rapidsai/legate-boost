@@ -92,6 +92,7 @@ def preround(x: cn.ndarray) -> cn.ndarray:
     m = cn.sum(cn.abs(x))
     n = x.size
     delta = cn.floor(m / (one - two * n * eps))
+    delta = cn.maximum(delta, one)
     M = two ** cn.ceil(cn.log2(delta))
     return (x + M) - M
 
