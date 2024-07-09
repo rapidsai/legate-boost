@@ -35,40 +35,10 @@ jobs:
             conda--internal--${{
             steps.get-date.outputs.week }}
         id: cache
-      - name: Checkout legate core
-        uses: actions/checkout@v4
-        with:
-            repository: nv-legate/legate.core.internal
-            path: legate.core.internal
-            token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: ba57a43800a00d57d2c6e19b74b00f36ba921b48
-      - name: Install legate core
-        working-directory: ./legate.core.internal
+      - name: Install legate/cunumeric
         run: |
-          python scripts/generate-conda-envs.py --ctk 11.8 --os linux --compilers --openmpi --ucx;
-          echo "  - python=3.10" >> environment-test-linux-cuda11.8-compilers-openmpi-ucx.yaml;
-          mamba env create -n legate -f environment-test-linux-cuda11.8-compilers-openmpi-ucx.yaml;
-          mamba activate legate;
-          mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
+          mamba install -y -c nvidia -c legate -c conda-forge legate.core cunumeric build scikit-learn hypothesis 'pytest<8' notebook
           pip install matplotlib seaborn xgboost
-          export LEGATE_CORE_ARCH='arch-linux-py-relwithdebinfo';
-          ./configure --with-python --cuda-arch 70 --with-cuda --build-type=relwithdebinfo --with-nccl --with-ucx && make && pip install .;
-        if: steps.cache.outputs.cache-hit != 'true'
-      - name: Checkout cunumeric
-        uses: actions/checkout@v4
-        with:
-            repository: nv-legate/cunumeric.internal
-            path: cunumeric.internal
-            token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: f407887f5d43adaeeec1211fed1e8a1b58e9d3ab
-      - name: Install cunumeric
-        working-directory: ./cunumeric.internal
-        run: |
-          ./install.py
-          # make the conda directory smaller for easier caching
-          # this removes unneeded files from the env
-          mamba clean -all -y
-        if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout legateboost
         uses: actions/checkout@v4
         with:
