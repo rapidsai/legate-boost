@@ -36,7 +36,7 @@ os.environ["CMAKE_ARGS"] = " ".join(cmake_flags)
 
 requires = [
     "cunumeric",
-    "legate.core",
+    "legate-core",
     "scikit-learn",
     "numpy",
     "typing_extensions",  # Required by legate.core as well.
