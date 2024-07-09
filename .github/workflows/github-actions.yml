@@ -35,8 +35,6 @@ jobs:
         id: cache
       - name: Install legate/cunumeric
         run: |
-          mamba create -n legate python=3.10
-          mamba activate legate
           mamba install -y -c legate -c nvidia -c conda-forge legate-core=24.06 cunumeric=24.06 build cmake scikit-build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2' mypy 'openblas<=0.3.21'
           pip install matplotlib seaborn xgboost
       - name: Checkout legateboost
@@ -82,7 +80,6 @@ jobs:
           name: legateboost-wheel
       - name: Install legateboost artifact
         run: |
-          mamba activate legate
           pip install $(find -name legateboost*.whl)[test] --prefix .
       - name: Checkout legateboost
         uses: actions/checkout@v4
