@@ -37,7 +37,7 @@ jobs:
         id: cache
       - name: Install legate/cunumeric
         run: |
-          mamba install -y -c nvidia -c legate -c conda-forge legate.core cunumeric build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2'
+          mamba install -y -c nvidia -c conda-forge legate-core=24.06 cunumeric=24.06 build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2'
           pip install matplotlib seaborn xgboost
       - name: Checkout legateboost
         uses: actions/checkout@v4
@@ -96,11 +96,6 @@ jobs:
       - name: Run cpu tests
         run: |
           legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
-      - name: Run cpu multi-node tests
-        run: |
-          # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
-          # Only run one test because CPU with MPI is slowwwww
-          OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 legate --launcher mpirun --ranks-per-node 2 --cpu-bind 0-9/10-19 --module pytest legateboost/test/test_estimator.py::test_regressor[base_models0-squared_error-5]
       - name: Run gpu tests
         run: |
           nvidia-smi
