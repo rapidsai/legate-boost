@@ -80,7 +80,7 @@ jobs:
           name: legateboost-wheel
       - name: Install legateboost artifact
         run: |
-          pip install $(find -name legateboost*.whl)[test] --prefix .
+          pip install $(find -name legateboost*.whl) --prefix .
       - name: Checkout legateboost
         uses: actions/checkout@v4
         with:
