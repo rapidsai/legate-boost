@@ -115,7 +115,6 @@ def local_shapley_attributions(
 
     v = (v_a + v_b) / 2
     shapley_values = cn.mean(v, axis=-1)
-    print(shapley_values.shape)
     std = cn.std(v, axis=-1, ddof=1) / cn.sqrt(n_samples)
 
     null_shap = null_pred.reshape(X.shape[0], X_background.shape[0], n_outputs).mean(
