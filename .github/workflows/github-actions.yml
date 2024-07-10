@@ -27,7 +27,7 @@ jobs:
       - name: Cache Conda env
         uses: actions/cache@v3
         with:
-          path: /opt/conda/envs/legate
+          path: /opt/conda/
           # renew cache weekly with legate.core/cunumeric builds
           key:
             conda--internal--${{
@@ -72,7 +72,7 @@ jobs:
         id: cache-restore
         uses: actions/cache/restore@v3
         with:
-          path: /opt/conda/envs/legate
+          path: /opt/conda/
           key: conda--internal--${{
             steps.get-date.outputs.today }}
       - uses: actions/download-artifact@v3
