@@ -15,7 +15,7 @@ jobs:
     defaults:
       run:
         shell: bash -el {0}
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-gpu-v100-latest-1
     env:
       CONDA_PREFIX: /opt/conda
     container:
