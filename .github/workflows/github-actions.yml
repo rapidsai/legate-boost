@@ -21,18 +21,6 @@ jobs:
     container:
       image: rapidsai/devcontainers:23.10-cpp-cuda11.8-mambaforge-ubuntu22.04
     steps:
-      - name: Get Date
-        id: get-date
-        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
-      - name: Cache Conda env
-        uses: actions/cache@v3
-        with:
-          path: /opt/conda/
-          # renew cache weekly with legate.core/cunumeric builds
-          key:
-            conda--internal--${{
-            steps.get-date.outputs.week }}
-        id: cache
       - name: Install legate/cunumeric
         run: |
           mamba install -y -c legate -c nvidia -c conda-forge legate-core=24.06 cunumeric=24.06 build cmake scikit-build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2' mypy 'openblas<=0.3.21'
@@ -65,26 +53,18 @@ jobs:
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
-      - name: Get Date
-        id: get-date
-        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
-      - name: Restore cached environment
-        id: cache-restore
-        uses: actions/cache/restore@v3
-        with:
-          path: /opt/conda/
-          key: conda--internal--${{
-            steps.get-date.outputs.today }}
-      - uses: actions/download-artifact@v3
-        with:
-          name: legateboost-wheel
-      - name: Install legateboost artifact
+      - name: Install legate/cunumeric
         run: |
-          pip install $(find -name legateboost*.whl) --prefix .
+          mamba install -y -c legate -c nvidia -c conda-forge legate-core=24.06 cunumeric=24.06 build cmake scikit-build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2' mypy 'openblas<=0.3.21'
+          pip install matplotlib seaborn xgboost
       - name: Checkout legateboost
         uses: actions/checkout@v4
         with:
           lfs: true
+      - name: Build legateboost
+        run: |
+          CUDA_ARCH=70\;80 ./build.sh
+          python -m build -n --wheel
       - name: Run cpu tests
         run: |
           legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
