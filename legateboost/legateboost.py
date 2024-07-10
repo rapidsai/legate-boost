@@ -463,13 +463,13 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         where :math:`v` is the model's loss function, :math:`N` is the set of features, and :math:`\\mathfrak{S}_d` is the set of all permutations of the features.
         :math:`[\\sigma]_{i-1}` represents the set of players ranked lower than :math:`i` in the ordering :math:`\\sigma`.
 
-        In effect the shapley value shows the effect of adding a feature to the model, averaged over all possible orderings of the features. In our case the above function is approximated using an antithetic-sampling method [#Sampling]_, where `n_samples` corresponds to pairs of permutation samples. This method also returns estimates of the standard deviation, which decreases according to :math:`1/\\sqrt{n\\_samples}`.
+        In effect the shapley value shows the effect of adding a feature to the model, averaged over all possible orderings of the features. In our case the above function is approximated using an antithetic-sampling method [1]_, where `n_samples` corresponds to pairs of permutation samples. This method also returns estimates of the standard deviation, which decreases according to :math:`1/\\sqrt{n\\_samples}`.
 
-        This definition of attributions requires removing a feature from the active set. We use a random sample of values from X to fill in the missing feature values. This choice of background distribution corresponds to an 'interventional' Shapley value approach discussed in [#Global]_.
+        This definition of attributions requires removing a feature from the active set. We use a random sample of values from X to fill in the missing feature values. This choice of background distribution corresponds to an 'interventional' Shapley value approach discussed in [2]_.
 
 
-        .. [#Sampling] Mitchell, Rory, et al. "Sampling permutations for shapley value estimation." Journal of Machine Learning Research 23.43 (2022): 1-46.
-        .. [#Global] Covert, Ian, Scott M. Lundberg, and Su-In Lee. "Understanding global feature contributions with additive importance measures." Advances in Neural Information Processing Systems 33 (2020): 17212-17223.
+        .. [1] Mitchell, Rory, et al. "Sampling permutations for shapley value estimation." Journal of Machine Learning Research 23.43 (2022): 1-46.
+        .. [2] Covert, Ian, Scott M. Lundberg, and Su-In Lee. "Understanding global feature contributions with additive importance measures." Advances in Neural Information Processing Systems 33 (2020): 17212-17223.
 
         The method uses memory (and time) proportional to :math:`n\\_samples \\times n\\_features \\times n\\_background\\_samples`. Reduce the number of background samples or the size of X to speed up computation and reduce memory usage. X does not need to be the entire training set to get useful estimates.
 
