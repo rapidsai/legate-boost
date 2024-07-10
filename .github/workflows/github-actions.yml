@@ -81,14 +81,6 @@ jobs:
       - name: Install legateboost artifact
         run: |
           pip install $(find -name legateboost*.whl) --prefix .
-      - name: Checkout legateboost
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-      - name: Build legateboost
-        run: |
-          # build again so we have a local editable install for the purpose of building docs
-          pip install -e .
       - name: Run cpu tests
         run: |
           legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
@@ -96,6 +88,10 @@ jobs:
         run: |
           nvidia-smi
           legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
+      - name: Checkout legateboost
+        uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Build legateboost docs
         working-directory: docs
         run: |
