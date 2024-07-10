@@ -17,10 +17,11 @@ jobs:
         shell: bash -el {0}
     runs-on: linux-amd64-gpu-v100-latest-1
     env:
-      NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
       CONDA_PREFIX: /opt/conda
     container:
       image: rapidsai/devcontainers:23.10-cpp-cuda11.8-mambaforge-ubuntu22.04
+      env:
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
       - name: Install legate/cunumeric
         run: |
