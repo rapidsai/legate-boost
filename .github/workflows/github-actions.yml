@@ -49,7 +49,8 @@ jobs:
           echo "  - python=3.10" >> environment-test-linux-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba env create -n legate -f environment-test-linux-cuda11.8-compilers-openmpi-ucx.yaml;
           mamba activate legate;
-          mamba install -y build scikit-learn hypothesis 'pytest<8' notebook;
+          # Downgrade NumPy; as of 2024-07-01 it triggers a mypy bug
+          mamba install -y build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2';
           pip install matplotlib seaborn xgboost
           export LEGATE_CORE_ARCH='arch-linux-py-relwithdebinfo';
           ./configure --with-python --cuda-arch 70 --with-cuda --build-type=relwithdebinfo --with-nccl --with-ucx && make && pip install .;
