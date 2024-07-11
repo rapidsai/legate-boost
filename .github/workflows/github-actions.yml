@@ -11,65 +11,22 @@ on:
       - "branch-*"
       - "main"
 jobs:
-  build:
+  build-test:
     defaults:
       run:
         shell: bash -el {0}
-    runs-on: linux-amd64-cpu8
+    runs-on: linux-amd64-gpu-v100-latest-1
     env:
       CONDA_PREFIX: /opt/conda
     container:
       image: rapidsai/devcontainers:23.10-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
-        DEFAULT_CONDA_ENV: legate
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
-      - name: Get Date
-        id: get-date
-        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
-      - name: Cache Conda env
-        uses: actions/cache@v3
-        with:
-          path: /opt/conda/envs/legate
-          # renew cache weekly with legate.core/cunumeric builds
-          key:
-            conda--internal--${{
-            steps.get-date.outputs.week }}
-        id: cache
-      - name: Checkout legate core
-        uses: actions/checkout@v4
-        with:
-            repository: nv-legate/legate.core.internal
-            path: legate.core.internal
-            token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: ba57a43800a00d57d2c6e19b74b00f36ba921b48
-      - name: Install legate core
-        working-directory: ./legate.core.internal
+      - name: Install legate/cunumeric
         run: |
-          python scripts/generate-conda-envs.py --ctk 11.8 --os linux --compilers --openmpi --ucx;
-          echo "  - python=3.10" >> environment-test-linux-cuda11.8-compilers-openmpi-ucx.yaml;
-          mamba env create -n legate -f environment-test-linux-cuda11.8-compilers-openmpi-ucx.yaml;
-          mamba activate legate;
-          # Downgrade NumPy; as of 2024-07-01 it triggers a mypy bug
-          mamba install -y build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2';
+          mamba install -y -c legate -c conda-forge legate-core=24.06 cunumeric=24.06 build cmake scikit-build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2' mypy openblas
           pip install matplotlib seaborn xgboost
-          export LEGATE_CORE_ARCH='arch-linux-py-relwithdebinfo';
-          ./configure --with-python --cuda-arch 70 --with-cuda --build-type=relwithdebinfo --with-nccl --with-ucx && make && pip install .;
-        if: steps.cache.outputs.cache-hit != 'true'
-      - name: Checkout cunumeric
-        uses: actions/checkout@v4
-        with:
-            repository: nv-legate/cunumeric.internal
-            path: cunumeric.internal
-            token: ${{ secrets.NV_LEGATE_TOKEN }}
-            ref: f407887f5d43adaeeec1211fed1e8a1b58e9d3ab
-      - name: Install cunumeric
-        working-directory: ./cunumeric.internal
-        run: |
-          ./install.py
-          # make the conda directory smaller for easier caching
-          # this removes unneeded files from the env
-          mamba clean -all -y
-        if: steps.cache.outputs.cache-hit != 'true'
       - name: Checkout legateboost
         uses: actions/checkout@v4
         with:
@@ -85,53 +42,9 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
-
-
-  test:
-    needs: build
-    defaults:
-      run:
-        shell: bash -el {0}
-    runs-on: linux-amd64-gpu-v100-latest-1
-    container:
-      image: rapidsai/devcontainers:23.06-cpp-cuda11.8-mambaforge-ubuntu22.04
-      env:
-        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
-        DEFAULT_CONDA_ENV: legate
-    steps:
-      - name: Get Date
-        id: get-date
-        run: echo "week=$(/bin/date -u '+%Y.week%U')" >> $GITHUB_OUTPUT
-      - name: Restore cached environment
-        id: cache-restore
-        uses: actions/cache/restore@v3
-        with:
-          path: /opt/conda/envs/legate
-          key: conda--internal--${{
-            steps.get-date.outputs.today }}
-      - uses: actions/download-artifact@v3
-        with:
-          name: legateboost-wheel
-      - name: Install legateboost artifact
-        run: |
-          mamba activate legate
-          pip install $(find -name legateboost*.whl)[test] --prefix .
-      - name: Checkout legateboost
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-      - name: Build legateboost
-        run: |
-          # build again so we have a local editable install for the purpose of building docs
-          pip install -e .
       - name: Run cpu tests
         run: |
           legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
-      - name: Run cpu multi-node tests
-        run: |
-          # rapids container is run as root, tell mpi it is ok to run as root (we are in a container)
-          # Only run one test because CPU with MPI is slowwwww
-          OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 legate --launcher mpirun --ranks-per-node 2 --cpu-bind 0-9/10-19 --module pytest legateboost/test/test_estimator.py::test_regressor[base_models0-squared_error-5]
       - name: Run gpu tests
         run: |
           nvidia-smi
@@ -148,7 +61,7 @@ jobs:
 
 
   deploy:
-    needs: test
+    needs: build-test
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
