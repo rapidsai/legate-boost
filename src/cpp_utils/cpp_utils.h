@@ -91,7 +91,7 @@ void expect_dense_row_major(const AccessorT& accessor,
 template <typename T, typename... Types, typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
-  if (code == legate::type_code_of<T>) {
+  if (code == legate::type_code_of_v<T>) {
     return f.template operator()<T>(std::forward<Fnargs>(args)...);
   }
   return type_dispatch_impl<Types...>(code, f, std::forward<Fnargs>(args)...);
