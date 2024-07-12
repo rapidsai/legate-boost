@@ -49,6 +49,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.random_state = random_state
         self.model_init_: cn.ndarray
         self.callbacks = callbacks
+        self.metrics_: list[BaseMetric] = []
         if not isinstance(base_models, tuple):
             raise ValueError("base_models must be a tuple")
         self.base_models = base_models
@@ -450,10 +451,10 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X: cn.array,
         y: cn.array,
         metric: Optional[BaseMetric] = None,
-        random_state=None,
+        random_state: Optional[np.random.RandomState] = None,
         n_samples: int = 5,
         assert_efficiency: bool = False,
-    ) -> Tuple[float, cn.array, cn.array]:
+    ) -> Tuple[cn.array, cn.array]:
         """Compute global feature attributions for the model. Global
         attributions show the effect of a feature on a model's loss function.
 
@@ -511,10 +512,10 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self,
         X: cn.array,
         X_background: cn.array,
-        random_state=None,
+        random_state: Optional[np.random.RandomState] = None,
         n_samples: int = 5,
         assert_efficiency: bool = False,
-    ):
+    ) -> Tuple[cn.array, cn.array]:
         """Local feature attributions for model predictions. Shows the effect
         of a feature on each output prediction. See the definition of Shapley
         values in :func:`~legateboost.BaseModel.global_attributions`, where the

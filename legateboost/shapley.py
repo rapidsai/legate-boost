@@ -1,38 +1,43 @@
-from typing import Optional
+from typing import Optional, Tuple, cast
 
+import numpy as np
 from sklearn.base import is_regressor
 from sklearn.utils.validation import check_random_state
 
 import cunumeric as cn
 
-from .legateboost import BaseModel
+from .legateboost import LBBase, LBClassifier
 from .metrics import BaseMetric
 
 
 def global_shapley_attributions(
-    model: BaseModel,
+    model: LBBase,
     X: cn.array,
     y: cn.array,
-    metric: Optional[BaseMetric] = None,
-    random_state=None,
+    metric_in: Optional[BaseMetric] = None,
+    random_state: Optional[np.random.RandomState] = None,
     n_samples: int = 5,
     assert_efficiency: bool = False,
-):
-    def predict_fn(X):
-        fn = model.predict if is_regressor(model) else model.predict_proba
+) -> Tuple[cn.array, cn.array]:
+    def predict_fn(X: cn.array) -> cn.array:
+        fn = (
+            model.predict
+            if is_regressor(model)
+            else cast(LBClassifier, model).predict_proba
+        )
         return fn(X)
 
-    if metric is None:
-        metric = model._metrics[0]
-    random_state = check_random_state(random_state)
+    metric = metric_in if metric_in is not None else model._metrics[0]
+
+    random_state_ = check_random_state(random_state)
     w = cn.ones(y.shape[0])
-    gen = cn.random.default_rng(seed=random_state.randint(2**32))
+    gen = cn.random.default_rng(seed=random_state_.randint(2**32))
 
     # antithetic sampling
     v_a = cn.zeros((X.shape[1] + 1, n_samples))
     v_b = cn.zeros((X.shape[1] + 1, n_samples))
 
-    def eval_sample(p, v):
+    def eval_sample(p: cn.array, v: cn.array) -> None:
         # cunumeric has no shuffle as of writing
         # with replacement should be fine
         X_temp = X[gen.integers(0, X.shape[0], X.shape[0])]
@@ -46,7 +51,7 @@ def global_shapley_attributions(
             previous_loss = loss
 
     for i in range(n_samples):
-        p_a = random_state.permutation(X.shape[1])
+        p_a = random_state_.permutation(X.shape[1])
         p_b = cn.flip(p_a)
         eval_sample(p_a, v_a)
         eval_sample(p_b, v_b)
@@ -62,23 +67,23 @@ def global_shapley_attributions(
 
 
 def local_shapley_attributions(
-    model: BaseModel,
+    model: LBBase,
     X: cn.array,
     X_background: cn.array,
-    random_state=None,
+    random_state: Optional[np.random.RandomState] = None,
     n_samples: int = 5,
     assert_efficiency: bool = False,
-):
-    def predict_fn(X):
+) -> Tuple[cn.array, cn.array]:
+    def predict_fn(X: cn.array) -> cn.array:
         fn = model.predict if is_regressor(model) else model.predict_proba
         p = fn(X)
         if p.ndim == 1:
             return p.reshape(-1, 1)
         return p
 
-    random_state = check_random_state(random_state)
+    random_state_ = check_random_state(random_state)
     n_background_samples = 5
-    gen = cn.random.default_rng(seed=random_state.randint(2**32))
+    gen = cn.random.default_rng(seed=random_state_.randint(2**32))
 
     n_outputs = predict_fn(X[0:2, :]).shape[1]
 
@@ -87,7 +92,7 @@ def local_shapley_attributions(
     v_a = cn.zeros((X.shape[0], X.shape[1] + 1, n_outputs, n_samples))
     v_b = cn.zeros((X.shape[0], X.shape[1] + 1, n_outputs, n_samples))
 
-    def eval_sample(p, v):
+    def eval_sample(p: cn.array, v: cn.array) -> None:
         X_temp = X_background[
             gen.integers(0, X_background.shape[0], n_background_samples * X.shape[0])
         ].reshape((X.shape[0], n_background_samples, X.shape[1]))
@@ -107,7 +112,7 @@ def local_shapley_attributions(
             previous_pred = pred
 
     for i in range(n_samples):
-        p_a = random_state.permutation(X.shape[1])
+        p_a = random_state_.permutation(X.shape[1])
         p_b = cn.flip(p_a)
         eval_sample(p_a, v_a)
         eval_sample(p_b, v_b)
