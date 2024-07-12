@@ -139,8 +139,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 }
 
 // kernel without smem -- utilizes 1 warp per 32 samples, processing all features/outputs at once
-template <typename TYPE>
-__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+template <typename TYPE, int TPB>
+__global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   fill_histogram(legate::AccessorRO<TYPE, 3> X,
                  size_t n_local_samples,
                  size_t n_features,
@@ -160,7 +160,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   const int32_t lane_id         = threadIdx.x % WarpSize;
   const bool enable_gh_prefetch = n_outputs <= WarpSize;
 
-  int32_t localSampleId0 = blockIdx.x * THREADS_PER_BLOCK + warp_id * WarpSize;
+  int32_t localSampleId0 = blockIdx.x * TPB + warp_id * WarpSize;
 
   // prefetch sampleNode information for all 32 ids
   const int32_t sampleNode_lane =
@@ -600,22 +600,24 @@ struct TreeBuilder {
       CHECK_CUDA_STREAM(stream);
     }
 
-    const size_t blocks_x = (num_rows + THREADS_PER_BLOCK - 1) / (THREADS_PER_BLOCK);
-    dim3 grid_shape       = dim3(blocks_x, 1, 1);
+    const int threads_per_block = 256;
+    const size_t blocks_x       = (num_rows + threads_per_block - 1) / threads_per_block;
+    dim3 grid_shape             = dim3(blocks_x, 1, 1);
 
-    fill_histogram<TYPE><<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
-                                                                       num_rows,
-                                                                       num_features,
-                                                                       X_shape.lo[0],
-                                                                       g,
-                                                                       h,
-                                                                       num_outputs,
-                                                                       samples_per_feature,
-                                                                       positions.ptr(0),
-                                                                       histogram_buffer,
-                                                                       tree.hessian,
-                                                                       depth,
-                                                                       bin_idx_buffer);
+    fill_histogram<TYPE, threads_per_block>
+      <<<grid_shape, threads_per_block, 0, stream>>>(X,
+                                                     num_rows,
+                                                     num_features,
+                                                     X_shape.lo[0],
+                                                     g,
+                                                     h,
+                                                     num_outputs,
+                                                     samples_per_feature,
+                                                     positions.ptr(0),
+                                                     histogram_buffer,
+                                                     tree.hessian,
+                                                     depth,
+                                                     bin_idx_buffer);
 
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
