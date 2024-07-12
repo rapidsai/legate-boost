@@ -450,7 +450,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X: cn.array,
         y: cn.array,
         metric: Optional[BaseMetric] = None,
-        n_background_samples=100,
         random_state=None,
         n_samples: int = 5,
         assert_efficiency: bool = False,
@@ -463,7 +462,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         where :math:`v` is the model's loss function, :math:`N` is the set of features, and :math:`\\mathfrak{S}_d` is the set of all permutations of the features.
         :math:`[\\sigma]_{i-1}` represents the set of players ranked lower than :math:`i` in the ordering :math:`\\sigma`.
 
-        In effect the shapley value shows the effect of adding a feature to the model, averaged over all possible orderings of the features. In our case the above function is approximated using an antithetic-sampling method [1]_, where `n_samples` corresponds to pairs of permutation samples. This method also returns estimates of the standard deviation, which decreases according to :math:`1/\\sqrt{n\\_samples}`.
+        In effect the shapley value shows the effect of adding a feature to the model, averaged over all possible orderings of the features. In our case the above function is approximated using an antithetic-sampling method [1]_, where `n_samples` corresponds to pairs of permutation samples. This method also returns the standard error, which decreases according to :math:`1/\\sqrt{n\\_samples}`.
 
         This definition of attributions requires removing a feature from the active set. We use a random sample of values from X to fill in the missing feature values. This choice of background distribution corresponds to an 'interventional' Shapley value approach discussed in [2]_.
 
@@ -483,8 +482,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             The target values.
         metric : BaseMetric, optional
             The metric to evaluate the model. If None, the model default metric is used.
-        n_background_samples : int, optional
-            The number of background samples to use for missing feature values.
         random_state : int, optional
             The random state for reproducibility.
         n_samples : int, optional
@@ -494,12 +491,10 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
 
         Returns
         -------
-        float
-            The loss of the null coalition (all features deactivated).
         cn.array
-            The Shapley value estimates for each feature.
+            The Shapley value estimates for each feature. The last value is the null coalition loss. The sum of this array results in the loss for X, y.
         cn.array
-            An estimate of the standard deviation of the Shapley value esimates, with respect to `n_samples`. The standard deviation decreases according to :math:`1/\\sqrt{n\\_samples}`.
+            The standard error of the Shapley value esimates, with respect to `n_samples`. The standard error decreases according to :math:`1/\\sqrt{n\\_samples}`.
         """  # noqa: E501
         check_is_fitted(self, "is_fitted_")
         return global_shapley_attributions(
@@ -507,7 +502,6 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             X,
             y,
             metric,
-            n_background_samples,
             random_state,
             n_samples,
             assert_efficiency,
@@ -543,12 +537,10 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
 
         Returns
         -------
-        float
-            The null prediction (prediction with all features deactivated).
         cn.array
-            The Shapley value estimates for each feature.
+            The Shapley value estimates for each feature. The final value is the 'null prediction', where all features are turned off. The sum of this array results in the model prediction.
         cn.array
-            An estimate of the standard deviation of the Shapley value esimates, with respect to `n_samples`. The standard deviation decreases according to :math:`1/\\sqrt{n\\_samples}`.
+            The standard error of the Shapley value esimates, with respect to `n_samples`. The standard error decreases according to :math:`1/\\sqrt{n\\_samples}`.
         """  # noqa: E501
         check_is_fitted(self, "is_fitted_")
         return local_shapley_attributions(

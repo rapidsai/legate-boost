@@ -14,7 +14,6 @@ def global_shapley_attributions(
     X: cn.array,
     y: cn.array,
     metric: Optional[BaseMetric] = None,
-    n_background_samples=100,
     random_state=None,
     n_samples: int = 5,
     assert_efficiency: bool = False,
@@ -26,29 +25,23 @@ def global_shapley_attributions(
     if metric is None:
         metric = model._metrics[0]
     random_state = check_random_state(random_state)
-    background_samples = random_state.choice(
-        X.shape[0], n_background_samples, replace=True
-    )
-    X_background = X[background_samples]
-    y_temp = cn.repeat(y, X_background.shape[0], axis=0)
-    w = cn.ones(y_temp.shape[0])
-    X_temp = cn.zeros((X.shape[0], X_background.shape[0], X.shape[1]))
-    X_temp[:, :, :] = X_background[cn.newaxis, :, :]
-    # null coalition
-    pred = predict_fn(X_temp.reshape(X.shape[0] * X_background.shape[0], -1))
-    null_loss = metric.metric(y_temp, pred, w)
+    w = cn.ones(y.shape[0])
+    gen = cn.random.default_rng(seed=random_state.randint(2**32))
 
     # antithetic sampling
-    v_a = cn.zeros((X.shape[1], n_samples))
-    v_b = cn.zeros((X.shape[1], n_samples))
+    v_a = cn.zeros((X.shape[1] + 1, n_samples))
+    v_b = cn.zeros((X.shape[1] + 1, n_samples))
 
     def eval_sample(p, v):
-        X_temp[:, :, :] = X_background[cn.newaxis, :, :]
+        # cunumeric has no shuffle as of writing
+        # with replacement should be fine
+        X_temp = X[gen.integers(0, X.shape[0], X.shape[0])]
+        null_loss = metric.metric(y, predict_fn(X_temp), w)
+        v[-1, i] = null_loss
         previous_loss = null_loss
         for feature in p:
-            X_temp[:, :, feature] = X[:, cn.newaxis, feature]
-            pred = predict_fn(X_temp.reshape(X.shape[0] * X_background.shape[0], -1))
-            loss = metric.metric(y_temp, pred, w)
+            X_temp[:, feature] = X[:, feature]
+            loss = metric.metric(y, predict_fn(X_temp), w)
             v[feature, i] = loss - previous_loss
             previous_loss = loss
 
@@ -60,12 +53,12 @@ def global_shapley_attributions(
 
     v = (v_a + v_b) / 2
     shapley_values = cn.mean(v, axis=1)
-    std = cn.std(v, axis=1, ddof=1) / cn.sqrt(n_samples)
+    se = cn.std(v, axis=1, ddof=1) / cn.sqrt(n_samples)
 
     if assert_efficiency:
         full_coalition_loss = metric.metric(y, predict_fn(X), cn.ones(y.shape[0]))
-        assert cn.isclose(null_loss + cn.sum(shapley_values), full_coalition_loss)
-    return null_loss, shapley_values, std
+        assert cn.isclose(cn.sum(shapley_values), full_coalition_loss)
+    return shapley_values, se
 
 
 def local_shapley_attributions(
@@ -84,25 +77,31 @@ def local_shapley_attributions(
         return p
 
     random_state = check_random_state(random_state)
-    X_temp = cn.zeros((X.shape[0], X_background.shape[0], X.shape[1]))
-    X_temp[:, :, :] = X_background[cn.newaxis, :, :]
-    # null coalition
-    null_pred = predict_fn(X_temp.reshape(X.shape[0] * X_background.shape[0], -1))
-    n_outputs = null_pred.shape[1]
+    n_background_samples = 5
+    gen = cn.random.default_rng(seed=random_state.randint(2**32))
+
+    n_outputs = predict_fn(X[0:2, :]).shape[1]
 
     # antithetic sampling
-    v_a = cn.zeros((X.shape[0], X.shape[1], n_outputs, n_samples))
-    v_b = cn.zeros((X.shape[0], X.shape[1], n_outputs, n_samples))
+    # perhaps we can do a running mean/se to avoid the last dimension
+    v_a = cn.zeros((X.shape[0], X.shape[1] + 1, n_outputs, n_samples))
+    v_b = cn.zeros((X.shape[0], X.shape[1] + 1, n_outputs, n_samples))
 
     def eval_sample(p, v):
-        X_temp[:, :, :] = X_background[cn.newaxis, :, :]
+        X_temp = X_background[
+            gen.integers(0, X_background.shape[0], n_background_samples * X.shape[0])
+        ].reshape((X.shape[0], n_background_samples, X.shape[1]))
+        null_pred = predict_fn(X_temp.reshape(X.shape[0] * n_background_samples, -1))
+        v[:, -1, :, i] = null_pred.reshape(
+            X.shape[0], n_background_samples, n_outputs
+        ).mean(axis=1)
         previous_pred = null_pred
         for feature in p:
             X_temp[:, :, feature] = X[:, cn.newaxis, feature]
-            pred = predict_fn(X_temp.reshape(X.shape[0] * X_background.shape[0], -1))
+            pred = predict_fn(X_temp.reshape(X.shape[0] * n_background_samples, -1))
             v[:, feature, :, i] = (
                 (pred - previous_pred)
-                .reshape(X.shape[0], X_background.shape[0], n_outputs)
+                .reshape(X.shape[0], n_background_samples, n_outputs)
                 .mean(axis=1)
             )
             previous_pred = pred
@@ -115,16 +114,16 @@ def local_shapley_attributions(
 
     v = (v_a + v_b) / 2
     shapley_values = cn.mean(v, axis=-1)
-    std = cn.std(v, axis=-1, ddof=1) / cn.sqrt(n_samples)
+    se = cn.std(v, axis=-1, ddof=1) / cn.sqrt(n_samples)
 
-    null_shap = null_pred.reshape(X.shape[0], X_background.shape[0], n_outputs).mean(
-        axis=1
-    )
     if assert_efficiency:
         pred = predict_fn(X)
-        assert cn.allclose(null_shap + cn.sum(shapley_values, axis=1), pred)
+        assert cn.allclose(cn.sum(shapley_values, axis=1), pred), (
+            cn.sum(shapley_values, axis=1)[0],
+            pred[0],
+        )
 
     if n_outputs == 1:
         shapley_values = shapley_values[:, :, 0]
-        std = std[:, :, 0]
-    return null_shap, shapley_values, std
+        se = se[:, :, 0]
+    return shapley_values, se

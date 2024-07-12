@@ -11,18 +11,17 @@ import legateboost as lb
 def test_regressor_global_shapley_attributions(random_state, metric, num_outputs):
     X, y = make_regression(random_state=10, n_features=10, n_targets=num_outputs)
     model = lb.LBRegressor(n_estimators=5).fit(X, y)
-    null_loss, shapley, std = model.global_attributions(
+    shapley, se = model.global_attributions(
         X,
         y,
         metric,
-        n_background_samples=10,
+        n_samples=20,
         random_state=random_state,
         assert_efficiency=True,
     )
-    assert null_loss != 0
     assert cn.isfinite(shapley).all()
-    assert cn.isfinite(std).all()
-    assert (std >= 0).all()
+    assert cn.isfinite(se).all()
+    assert (se >= 0).all()
 
 
 @pytest.mark.parametrize("metric", [None, lb.metrics.ExponentialMetric()])
@@ -32,18 +31,16 @@ def test_classifier_global_shapley_attributions(metric, num_classes):
         random_state=10, n_features=10, n_classes=num_classes, n_clusters_per_class=1
     )
     model = lb.LBClassifier(n_estimators=5, random_state=9).fit(X, y)
-    null_loss, shapley, std = model.global_attributions(
+    shapley, se = model.global_attributions(
         X,
         y,
         metric,
-        n_background_samples=10,
         random_state=9,
         assert_efficiency=True,
     )
-    assert null_loss != 0
     assert cn.isfinite(shapley).all()
-    assert cn.isfinite(std).all()
-    assert (std >= 0).all()
+    assert cn.isfinite(se).all()
+    assert (se >= 0).all()
 
 
 @pytest.mark.parametrize("random_state", range(2))
@@ -52,19 +49,19 @@ def test_regressor_local_shapley_attributions(random_state, num_outputs):
     X, y = make_regression(random_state=10, n_features=10, n_targets=num_outputs)
     model = lb.LBRegressor(n_estimators=5, random_state=random_state).fit(X, y)
     X_background = X[:10]
-    null_pred, shapley, std = model.local_attributions(
+    shapley, se = model.local_attributions(
         X,
         X_background,
         random_state=random_state,
         assert_efficiency=True,
     )
     if num_outputs > 1:
-        assert shapley.shape == (X.shape[0], X.shape[1], num_outputs)
+        assert shapley.shape == (X.shape[0], X.shape[1] + 1, num_outputs)
     else:
-        assert shapley.shape == (X.shape[0], X.shape[1])
+        assert shapley.shape == (X.shape[0], X.shape[1] + 1)
     assert cn.isfinite(shapley).all()
-    assert cn.isfinite(std).all()
-    assert (std >= 0).all()
+    assert cn.isfinite(se).all()
+    assert (se >= 0).all()
 
 
 @pytest.mark.parametrize("random_state", range(2))
@@ -75,13 +72,13 @@ def test_classifier_local_shapley_attributions(random_state, num_classes):
     )
     model = lb.LBClassifier(n_estimators=5, random_state=random_state).fit(X, y)
     X_background = X[:10]
-    null_pred, shapley, std = model.local_attributions(
+    shapley, se = model.local_attributions(
         X,
         X_background,
         random_state=random_state,
         assert_efficiency=True,
     )
-    assert shapley.shape == (X.shape[0], X.shape[1], num_classes)
+    assert shapley.shape == (X.shape[0], X.shape[1] + 1, num_classes)
     assert cn.isfinite(shapley).all()
-    assert cn.isfinite(std).all()
-    assert (std >= 0).all()
+    assert cn.isfinite(se).all()
+    assert (se >= 0).all()
