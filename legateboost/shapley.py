@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, cast
+from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
 from sklearn.base import is_regressor
@@ -6,12 +6,15 @@ from sklearn.utils.validation import check_random_state
 
 import cunumeric as cn
 
-from .legateboost import LBBase, LBClassifier
 from .metrics import BaseMetric
+
+# provide definitions for mypy without circular import at runtime
+if TYPE_CHECKING:
+    from .legateboost import LBBase
 
 
 def global_shapley_attributions(
-    model: LBBase,
+    model: "LBBase",
     X: cn.array,
     y: cn.array,
     metric_in: Optional[BaseMetric] = None,
@@ -20,11 +23,7 @@ def global_shapley_attributions(
     assert_efficiency: bool = False,
 ) -> Tuple[cn.array, cn.array]:
     def predict_fn(X: cn.array) -> cn.array:
-        fn = (
-            model.predict
-            if is_regressor(model)
-            else cast(LBClassifier, model).predict_proba
-        )
+        fn = model.predict if is_regressor(model) else model.predict_proba
         return fn(X)
 
     metric = metric_in if metric_in is not None else model._metrics[0]
@@ -67,7 +66,7 @@ def global_shapley_attributions(
 
 
 def local_shapley_attributions(
-    model: LBBase,
+    model: "LBBase",
     X: cn.array,
     X_background: cn.array,
     random_state: Optional[np.random.RandomState] = None,
