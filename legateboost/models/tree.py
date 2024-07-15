@@ -1,6 +1,5 @@
-import math
 from enum import IntEnum
-from typing import Any
+from typing import Any, Tuple
 
 import cunumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
@@ -51,11 +50,6 @@ class Tree(BaseModel):
         eq.append(cn.all(self.hessian == other.hessian))
         return all(eq)
 
-    def num_procs_to_use(self, num_rows: int) -> int:
-        min_rows_per_worker = 10
-        available_procs = len(get_legate_runtime().machine)
-        return min(available_procs, int(math.ceil(num_rows / min_rows_per_worker)))
-
     def __init__(
         self,
         max_depth: int = 8,
@@ -66,12 +60,7 @@ class Tree(BaseModel):
         self.split_samples = split_samples
         self.alpha = alpha
 
-    def fit(
-        self,
-        X: cn.ndarray,
-        g: cn.ndarray,
-        h: cn.ndarray,
-    ) -> "Tree":
+    def select_split_samples(self, X: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
         # dont let legate create a future - make sure at least 2 sample rows
         sample_rows_np = self.random_state.randint(
             0, X.shape[0], max(2, self.split_samples)
@@ -79,6 +68,20 @@ class Tree(BaseModel):
         split_proposals = gather(X, tuple(sample_rows_np))
         split_proposals.sort(axis=0)
         split_proposals = split_proposals.T
+
+        unique = [cn.unique(row) for row in split_proposals]
+        row_pointers = cn.array([0] + [len(row) for row in unique], dtype=cn.int32)
+        unique = cn.concatenate(unique)
+
+        return unique, row_pointers
+
+    def fit(
+        self,
+        X: cn.ndarray,
+        g: cn.ndarray,
+        h: cn.ndarray,
+    ) -> "Tree":
+        split_proposals, row_pointers = self.select_split_samples(X)
 
         num_outputs = g.shape[1]
 
@@ -103,7 +106,9 @@ class Tree(BaseModel):
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
         task.add_input(get_store(split_proposals))
+        task.add_input(get_store(row_pointers))
         task.add_broadcast(get_store(split_proposals))
+        task.add_broadcast(get_store(row_pointers))
 
         # outputs
         leaf_value = get_legate_runtime().create_store(
