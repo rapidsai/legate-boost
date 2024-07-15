@@ -70,7 +70,7 @@ class Tree(BaseModel):
         split_proposals = split_proposals.T
 
         unique = [cn.unique(row) for row in split_proposals]
-        row_pointers = cn.array([0] + [len(row) for row in unique], dtype=cn.int32)
+        row_pointers = cn.cumsum([0] + [len(row) for row in unique], dtype=cn.int32)
         unique = cn.concatenate(unique)
 
         return unique, row_pointers

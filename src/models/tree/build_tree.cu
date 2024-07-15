@@ -42,6 +42,7 @@ class SparseSplitProposals {
   legate::AccessorRO<int32_t, 1> row_pointers;
   int32_t num_features;
   int32_t histogram_size;
+  static const int NOT_FOUND = -1;
   SparseSplitProposals(legate::AccessorRO<T, 1> split_proposals,
                        legate::AccessorRO<int32_t, 1> row_pointers,
                        int32_t num_features,
@@ -52,15 +53,19 @@ class SparseSplitProposals {
       histogram_size(histogram_size)
   {
   }
+
+  // Returns the bin index for a given feature and value
+  // If the value is not in the split proposals, -1 is returned
   __device__ int FindBin(T x, int feature) const
   {
     auto feature_row_begin = row_pointers[feature];
     auto feature_row_end   = row_pointers[feature + 1];
-    return thrust::lower_bound(thrust::seq,
-                               split_proposals.ptr({feature_row_begin}),
-                               split_proposals.ptr({feature_row_end}),
-                               x) -
-           split_proposals.ptr({0});
+    auto ptr               = thrust::lower_bound(thrust::seq,
+                                   split_proposals.ptr({feature_row_begin}),
+                                   split_proposals.ptr({feature_row_end}),
+                                   x);
+    if (ptr == split_proposals.ptr({feature_row_end})) return NOT_FOUND;
+    return ptr - split_proposals.ptr({0});
   }
 
   __device__ std::tuple<int, int> FeatureRange(int feature) const
@@ -143,7 +148,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
           auto bin_idx = split_proposals.FindBin(x_value, feature);
 
           // bin_idx is the first sample that is larger than x_value
-          if (bin_idx < split_proposals.histogram_size) {
+          if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
             double* addPosition =
               reinterpret_cast<double*>(&histogram[{sampleNode, bin_idx, output}]);
             atomicAdd(addPosition, G);
