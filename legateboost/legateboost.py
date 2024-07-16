@@ -49,7 +49,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.random_state = random_state
         self.model_init_: cn.ndarray
         self.callbacks = callbacks
-        self.metrics_: list[BaseMetric] = []
+        self.metrics_: list[BaseMetric]
         if not isinstance(base_models, tuple):
             raise ValueError("base_models must be a tuple")
         self.base_models = base_models
