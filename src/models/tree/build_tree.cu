@@ -28,51 +28,11 @@
 #include <thrust/device_ptr.h>
 #include <thrust/count.h>
 #include <thrust/version.h>
-#include <thrust/binary_search.h>
 #include <cooperative_groups.h>
 #include <cooperative_groups/scan.h>
 namespace cg = cooperative_groups;
 
 namespace legateboost {
-
-template <typename T>
-class SparseSplitProposals {
- public:
-  legate::AccessorRO<T, 1> split_proposals;
-  legate::AccessorRO<int32_t, 1> row_pointers;
-  int32_t num_features;
-  int32_t histogram_size;
-  static const int NOT_FOUND = -1;
-  SparseSplitProposals(legate::AccessorRO<T, 1> split_proposals,
-                       legate::AccessorRO<int32_t, 1> row_pointers,
-                       int32_t num_features,
-                       int32_t histogram_size)
-    : split_proposals(split_proposals),
-      row_pointers(row_pointers),
-      num_features(num_features),
-      histogram_size(histogram_size)
-  {
-  }
-
-  // Returns the bin index for a given feature and value
-  // If the value is not in the split proposals, -1 is returned
-  __device__ int FindBin(T x, int feature) const
-  {
-    auto feature_row_begin = row_pointers[feature];
-    auto feature_row_end   = row_pointers[feature + 1];
-    auto ptr               = thrust::lower_bound(thrust::seq,
-                                   split_proposals.ptr({feature_row_begin}),
-                                   split_proposals.ptr({feature_row_end}),
-                                   x);
-    if (ptr == split_proposals.ptr({feature_row_end})) return NOT_FOUND;
-    return ptr - split_proposals.ptr({0});
-  }
-
-  __device__ std::tuple<int, int> FeatureRange(int feature) const
-  {
-    return std::make_tuple(row_pointers[feature], row_pointers[feature + 1]);
-  }
-};
 
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   reduce_base_sums(legate::AccessorRO<double, 3> g,

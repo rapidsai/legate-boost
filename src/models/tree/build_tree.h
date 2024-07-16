@@ -16,6 +16,9 @@
 #pragma once
 #include "legate_library.h"
 #include "legateboost.h"
+#ifdef __CUDACC__
+#include <thrust/binary_search.h>
+#endif
 
 namespace legateboost {
 
@@ -82,6 +85,58 @@ inline __host__ __device__ GPair operator+(const GPair& a, const GPair& b)
 {
   return GPair{a.grad + b.grad, a.hess + b.hess};
 }
+
+// Container for the CSR matrix containing the split proposals
+template <typename T>
+class SparseSplitProposals {
+ public:
+  legate::AccessorRO<T, 1> split_proposals;
+  legate::AccessorRO<int32_t, 1> row_pointers;
+  int32_t num_features;
+  int32_t histogram_size;
+  static const int NOT_FOUND = -1;
+  SparseSplitProposals(legate::AccessorRO<T, 1> split_proposals,
+                       legate::AccessorRO<int32_t, 1> row_pointers,
+                       int32_t num_features,
+                       int32_t histogram_size)
+    : split_proposals(split_proposals),
+      row_pointers(row_pointers),
+      num_features(num_features),
+      histogram_size(histogram_size)
+  {
+  }
+
+// Returns the bin index for a given feature and value
+// If the value is not in the split proposals, -1 is returned
+#ifdef __CUDACC__
+  __device__ int FindBin(T x, int feature) const
+  {
+    auto feature_row_begin = row_pointers[feature];
+    auto feature_row_end   = row_pointers[feature + 1];
+    auto ptr               = thrust::lower_bound(thrust::seq,
+                                   split_proposals.ptr({feature_row_begin}),
+                                   split_proposals.ptr({feature_row_end}),
+                                   x);
+    if (ptr == split_proposals.ptr({feature_row_end})) return NOT_FOUND;
+    return ptr - split_proposals.ptr({0});
+  }
+#else
+  int FindBin(T x, int feature) const
+  {
+    auto feature_row_begin = row_pointers[feature];
+    auto feature_row_end   = row_pointers[feature + 1];
+    auto ptr               = std::lower_bound(
+      split_proposals.ptr({feature_row_begin}), split_proposals.ptr({feature_row_end}), x);
+    if (ptr == split_proposals.ptr({feature_row_end})) return NOT_FOUND;
+    return ptr - split_proposals.ptr({0});
+  }
+#endif
+
+  __host__ __device__ std::tuple<int, int> FeatureRange(int feature) const
+  {
+    return std::make_tuple(row_pointers[feature], row_pointers[feature + 1]);
+  }
+};
 
 class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
  public:
