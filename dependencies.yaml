@@ -1,0 +1,52 @@
+# Dependency list for https://github.com/rapidsai/dependency-file-generator
+files:
+  all:
+    output: conda
+    matrix:
+      cuda: ["11.8"]
+    includes:
+      - build
+      - run
+      - test
+channels:
+  - legate
+  - conda-forge
+dependencies:
+  build:
+    common:
+      - output_types: [conda]
+        packages:
+          - cmake>=3.24.0
+          - &legate_core legate-core=24.06.*
+          - openblas
+          - python-build
+          - scikit-build>=0.18.0
+          - setuptools>=70.0
+  docs:
+    common:
+      - output_types: [conda]
+        packages:
+          - sphinx
+          - pydata-sphinx-theme
+          - myst-parser
+  run:
+    common:
+      - output_types: [conda]
+        packages:
+          - cunumeric=24.06.*
+          - *legate_core
+          - numpy
+          - scikit-learn
+          - typing-extensions>=4.0
+  test:
+    common:
+      - output_types: [conda]
+        packages:
+          - hypothesis
+          - matplotlib
+          - mypy
+          - nbconvert
+          - notebook
+          - pytest<8
+          - seaborn
+          - xgboost
