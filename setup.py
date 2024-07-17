@@ -52,7 +52,6 @@ extras_require = {
         "nbconvert",
         "seaborn",
         "matplotlib",
-        "mypy",
     ]
 }
 
