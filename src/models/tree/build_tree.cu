@@ -23,13 +23,12 @@
 
 #include <cuda/std/tuple>
 #include <thrust/execution_policy.h>
-#include <thrust/system/cuda/execution_policy.h>
+#include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/discard_iterator.h>
 #include <thrust/sort.h>
-#include <thrust/device_ptr.h>
-#include <thrust/count.h>
-#include <thrust/version.h>
+#include <thrust/random.h>
+#include <thrust/unique.h>
 #include <cooperative_groups.h>
-#include <cooperative_groups/scan.h>
 namespace cg = cooperative_groups;
 
 namespace legateboost {
@@ -393,6 +392,105 @@ struct Tree {
   cudaStream_t stream;
 };
 
+// Randomly sample split_samples rows from X
+// Use nccl to share the samples with all workers
+// Remove any duplicates
+// Return sparse matrix of split samples for each feature
+template <typename T>
+SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
+                                           legate::AccessorRO<T, 3> X,
+                                           legate::Rect<3> X_shape,
+                                           int split_samples,
+                                           int seed,
+                                           int64_t dataset_rows,
+                                           cudaStream_t stream)
+{
+  int num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
+  // Randomly choose split_samples rows
+  auto row_samples = legate::create_buffer<int64_t, 1>(split_samples);
+  auto counting    = thrust::make_counting_iterator(0);
+  thrust::transform(thrust::cuda::par.on(stream),
+                    counting,
+                    counting + split_samples,
+                    row_samples.ptr(0),
+                    [=] __device__(int64_t idx) {
+                      thrust::default_random_engine eng(seed);
+                      thrust::uniform_int_distribution<int64_t> dist(0, dataset_rows - 1);
+                      eng.discard(idx);
+                      return dist(eng);
+                    });
+  auto draft_proposals = legate::create_buffer<T, 2>({num_features, split_samples});
+
+  // fill with local data
+  LaunchN(num_features * split_samples, stream, [=] __device__(auto idx) {
+    auto i                  = idx / num_features;
+    auto j                  = idx % num_features;
+    auto row                = row_samples[i];
+    bool has_data           = row >= X_shape.lo[0] && row <= X_shape.hi[0];
+    draft_proposals[{j, i}] = has_data ? X[{row, j, 0}] : T(0);
+  });
+
+  // Sum reduce over all workers
+  SumAllReduce(context, draft_proposals.ptr({0, 0}), num_features * split_samples, stream);
+
+  CHECK_CUDA_STREAM(stream);
+
+  // Condense split samples to unique values
+  // First sort the samples
+  auto feature_idx = [=] __device__(int i) { return i / split_samples; };
+  auto keys        = legate::create_buffer<int32_t, 1>(num_features * split_samples);
+  thrust::transform(thrust::cuda::par.on(stream),
+                    counting,
+                    counting + num_features * split_samples,
+                    keys.ptr(0),
+                    feature_idx);
+
+  // Segmented sort
+  auto begin =
+    thrust::make_zip_iterator(thrust::make_tuple(keys.ptr(0), draft_proposals.ptr({0, 0})));
+  thrust::sort(thrust::cuda::par.on(stream),
+               begin,
+               begin + num_features * split_samples,
+               [] __device__(auto a, auto b) {
+                 if (thrust::get<0>(a) != thrust::get<0>(b)) {
+                   return thrust::get<0>(a) < thrust::get<0>(b);
+                 }
+                 return thrust::get<1>(a) < thrust::get<1>(b);
+               });
+
+  // Extract the unique values
+  auto out_keys        = legate::create_buffer<int32_t, 1>(num_features);
+  auto split_proposals = legate::create_buffer<T, 1>(num_features * split_samples);
+  auto key_val =
+    thrust::make_zip_iterator(thrust::make_tuple(keys.ptr(0), draft_proposals.ptr({0, 0})));
+  auto out_iter =
+    thrust::make_zip_iterator(thrust::make_tuple(out_keys.ptr(0), split_proposals.ptr(0)));
+  auto result = thrust::unique_copy(
+    thrust::cuda::par.on(stream), key_val, key_val + num_features * split_samples, out_iter);
+  auto n_unique = thrust::distance(out_iter, result);
+
+  // Count the unique values for each feature
+  auto row_pointers = legate::create_buffer<int32_t, 1>(num_features + 1);
+  CHECK_CUDA(cudaMemsetAsync(row_pointers.ptr(0), 0, (num_features + 1) * sizeof(int32_t), stream));
+  thrust::reduce_by_key(thrust::cuda::par.on(stream),
+                        out_keys.ptr(0),
+                        out_keys.ptr(0) + n_unique,
+                        thrust::make_constant_iterator(1),
+                        thrust::make_discard_iterator(),
+                        row_pointers.ptr(1));
+  // Scan the counts to get the row pointers for a CSR matrix
+  thrust::inclusive_scan(thrust::cuda::par.on(stream),
+                         row_pointers.ptr(1),
+                         row_pointers.ptr(1) + num_features,
+                         row_pointers.ptr(1));
+
+  CHECK_CUDA(cudaStreamSynchronize(stream));
+  row_samples.destroy();
+  draft_proposals.destroy();
+  out_keys.destroy();
+
+  return SparseSplitProposals<T>(split_proposals, row_pointers, num_features, n_unique);
+}
 template <typename T>
 struct TreeBuilder {
   TreeBuilder(int32_t num_rows,
@@ -571,12 +669,13 @@ struct build_tree_fn {
     auto [X, X_shape, X_accessor] = GetInputStore<T, 3>(context.input(0).data());
     auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(1).data());
     auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
+    /*
     auto [split_proposals, split_proposals_shape, split_proposals_accessor] =
       GetInputStore<T, 1>(context.input(3).data());
     auto [row_pointers, row_pointers_shape, row_pointers_accessor] =
       GetInputStore<int32_t, 1>(context.input(4).data());
+      */
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
-    EXPECT_DENSE_ROW_MAJOR(split_proposals_accessor.accessor, split_proposals_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
     auto num_outputs  = X_shape.hi[2] - X_shape.lo[2] + 1;
@@ -584,13 +683,14 @@ struct build_tree_fn {
     EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
-    EXPECT_IS_BROADCAST(split_proposals_shape);
-    EXPECT_IS_BROADCAST(row_pointers_shape);
 
     // Scalars
-    auto max_depth = context.scalars().at(0).value<int>();
-    auto max_nodes = context.scalars().at(1).value<int>();
-    auto alpha     = context.scalars().at(2).value<double>();
+    auto max_depth     = context.scalars().at(0).value<int>();
+    auto max_nodes     = context.scalars().at(1).value<int>();
+    auto alpha         = context.scalars().at(2).value<double>();
+    auto split_samples = context.scalars().at(3).value<int>();
+    auto seed          = context.scalars().at(4).value<int>();
+    auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
     auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
@@ -598,16 +698,11 @@ struct build_tree_fn {
 
     Tree tree(max_nodes, num_outputs, stream, thrust_exec_policy);
 
+    SparseSplitProposals<T> split_proposals =
+      SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows, stream);
     // Begin building the tree
-    TreeBuilder builder(num_rows,
-                        num_features,
-                        num_outputs,
-                        stream,
-                        tree.max_nodes,
-                        SparseSplitProposals<T>(split_proposals_accessor,
-                                                row_pointers_accessor,
-                                                num_features,
-                                                split_proposals_shape.volume()));
+    TreeBuilder<T> builder(
+      num_rows, num_features, num_outputs, stream, tree.max_nodes, split_proposals);
 
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 

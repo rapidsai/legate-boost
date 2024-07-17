@@ -1,11 +1,11 @@
 from enum import IntEnum
-from typing import Any, Tuple
+from typing import Any
 
 import cunumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
 
 from ..library import user_context, user_lib
-from ..utils import gather, get_store
+from ..utils import get_store
 from .base_model import BaseModel
 
 
@@ -60,29 +60,12 @@ class Tree(BaseModel):
         self.split_samples = split_samples
         self.alpha = alpha
 
-    def select_split_samples(self, X: cn.ndarray) -> Tuple[cn.ndarray, cn.ndarray]:
-        # dont let legate create a future - make sure at least 2 sample rows
-        sample_rows_np = self.random_state.randint(
-            0, X.shape[0], max(2, self.split_samples)
-        )
-        split_proposals = gather(X, tuple(sample_rows_np))
-        split_proposals.sort(axis=0)
-        split_proposals = split_proposals.T
-
-        unique = [cn.unique(row) for row in split_proposals]
-        row_pointers = cn.cumsum([0] + [len(row) for row in unique], dtype=cn.int32)
-        unique = cn.concatenate(unique)
-
-        return unique, row_pointers
-
     def fit(
         self,
         X: cn.ndarray,
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "Tree":
-        split_proposals, row_pointers = self.select_split_samples(X)
-
         num_outputs = g.shape[1]
 
         task = get_legate_runtime().create_auto_task(
@@ -98,6 +81,9 @@ class Tree(BaseModel):
         max_nodes = 2 ** (self.max_depth + 1)
         task.add_scalar_arg(max_nodes, types.int32)
         task.add_scalar_arg(self.alpha, types.float64)
+        task.add_scalar_arg(self.split_samples, types.int32)
+        task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
+        task.add_scalar_arg(X.shape[0], types.int64)
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
@@ -105,10 +91,6 @@ class Tree(BaseModel):
         task.add_input(h_)
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
-        task.add_input(get_store(split_proposals))
-        task.add_input(get_store(row_pointers))
-        task.add_broadcast(get_store(split_proposals))
-        task.add_broadcast(get_store(row_pointers))
 
         # outputs
         leaf_value = get_legate_runtime().create_store(

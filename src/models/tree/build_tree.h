@@ -90,13 +90,13 @@ inline __host__ __device__ GPair operator+(const GPair& a, const GPair& b)
 template <typename T>
 class SparseSplitProposals {
  public:
-  legate::AccessorRO<T, 1> split_proposals;
-  legate::AccessorRO<int32_t, 1> row_pointers;
+  legate::Buffer<T, 1> split_proposals;
+  legate::Buffer<int32_t, 1> row_pointers;
   int32_t num_features;
   int32_t histogram_size;
   static const int NOT_FOUND = -1;
-  SparseSplitProposals(legate::AccessorRO<T, 1> split_proposals,
-                       legate::AccessorRO<int32_t, 1> row_pointers,
+  SparseSplitProposals(legate::Buffer<T, 1> split_proposals,
+                       legate::Buffer<int32_t, 1> row_pointers,
                        int32_t num_features,
                        int32_t histogram_size)
     : split_proposals(split_proposals),

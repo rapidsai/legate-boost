@@ -346,8 +346,8 @@ struct build_tree_fn {
                              num_features,
                              num_outputs,
                              max_nodes,
-                             SparseSplitProposals<T>(split_proposals_accessor,
-                                                     row_pointers_accessor,
+                             SparseSplitProposals<T>(legate::Buffer<T, 1>(),
+                                                     legate::Buffer<int32_t, 1>(),
                                                      num_features,
                                                      split_proposals_shape.volume()));
     tree_builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
