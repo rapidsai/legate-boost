@@ -184,14 +184,19 @@ def test_subsample():
         }
         # Overfit the data and check if subsample improves the model
         subsample_eval_result = {}
-        lb.LBRegressor(**params, subsample=0.5,).fit(
+        lb.LBRegressor(
+            **params,
+            subsample=0.5,
+        ).fit(
             X_train,
             y_train,
             eval_result=subsample_eval_result,
             eval_set=[(X_test, y_test)],
         )
         full_eval_result = {}
-        lb.LBRegressor(**params,).fit(
+        lb.LBRegressor(
+            **params,
+        ).fit(
             X_train, y_train, eval_result=full_eval_result, eval_set=[(X_test, y_test)]
         )
         assert (

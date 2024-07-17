@@ -99,5 +99,4 @@ class BaseModel(PickleCunumericMixin, ABC):
         pass
 
     @abstractmethod
-    def clear(self) -> None:
-        ...
+    def clear(self) -> None: ...  # noqa: E704
