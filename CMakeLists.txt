@@ -4,6 +4,9 @@ project(legateboost VERSION 1.0 LANGUAGES C CXX CUDA)
 
 option(SANITIZE "Build with address sanitizer" OFF)
 
+# TODO: use rapids_cmake_support_conda_env() from rapids-cmake
+list(APPEND CMAKE_PREFIX_PATH $ENV{CONDA_PREFIX})
+
 # This is for convenience only when doing
 # editable builds to avoid setting the flag
 if (NOT legateboost_ROOT)

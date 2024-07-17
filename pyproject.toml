@@ -1,0 +1,74 @@
+[build-system]
+requires = [
+    "setuptools>=68",
+    "scikit-build-core>=0.9.3",
+    "cmake>=3.24,!=3.30.0",
+    "legate-core",
+    "ninja",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "legate-boost"
+description = "GBM libary on Legate"
+version = "0.1"
+requires-python = ">=3.8"
+dependencies = [
+    "cunumeric",
+    "legate-core",
+    "scikit-learn",
+    "scipy",
+    "numpy",
+    "typing_extensions",  # Required by legate.core as well.
+]
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+    { name = "NVIDIA Corporation" },
+]
+license = { text = "Apache 2.0" }
+classifiers = [
+    "Intended Audience :: Developers",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+
+[project.optional-dependencies]
+test = [
+    "hypothesis",
+    "pytest<8",
+    "xgboost",
+    "notebook",
+    "nbconvert",
+    "seaborn",
+    "matplotlib",
+    "mypy",
+]
+
+[tool.scikit-build]
+# TODO: guarantee a consistent build directory
+# build-dir = "build/{wheel_tag}"
+# TODO: make this dynamic
+cmake.args = [
+    "-Dlegate_core_ROOT:STRING=/raid/jlamb/miniforge/envs/legate-boost-dev",
+    "-DCMAKE_CUDA_ARCHITECTURES=native",
+]
+cmake.build-type = "Release"
+cmake.version = ">=3.24"
+ninja.make-fallback = true
+sdist.exclude = [
+    "*benchmark*",
+    "*tests*"
+]
+sdist.reproducible = true
+wheel.packages = [
+    "legateboost"
+]
+wheel.py-api = "py3"
+experimental = false
+strict-config = false
+minimum-version = "0.9.3"
