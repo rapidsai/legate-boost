@@ -28,5 +28,10 @@ repos:
         - id: clang-format
           files: \.(cu|cuh|h|cc|inl)$
           types_or: []
+    - repo: https://github.com/rapidsai/dependency-file-generator
+      rev: v1.14.0
+      hooks:
+        - id: rapids-dependency-file-generator
+          args: ["--clean"]
 default_language_version:
     python: python3

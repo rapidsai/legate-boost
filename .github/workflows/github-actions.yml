@@ -11,7 +11,15 @@ on:
       - "branch-*"
       - "main"
 jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+    - uses: pre-commit/action@v3.0.1
+
   build-test:
+    needs: [pre-commit]
     defaults:
       run:
         shell: bash -el {0}
@@ -25,8 +33,20 @@ jobs:
     steps:
       - name: Install legate/cunumeric
         run: |
-          mamba install -y -c legate -c conda-forge legate-core=24.06 cunumeric=24.06 build cmake scikit-build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2' mypy openblas
-          pip install matplotlib seaborn xgboost
+          conda install --yes -c conda-forge \
+            'rapids-dependency-file-generator>=1.14.0'
+
+          rapids-dependency-file-generator \
+            --output conda \
+            --file-key all \
+            --matrix "cuda=${CUDA_VERSION};arch=$(arch)" | tee /tmp/env.yaml
+
+          conda env create \
+            --yes \
+            --name legate-boost-dev \
+            --file /tmp/env.yaml
+
+          source activate legate-boost-dev
       - name: Checkout legateboost
         uses: actions/checkout@v4
         with:
@@ -52,7 +72,6 @@ jobs:
       - name: Build legateboost docs
         working-directory: docs
         run: |
-          pip install sphinx pydata-sphinx-theme myst-parser
           # invoke sphinx build using legate
           legate --run-mode=python --module sphinx.cmd.build source build -b html
       - uses: actions/upload-pages-artifact@v1
@@ -81,10 +100,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v2
-
-  pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-    - uses: pre-commit/action@v3.0.1

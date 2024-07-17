@@ -1,4 +1,5 @@
 build
+dist/
 _skbuild
 *.pyc
 *.egg-info
