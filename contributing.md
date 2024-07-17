@@ -1,5 +1,19 @@
 # Contributing to legateboost
 
+Use `conda` to create a development environment.
+
+```shell
+# CUDA 11.8
+conda env create \
+    --name legate-boost-dev \
+    -f ./conda/environments/all_cuda-118.yaml
+
+# CUDA 12.5
+conda env create \
+    --name legate-boost-dev \
+    -f ./conda/environments/all_cuda-125.yaml
+```
+
 For editable installation
 ```
 pip install -e .
