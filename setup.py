@@ -38,6 +38,7 @@ requires = [
     "cunumeric",
     "legate-core",
     "scikit-learn",
+    "scipy",
     "numpy",
     "typing_extensions",  # Required by legate.core as well.
 ]
