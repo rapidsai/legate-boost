@@ -31,6 +31,10 @@ jobs:
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
+      - name: Checkout legateboost
+        uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Install legate/cunumeric
         run: |
           conda install --yes -c rapidsai \
@@ -47,10 +51,6 @@ jobs:
             --file /tmp/env.yaml
 
           source activate legate-boost-dev
-      - name: Checkout legateboost
-        uses: actions/checkout@v4
-        with:
-          lfs: true
       - name: Type check legateboost
         run: |
           mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
