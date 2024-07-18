@@ -92,6 +92,10 @@ class Tree(BaseModel):
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
 
+        # legate crashes if this is removed ????
+        fake_store = cn.zeros((1,), dtype=cn.float64)
+        task.add_input(get_store(fake_store))
+
         # outputs
         leaf_value = get_legate_runtime().create_store(
             types.float64, (max_nodes, num_outputs)

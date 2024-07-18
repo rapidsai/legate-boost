@@ -405,20 +405,19 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
                                            int64_t dataset_rows,
                                            cudaStream_t stream)
 {
-  int num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
+  auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
+  auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
+  int num_features  = X_shape.hi[1] - X_shape.lo[1] + 1;
   // Randomly choose split_samples rows
   auto row_samples = legate::create_buffer<int64_t, 1>(split_samples);
   auto counting    = thrust::make_counting_iterator(0);
-  thrust::transform(thrust::cuda::par.on(stream),
-                    counting,
-                    counting + split_samples,
-                    row_samples.ptr(0),
-                    [=] __device__(int64_t idx) {
-                      thrust::default_random_engine eng(seed);
-                      thrust::uniform_int_distribution<int64_t> dist(0, dataset_rows - 1);
-                      eng.discard(idx);
-                      return dist(eng);
-                    });
+  thrust::transform(
+    policy, counting, counting + split_samples, row_samples.ptr(0), [=] __device__(int64_t idx) {
+      thrust::default_random_engine eng(seed);
+      thrust::uniform_int_distribution<int64_t> dist(0, dataset_rows - 1);
+      eng.discard(idx);
+      return dist(eng);
+    });
   auto draft_proposals = legate::create_buffer<T, 2>({num_features, split_samples});
 
   // fill with local data
@@ -437,58 +436,48 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
 
   // Condense split samples to unique values
   // First sort the samples
-  auto feature_idx = [=] __device__(int i) { return i / split_samples; };
-  auto keys        = legate::create_buffer<int32_t, 1>(num_features * split_samples);
-  thrust::transform(thrust::cuda::par.on(stream),
-                    counting,
-                    counting + num_features * split_samples,
-                    keys.ptr(0),
-                    feature_idx);
+  auto keys = legate::create_buffer<int32_t, 1>(num_features * split_samples);
+  thrust::transform(
+    policy, counting, counting + num_features * split_samples, keys.ptr(0), [=] __device__(int i) {
+      return i / split_samples;
+    });
 
   // Segmented sort
   auto begin =
     thrust::make_zip_iterator(thrust::make_tuple(keys.ptr(0), draft_proposals.ptr({0, 0})));
-  thrust::sort(thrust::cuda::par.on(stream),
-               begin,
-               begin + num_features * split_samples,
-               [] __device__(auto a, auto b) {
-                 if (thrust::get<0>(a) != thrust::get<0>(b)) {
-                   return thrust::get<0>(a) < thrust::get<0>(b);
-                 }
-                 return thrust::get<1>(a) < thrust::get<1>(b);
-               });
+  thrust::sort(policy, begin, begin + num_features * split_samples, [] __device__(auto a, auto b) {
+    if (thrust::get<0>(a) != thrust::get<0>(b)) { return thrust::get<0>(a) < thrust::get<0>(b); }
+    return thrust::get<1>(a) < thrust::get<1>(b);
+  });
 
   // Extract the unique values
-  auto out_keys        = legate::create_buffer<int32_t, 1>(num_features);
+  auto out_keys        = legate::create_buffer<int32_t, 1>(num_features * split_samples);
   auto split_proposals = legate::create_buffer<T, 1>(num_features * split_samples);
   auto key_val =
     thrust::make_zip_iterator(thrust::make_tuple(keys.ptr(0), draft_proposals.ptr({0, 0})));
   auto out_iter =
     thrust::make_zip_iterator(thrust::make_tuple(out_keys.ptr(0), split_proposals.ptr(0)));
-  auto result = thrust::unique_copy(
-    thrust::cuda::par.on(stream), key_val, key_val + num_features * split_samples, out_iter);
+  auto result =
+    thrust::unique_copy(policy, key_val, key_val + num_features * split_samples, out_iter);
   auto n_unique = thrust::distance(out_iter, result);
-
   // Count the unique values for each feature
   auto row_pointers = legate::create_buffer<int32_t, 1>(num_features + 1);
   CHECK_CUDA(cudaMemsetAsync(row_pointers.ptr(0), 0, (num_features + 1) * sizeof(int32_t), stream));
-  thrust::reduce_by_key(thrust::cuda::par.on(stream),
+
+  thrust::reduce_by_key(policy,
                         out_keys.ptr(0),
                         out_keys.ptr(0) + n_unique,
                         thrust::make_constant_iterator(1),
                         thrust::make_discard_iterator(),
                         row_pointers.ptr(1));
   // Scan the counts to get the row pointers for a CSR matrix
-  thrust::inclusive_scan(thrust::cuda::par.on(stream),
-                         row_pointers.ptr(1),
-                         row_pointers.ptr(1) + num_features,
-                         row_pointers.ptr(1));
+  thrust::inclusive_scan(
+    policy, row_pointers.ptr(1), row_pointers.ptr(1) + num_features, row_pointers.ptr(1));
 
   CHECK_CUDA(cudaStreamSynchronize(stream));
   row_samples.destroy();
   draft_proposals.destroy();
   out_keys.destroy();
-
   return SparseSplitProposals<T>(split_proposals, row_pointers, num_features, n_unique);
 }
 template <typename T>
@@ -669,12 +658,7 @@ struct build_tree_fn {
     auto [X, X_shape, X_accessor] = GetInputStore<T, 3>(context.input(0).data());
     auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(1).data());
     auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
-    /*
-    auto [split_proposals, split_proposals_shape, split_proposals_accessor] =
-      GetInputStore<T, 1>(context.input(3).data());
-    auto [row_pointers, row_pointers_shape, row_pointers_accessor] =
-      GetInputStore<int32_t, 1>(context.input(4).data());
-      */
+
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
