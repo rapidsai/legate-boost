@@ -33,7 +33,7 @@ jobs:
     steps:
       - name: Install legate/cunumeric
         run: |
-          conda install --yes -c conda-forge \
+          conda install --yes -c rapidsai \
             'rapids-dependency-file-generator>=1.14.0'
 
           rapids-dependency-file-generator \
