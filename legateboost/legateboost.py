@@ -453,25 +453,25 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         metric: Optional[BaseMetric] = None,
         random_state: Optional[np.random.RandomState] = None,
         n_samples: int = 5,
-        assert_efficiency: bool = False,
+        check_efficiency: bool = False,
     ) -> Tuple[cn.array, cn.array]:
-        """Compute global feature attributions for the model. Global
+        r"""Compute global feature attributions for the model. Global
         attributions show the effect of a feature on a model's loss function.
 
         We use a Shapley value approach to compute the attributions:
-        :math:`Sh_i(v)=\\frac{1}{|N|!} \\sum_{\\sigma \\in \\mathfrak{S}_d} \\big[ v([\\sigma]_{i-1} \\cup\\{i\\}) - v([\\sigma]_{i-1}) \\big],`
-        where :math:`v` is the model's loss function, :math:`N` is the set of features, and :math:`\\mathfrak{S}_d` is the set of all permutations of the features.
-        :math:`[\\sigma]_{i-1}` represents the set of players ranked lower than :math:`i` in the ordering :math:`\\sigma`.
+        :math:`Sh_i(v)=\frac{1}{|N|!} \sum_{\sigma \in \mathfrak{S}_d} \big[ v([\sigma]_{i-1} \cup\{i\}) - v([\sigma]_{i-1}) \big],`
+        where :math:`v` is the model's loss function, :math:`N` is the set of features, and :math:`\mathfrak{S}_d` is the set of all permutations of the features.
+        :math:`[\sigma]_{i-1}` represents the set of players ranked lower than :math:`i` in the ordering :math:`\sigma`.
 
-        In effect the shapley value shows the effect of adding a feature to the model, averaged over all possible orderings of the features. In our case the above function is approximated using an antithetic-sampling method [1]_, where `n_samples` corresponds to pairs of permutation samples. This method also returns the standard error, which decreases according to :math:`1/\\sqrt{n\\_samples}`.
+        In effect the shapley value shows the effect of adding a feature to the model, averaged over all possible orderings of the features. In our case the above function is approximated using an antithetic-sampling method [#]_, where `n_samples` corresponds to pairs of permutation samples. This method also returns the standard error, which decreases according to :math:`1/\sqrt{n\_samples}`.
 
-        This definition of attributions requires removing a feature from the active set. We use a random sample of values from X to fill in the missing feature values. This choice of background distribution corresponds to an 'interventional' Shapley value approach discussed in [2]_.
+        This definition of attributions requires removing a feature from the active set. We use a random sample of values from X to fill in the missing feature values. This choice of background distribution corresponds to an 'interventional' Shapley value approach discussed in [#]_.
 
 
-        .. [1] Mitchell, Rory, et al. "Sampling permutations for shapley value estimation." Journal of Machine Learning Research 23.43 (2022): 1-46.
-        .. [2] Covert, Ian, Scott M. Lundberg, and Su-In Lee. "Understanding global feature contributions with additive importance measures." Advances in Neural Information Processing Systems 33 (2020): 17212-17223.
+        .. [#] Mitchell, Rory, et al. "Sampling permutations for shapley value estimation." Journal of Machine Learning Research 23.43 (2022): 1-46.
+        .. [#] Covert, Ian, Scott M. Lundberg, and Su-In Lee. "Understanding global feature contributions with additive importance measures." Advances in Neural Information Processing Systems 33 (2020): 17212-17223.
 
-        The method uses memory (and time) proportional to :math:`n\\_samples \\times n\\_features \\times n\\_background\\_samples`. Reduce the number of background samples or the size of X to speed up computation and reduce memory usage. X does not need to be the entire training set to get useful estimates.
+        The method uses memory (and time) proportional to :math:`n\_samples \times n\_features \times n\_background\_samples`. Reduce the number of background samples or the size of X to speed up computation and reduce memory usage. X does not need to be the entire training set to get useful estimates.
 
         See the method :func:`~legateboost.BaseModel.local_attributions` for the effect of features on individual prediction outputs.
 
@@ -486,8 +486,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         random_state : int, optional
             The random state for reproducibility.
         n_samples : int, optional
-            The number of samples to use in the antithetic sampling method.
-        assert_efficiency : bool, optional
+            The number of sample pairs to use in the antithetic sampling method.
+        check_efficiency : bool, optional
             If True, check that shapley values + null coalition add up to the final loss for X, y (the so called efficiency property of Shapley values)'.
 
         Returns
@@ -495,7 +495,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         cn.array
             The Shapley value estimates for each feature. The last value is the null coalition loss. The sum of this array results in the loss for X, y.
         cn.array
-            The standard error of the Shapley value esimates, with respect to `n_samples`. The standard error decreases according to :math:`1/\\sqrt{n\\_samples}`.
+            The standard error of the Shapley value esimates, with respect to `n_samples`. The standard error decreases according to :math:`1/\sqrt{n\_samples}`.
         """  # noqa: E501
         check_is_fitted(self, "is_fitted_")
         return global_shapley_attributions(
@@ -505,7 +505,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             metric,
             random_state,
             n_samples,
-            assert_efficiency,
+            check_efficiency,
         )
 
     def local_attributions(
@@ -514,9 +514,9 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         X_background: cn.array,
         random_state: Optional[np.random.RandomState] = None,
         n_samples: int = 5,
-        assert_efficiency: bool = False,
+        check_efficiency: bool = False,
     ) -> Tuple[cn.array, cn.array]:
-        """Local feature attributions for model predictions. Shows the effect
+        r"""Local feature attributions for model predictions. Shows the effect
         of a feature on each output prediction. See the definition of Shapley
         values in :func:`~legateboost.BaseModel.global_attributions`, where the
         :math:`v` function is here the model prediction instead of the loss
@@ -531,8 +531,8 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         random_state : int, optional
             The random state for reproducibility.
         n_samples : int
-            The number of samples to use in the antithetic sampling method.
-        assert_efficiency : bool
+            The number of sample pairs to use in the antithetic sampling method.
+        check_efficiency : bool
             If True, check that shapley values + null prediction add up to the final predictions for X (the so called efficiency property of Shapley values).
 
 
@@ -541,7 +541,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         cn.array
             The Shapley value estimates for each feature. The final value is the 'null prediction', where all features are turned off. The sum of this array results in the model prediction.
         cn.array
-            The standard error of the Shapley value esimates, with respect to `n_samples`. The standard error decreases according to :math:`1/\\sqrt{n\\_samples}`.
+            The standard error of the Shapley value esimates, with respect to `n_samples`. The standard error decreases according to :math:`1/\sqrt{n\_samples}`.
         """  # noqa: E501
         check_is_fitted(self, "is_fitted_")
         return local_shapley_attributions(
@@ -550,7 +550,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             X_background,
             random_state,
             n_samples,
-            assert_efficiency,
+            check_efficiency,
         )
 
 
@@ -965,7 +965,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
         if pred.shape[1] == 1:
-            pred = pred.squeeze()
+            pred = pred.reshape(-1)
             pred = cn.stack([1.0 - pred, pred], axis=1)
         return pred
 

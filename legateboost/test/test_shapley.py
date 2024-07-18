@@ -17,7 +17,7 @@ def test_regressor_global_shapley_attributions(random_state, metric, num_outputs
         metric,
         n_samples=20,
         random_state=random_state,
-        assert_efficiency=True,
+        check_efficiency=True,
     )
     assert cn.isfinite(shapley).all()
     assert cn.isfinite(se).all()
@@ -36,7 +36,7 @@ def test_classifier_global_shapley_attributions(metric, num_classes):
         y,
         metric,
         random_state=9,
-        assert_efficiency=True,
+        check_efficiency=True,
     )
     assert cn.isfinite(shapley).all()
     assert cn.isfinite(se).all()
@@ -53,7 +53,7 @@ def test_regressor_local_shapley_attributions(random_state, num_outputs):
         X,
         X_background,
         random_state=random_state,
-        assert_efficiency=True,
+        check_efficiency=True,
     )
     if num_outputs > 1:
         assert shapley.shape == (X.shape[0], X.shape[1] + 1, num_outputs)
@@ -76,9 +76,17 @@ def test_classifier_local_shapley_attributions(random_state, num_classes):
         X,
         X_background,
         random_state=random_state,
-        assert_efficiency=True,
+        check_efficiency=True,
     )
     assert shapley.shape == (X.shape[0], X.shape[1] + 1, num_classes)
     assert cn.isfinite(shapley).all()
     assert cn.isfinite(se).all()
     assert (se >= 0).all()
+
+    # Do a single row
+    shapley, se = model.local_attributions(
+        X[:1],
+        X_background,
+        random_state=random_state,
+        check_efficiency=True,
+    )
