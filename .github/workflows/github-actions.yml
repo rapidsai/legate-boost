@@ -37,7 +37,7 @@ jobs:
           lfs: true
       - name: Install legate/cunumeric
         run: |
-          conda install --yes -c rapidsai \
+          mamba install --yes -c rapidsai \
             'rapids-dependency-file-generator>=1.14.0'
 
           rapids-dependency-file-generator \
@@ -45,8 +45,7 @@ jobs:
             --file-key all \
             --matrix "cuda=${CUDA_VERSION};arch=$(arch)" | tee /tmp/env.yaml
 
-          conda env create \
-            --yes \
+          mamba env create \
             --name legate-boost-dev \
             --file /tmp/env.yaml
 
