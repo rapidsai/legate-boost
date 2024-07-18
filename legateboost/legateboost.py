@@ -16,6 +16,7 @@ from .input_validation import check_sample_weight, check_X_y
 from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
+from .shapley import global_shapley_attributions, local_shapley_attributions
 from .utils import PickleCunumericMixin, preround
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.random_state = random_state
         self.model_init_: cn.ndarray
         self.callbacks = callbacks
+        self.metrics_: list[BaseMetric]
         if not isinstance(base_models, tuple):
             raise ValueError("base_models must be a tuple")
         self.base_models = base_models
@@ -443,6 +445,113 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         for m in self.models_:
             text += str(m)
         return text
+
+    def global_attributions(
+        self,
+        X: cn.array,
+        y: cn.array,
+        metric: Optional[BaseMetric] = None,
+        random_state: Optional[np.random.RandomState] = None,
+        n_samples: int = 5,
+        check_efficiency: bool = False,
+    ) -> Tuple[cn.array, cn.array]:
+        r"""Compute global feature attributions for the model. Global
+        attributions show the effect of a feature on a model's loss function.
+
+        We use a Shapley value approach to compute the attributions:
+        :math:`Sh_i(v)=\frac{1}{|N|!} \sum_{\sigma \in \mathfrak{S}_d} \big[ v([\sigma]_{i-1} \cup\{i\}) - v([\sigma]_{i-1}) \big],`
+        where :math:`v` is the model's loss function, :math:`N` is the set of features, and :math:`\mathfrak{S}_d` is the set of all permutations of the features.
+        :math:`[\sigma]_{i-1}` represents the set of players ranked lower than :math:`i` in the ordering :math:`\sigma`.
+
+        In effect the shapley value shows the effect of adding a feature to the model, averaged over all possible orderings of the features. In our case the above function is approximated using an antithetic-sampling method [#]_, where `n_samples` corresponds to pairs of permutation samples. This method also returns the standard error, which decreases according to :math:`1/\sqrt{n\_samples}`.
+
+        This definition of attributions requires removing a feature from the active set. We use a random sample of values from X to fill in the missing feature values. This choice of background distribution corresponds to an 'interventional' Shapley value approach discussed in [#]_.
+
+
+        .. [#] Mitchell, Rory, et al. "Sampling permutations for shapley value estimation." Journal of Machine Learning Research 23.43 (2022): 1-46.
+        .. [#] Covert, Ian, Scott M. Lundberg, and Su-In Lee. "Understanding global feature contributions with additive importance measures." Advances in Neural Information Processing Systems 33 (2020): 17212-17223.
+
+        The method uses memory (and time) proportional to :math:`n\_samples \times n\_features \times n\_background\_samples`. Reduce the number of background samples or the size of X to speed up computation and reduce memory usage. X does not need to be the entire training set to get useful estimates.
+
+        See the method :func:`~legateboost.BaseModel.local_attributions` for the effect of features on individual prediction outputs.
+
+        Parameters
+        ----------
+        X : cn.array
+            The input data.
+        y : cn.array
+            The target values.
+        metric : BaseMetric, optional
+            The metric to evaluate the model. If None, the model default metric is used.
+        random_state : int, optional
+            The random state for reproducibility.
+        n_samples : int, optional
+            The number of sample pairs to use in the antithetic sampling method.
+        check_efficiency : bool, optional
+            If True, check that shapley values + null coalition add up to the final loss for X, y (the so called efficiency property of Shapley values)'.
+
+        Returns
+        -------
+        cn.array
+            The Shapley value estimates for each feature. The last value is the null coalition loss. The sum of this array results in the loss for X, y.
+        cn.array
+            The standard error of the Shapley value esimates, with respect to `n_samples`. The standard error decreases according to :math:`1/\sqrt{n\_samples}`.
+        """  # noqa: E501
+        check_is_fitted(self, "is_fitted_")
+        return global_shapley_attributions(
+            self,
+            X,
+            y,
+            metric,
+            random_state,
+            n_samples,
+            check_efficiency,
+        )
+
+    def local_attributions(
+        self,
+        X: cn.array,
+        X_background: cn.array,
+        random_state: Optional[np.random.RandomState] = None,
+        n_samples: int = 5,
+        check_efficiency: bool = False,
+    ) -> Tuple[cn.array, cn.array]:
+        r"""Local feature attributions for model predictions. Shows the effect
+        of a feature on each output prediction. See the definition of Shapley
+        values in :func:`~legateboost.BaseModel.global_attributions`, where the
+        :math:`v` function is here the model prediction instead of the loss
+        function.
+
+        Parameters
+        ----------
+        X : cn.array
+            The input data.
+        X_background : cn.array
+            The background data to use for missing feature values. This could be a random sample of training data (e.g. between 10-100 instances).
+        random_state : int, optional
+            The random state for reproducibility.
+        n_samples : int
+            The number of sample pairs to use in the antithetic sampling method.
+        check_efficiency : bool
+            If True, check that shapley values + null prediction add up to the final predictions for X (the so called efficiency property of Shapley values).
+
+
+        Returns
+        -------
+        cn.array
+            The Shapley value estimates for each feature. The final value is the 'null prediction', where all features are turned off. The sum of this array results in the model prediction.
+        cn.array
+            The standard error of the Shapley value esimates, with respect to `n_samples`. The standard error decreases according to :math:`1/\sqrt{n\_samples}`.
+        """  # noqa: E501
+        check_is_fitted(self, "is_fitted_")
+        return local_shapley_attributions(
+            self,
+            X,
+            X_background,
+            random_state,
+            n_samples,
+            check_efficiency,
+        )
 
 
 class LBRegressor(LBBase, RegressorMixin):
@@ -856,7 +965,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
         if pred.shape[1] == 1:
-            pred = pred.squeeze()
+            pred = pred.reshape(-1)
             pred = cn.stack([1.0 - pred, pred], axis=1)
         return pred
 

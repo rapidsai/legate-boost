@@ -4,22 +4,25 @@ channels:
 - legate
 - conda-forge
 dependencies:
-- cmake>=3.24.0
+- cmake>=3.24.0,!=3.30.0
 - cunumeric=24.06.*
 - hypothesis
 - legate-core=24.06.*
 - matplotlib
 - mypy
+- myst-parser
 - nbconvert
 - notebook
 - numpy
 - openblas
+- pydata-sphinx-theme
 - pytest<8
 - python-build
 - scikit-build>=0.18.0
 - scikit-learn
 - seaborn
 - setuptools>=70.0
+- sphinx
 - typing-extensions>=4.0
 - xgboost
 name: all_cuda-118
