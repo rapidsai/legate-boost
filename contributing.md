@@ -16,7 +16,21 @@ legate --module pytest legateboost/test
 
 ## Change default CUDA architectures
 
-Set the environment variable `CUDA_ARCH` according to cmake [CUDA_ARCHITECTURES](https://cmake.org/cmake/help/latest/prop_tgt/CUDA_ARCHITECTURES.html) if you are installing with pip. For running cmake directly, the argument `CMAKE_CUDA_ARCHITECTURES` works as well.
+By default, builds here default to `CMAKE_CUDA_ARCHITECTURES=native` (whatever GPU exists on the system where the build is running).
+
+If installing with `pip`, set the `CUDAARCHS` environment variable, as described in the CMake docs ([link](https://cmake.org/cmake/help/latest/variable/CMAKE_CUDA_ARCHITECTURES.html)).
+
+```shell
+CUDAARCHS="70;80" \
+    pip install .
+```
+
+For CMake-based builds, pass `CMAKE_CUDA_ARCHITECTURES`.
+
+```shell
+cmake -B build -S . -DCMAKE_CUDA_ARCHITECTURES="70;80"
+cmake --build build -j
+```
 
 ## Pre-commit hooks
 

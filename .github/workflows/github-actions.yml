@@ -54,8 +54,10 @@ jobs:
         run: |
           mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
       - name: Build legateboost
+        env:
+          CUDAARCHS: '70;80'
         run: |
-          CUDA_ARCH=70\;80 ./build.sh
+          ./build.sh
           python -m build -n --wheel
       - uses: actions/upload-artifact@v3
         with:
