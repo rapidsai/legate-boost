@@ -45,11 +45,11 @@ jobs:
             --file-key all \
             --matrix "cuda=${CUDA_VERSION};arch=$(arch)" | tee /tmp/env.yaml
 
-          mamba env create \
-            --name legate-boost-dev \
+          # update the current environment (instead of creating a new one), as that
+          # persists across all steps
+          mamba env update \
+            --name base \
             --file /tmp/env.yaml
-
-          source activate legate-boost-dev
       - name: Type check legateboost
         run: |
           mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
