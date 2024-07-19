@@ -73,7 +73,7 @@ jobs:
       - name: Build legateboost docs
         working-directory: docs
         run: |
-          make -C docs html
+          make html
       - uses: actions/upload-pages-artifact@v1
         with:
           path: docs/build
