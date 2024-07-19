@@ -16,6 +16,7 @@ author = "NVIDIA"
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
+    "sphinx.ext.intersphinx",
     "myst_parser",
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
@@ -49,3 +50,8 @@ html_theme_options = {
 # -- Options for extensions --------------------------------------------------
 
 autosummary_generate = True
+
+# ensure links to third-party docs work
+intersphinx_mapping = {
+    "sklearn": ("https://scikit-learn.org/stable/", None),
+}

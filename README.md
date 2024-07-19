@@ -71,10 +71,6 @@ model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max
 
 ## Installation
 
-Dependencies:
-- cunumeric
-- sklearn
-
 From the project directory
 ```
 pip install .
