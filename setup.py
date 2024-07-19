@@ -24,9 +24,14 @@ import legate.install_info as lg_install_info
 
 legate_dir = Path(lg_install_info.libpath).parent.as_posix()
 
+# ensure 'native' is used if CUDAARCHS isn't set
+# (instead of the CMake default which is a specific architecture)
+# ref: https://cmake.org/cmake/help/latest/variable/CMAKE_CUDA_ARCHITECTURES.html
+cuda_arch = os.getenv("CUDAARCHS", "native")
+
 cmake_flags = [
     f"-Dlegate_core_ROOT:STRING={legate_dir}",
-    "-DCMAKE_CUDA_ARCHITECTURES=native",
+    f"-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}",
 ]
 
 env_cmake_args = os.environ.get("CMAKE_ARGS")
