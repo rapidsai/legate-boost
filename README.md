@@ -29,7 +29,7 @@ model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2)
 ### Probabilistic regression
 Legateboost can learn distributions for continuous data. This is useful in cases where simply predicting the mean does not carry enough information about the training data:
 
-<img src="examples/probabalistic_regression/probabilistic_regression.gif" alt="drawing" width="800"/>
+<img src="_static/examples/probabilistic_regression.gif" alt="drawing" width="800"/>
 
 The above example can be found here: [examples/probabilistic_regression](examples/probabalistic_regression/README.md).
 
@@ -46,7 +46,7 @@ for i in range(total_estimators // estimators_per_batch):
     )
 ```
 
-<img src="examples/batch_training/batch_training.png" alt="drawing" width="600"/>
+<img src="_static/examples/batch_training.png" alt="drawing" width="600"/>
 
 The above example can be found here: [examples/batch_training](examples/batch_training/README.md).
 
@@ -59,7 +59,7 @@ The following example shows a model combining linear and decision tree base lear
 model = lb.LBRegressor(base_models=(lb.models.Linear(), lb.models.Tree(max_depth=1),), **params).fit(X, y)
 ```
 
-<img src="examples/linear_model/linear_model.png" alt="drawing" width="800"/>
+<img src="_static/examples/linear_model.png" alt="drawing" width="800"/>
 
 The second example shows a model combining kernel ridge regression and decision tree base learners on the wine quality dataset.
 
@@ -67,7 +67,7 @@ The second example shows a model combining kernel ridge regression and decision 
 model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max_depth=5),), **params).fit(X, y)
 ```
 
-<img src="examples/kernel_ridge_regression/kernel_ridge_regression.png" alt="drawing" width="400"/>
+<img src="_static/examples/kernel_ridge_regression.png" alt="drawing" width="400"/>
 
 ## Installation
 

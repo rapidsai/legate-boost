@@ -1,6 +1,8 @@
 build
 dist/
 docs/source/examples
+docs/source/_static/examples/
+!docs/source/_static/examples/.gitkeep
 _skbuild
 *.pyc
 *.egg-info
