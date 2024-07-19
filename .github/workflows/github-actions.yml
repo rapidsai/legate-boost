@@ -73,8 +73,7 @@ jobs:
       - name: Build legateboost docs
         working-directory: docs
         run: |
-          # invoke sphinx build using legate
-          legate --run-mode=python --module sphinx.cmd.build source build -b html
+          make -C docs html
       - uses: actions/upload-pages-artifact@v1
         with:
           path: docs/build
