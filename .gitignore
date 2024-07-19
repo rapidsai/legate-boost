@@ -1,11 +1,16 @@
 build
 dist/
+docs/source/examples
+docs/source/_static/examples/
+!docs/source/_static/examples/.gitkeep
 _skbuild
 *.pyc
 *.egg-info
 legateboost/library.py
 legateboost/install_info.py
 legate_prof*
+.mypy_cache/
+__pycache__/
 .hypothesis
 examples/notebook/*.py
 legion_prof

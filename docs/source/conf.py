@@ -16,6 +16,7 @@ author = "NVIDIA"
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
+    "sphinx.ext.intersphinx",
     "myst_parser",
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
@@ -30,7 +31,7 @@ source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-# html_static_path = ["_static"]
+html_static_path = ["_static", "_static/examples"]
 
 html_theme = "pydata_sphinx_theme"
 
@@ -49,3 +50,8 @@ html_theme_options = {
 # -- Options for extensions --------------------------------------------------
 
 autosummary_generate = True
+
+# ensure links to third-party docs work
+intersphinx_mapping = {
+    "sklearn": ("https://scikit-learn.org/stable/", None),
+}
