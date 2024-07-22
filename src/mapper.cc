@@ -37,13 +37,18 @@ legate::Scalar LegateboostMapper::tunable_value(legate::TunableID /*tunable_id*/
 std::vector<legate::mapping::StoreMapping> LegateboostMapper::store_mappings(
   const legate::mapping::Task& task, const std::vector<legate::mapping::StoreTarget>& options)
 {
-  // Enforce c-ordering for all inputs
+  auto task_id = task.task_id();
+  // Enforce c-ordering for these tasks
+  std::set<LegateBoostOpCode> row_major_only = {BUILD_TREE};
   std::vector<legate::mapping::StoreMapping> mappings;
-  for (auto input : task.inputs()) {
-    mappings.push_back(
-      legate::mapping::StoreMapping::default_mapping(input.data(), options.front()));
-    mappings.back().policy().ordering.set_c_order();
-    mappings.back().policy().exact = true;
+  if (row_major_only.count(static_cast<LegateBoostOpCode>(task_id))) {
+    for (auto input : task.inputs()) {
+      mappings.push_back(
+        legate::mapping::StoreMapping::default_mapping(input.data(), options.front()));
+      mappings.back().policy().ordering.set_c_order();
+      mappings.back().policy().exact = true;
+    }
+    return mappings;
   }
   return mappings;
 }
