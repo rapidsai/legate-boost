@@ -1,12 +1,31 @@
 # Contributing to legateboost
 
+`legateboost` depends on some libraries that are not easily installable with `pip`.
+
+Use `conda` to create a development environment that includes them.
+
+```shell
+# CUDA 11.8
+conda env create \
+    --name legate-boost-dev \
+    -f ./conda/environments/all_cuda-118.yaml
+
+# CUDA 12.5
+conda env create \
+    --name legate-boost-dev \
+    -f ./conda/environments/all_cuda-125.yaml
+
+source activate legate-boost-dev
+```
+
 For editable installation
-```
-pip install -e .
-```
-To include test dependencies
-```
-pip install -e .[test]
+
+```shell
+python -m pip install \
+    --no-deps \
+    --no-build-isolation \
+    -e \
+    .
 ```
 
 ## Running tests

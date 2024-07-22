@@ -58,7 +58,7 @@ jobs:
           CUDAARCHS: '70;80'
         run: |
           ./build.sh
-          python -m build -n --wheel
+          python -m build --no-isolation --skip-dependency-check --wheel
       - uses: actions/upload-artifact@v3
         with:
           name: legateboost-wheel

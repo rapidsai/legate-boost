@@ -11,4 +11,5 @@ legate_root=`python -c 'import legate.install_info as i; from pathlib import Pat
 echo "Using Legate at $legate_root"
 cmake -S . -B build -D legate_core_ROOT=$legate_root -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=${CMAKE_CUDA_ARCHITECTURES}
 cmake --build build -j
-python -m pip install -e .
+
+python -m pip install --no-build-isolation --no-deps -e .
