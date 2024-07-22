@@ -109,7 +109,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
           // bin_idx is the first sample that is larger than x_value
           if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
             double* addPosition =
-              reinterpret_cast<double*>(&histogram[{sampleNode, bin_idx, output}]);
+              reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
             atomicAdd(addPosition, G);
             atomicAdd(addPosition + 1, H);
           }
@@ -164,11 +164,11 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
     for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
       int bin_idx              = feature_begin + tile_idx * warp.num_threads() + warp.thread_rank();
       bool thread_participates = bin_idx < feature_end;
-      auto e = thread_participates ? histogram[{scan_node_idx, bin_idx, output}] : GPair{0, 0};
+      auto e = thread_participates ? histogram[{scan_node_idx, output, bin_idx}] : GPair{0, 0};
       GPair tile_aggregate;
       WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
       __syncwarp();
-      if (thread_participates) { histogram[{scan_node_idx, bin_idx, output}] = e + aggregate; }
+      if (thread_participates) { histogram[{scan_node_idx, output, bin_idx}] = e + aggregate; }
       aggregate += tile_aggregate;
     }
   }
@@ -179,10 +179,10 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
     // Infer right side
     for (int bin_idx = feature_begin + warp.thread_rank(); bin_idx < feature_end;
          bin_idx += warp.num_threads()) {
-      GPair scanned_sum = histogram[{scan_node_idx, bin_idx, output}];
-      GPair parent_sum  = histogram[{BinaryTree::Parent(scan_node_idx), bin_idx, output}];
+      GPair scanned_sum = histogram[{scan_node_idx, output, bin_idx}];
+      GPair parent_sum  = histogram[{BinaryTree::Parent(scan_node_idx), output, bin_idx}];
       GPair other_sum   = parent_sum - scanned_sum;
-      histogram[{subtract_node_idx, bin_idx, output}] = other_sum;
+      histogram[{subtract_node_idx, output, bin_idx}] = other_sum;
     }
   }
 }
@@ -248,7 +248,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
       for (int output = 0; output < n_outputs; ++output) {
         auto G          = tree_gradient[{node_id, output}];
         auto H          = tree_hessian[{node_id, output}];
-        auto [G_L, H_L] = histogram[{node_id, bin_idx, output}];
+        auto [G_L, H_L] = histogram[{node_id, output, bin_idx}];
         auto G_R        = G - G_L;
         auto H_R        = H - H_L;
 
@@ -280,7 +280,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
   if (node_best_gain > eps) {
     for (int output = threadIdx.x; output < n_outputs; output += blockDim.x) {
-      auto [G_L, H_L] = histogram[{node_id, node_best_bin_idx, output}];
+      auto [G_L, H_L] = histogram[{node_id, output, node_best_bin_idx}];
       auto G_R        = tree_gradient[{node_id, output}] - G_L;
       auto H_R        = tree_hessian[{node_id, output}] - H_L;
 
@@ -497,11 +497,11 @@ struct TreeBuilder {
   {
     positions = legate::create_buffer<int32_t>(num_rows);
     histogram_buffer =
-      legate::create_buffer<GPair, 3>({max_nodes, split_proposals.histogram_size, num_outputs});
+      legate::create_buffer<GPair, 3>({max_nodes, num_outputs, split_proposals.histogram_size});
     CHECK_CUDA(
       cudaMemsetAsync(histogram_buffer.ptr(legate::Point<3>::ZEROES()),
                       0,
-                      max_nodes * split_proposals.histogram_size * num_outputs * sizeof(GPair),
+                      max_nodes * num_outputs * split_proposals.histogram_size * sizeof(GPair),
                       stream));
     // some initialization on first pass
     CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
@@ -573,7 +573,7 @@ struct TreeBuilder {
     SumAllReduce(
       context,
       reinterpret_cast<double*>(histogram_buffer.ptr({BinaryTree::LevelBegin(depth), 0, 0})),
-      BinaryTree::NodesInLevel(depth) * split_proposals.histogram_size * num_outputs * 2,
+      BinaryTree::NodesInLevel(depth) * num_outputs * split_proposals.histogram_size * 2,
       stream);
 
     const int num_nodes_to_process = std::max(BinaryTree::NodesInLevel(depth) / 2, 1);
