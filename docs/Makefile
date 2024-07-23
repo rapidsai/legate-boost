@@ -15,6 +15,8 @@ help:
 .PHONY: help Makefile
 
 html: Makefile
+	@#make the repo README available in the docs site
+	@cp -f ../README.md "$(SOURCEDIR)/README.md"
 	@# treat the examples as source files (to be rendered as HTML)
 	@cp -f -r ../examples "$(SOURCEDIR)/"
 	@# store all the image files from examples in a dedicated static directory
@@ -23,6 +25,7 @@ html: Makefile
 	@find "$(SOURCEDIR)/examples" -type f \( -name '*.png' -o -name '*.gif' \) -exec cp '{}' "$(SOURCEDIR)/_static/examples" \;
 	@# ensure image links in the example READMEs point to the static-files directory in the site source
 	@find "$(SOURCEDIR)/examples" -type f -name '*.md' -exec sed -i -e 's|img src="|img src="/_static/examples/|g' '{}' \;
+	@sed -i -e 's|img src="examples/|img src="/_static/examples/|g' "$(SOURCEDIR)/README.md" \;
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 # Catch-all target: route all unknown targets to Sphinx using the new
