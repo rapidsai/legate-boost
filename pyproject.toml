@@ -1,3 +1,5 @@
+# ref: https://scikit-build.readthedocs.io/en/latest/usage.html
+# ref: 
 [build-system]
 requires = [
     "setuptools>=64",
