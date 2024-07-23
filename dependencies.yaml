@@ -9,39 +9,61 @@ files:
       - docs
       - run
       - test
+  py_build:
+    output: pyproject
+    pyproject_dir: .
+    extras:
+      table: build-system
+    includes:
+      - build
+  py_run:
+    output: pyproject
+    pyproject_dir: .
+    extras:
+      table: build-system
+    includes:
+      - run
+  py_test:
+    output: pyproject
+    pyproject_dir: .
+    extras:
+      table: project.optional-dependencies
+      key: test
+    includes:
+      - test
 channels:
   - legate
   - conda-forge
 dependencies:
   build:
     common:
-      - output_types: [conda]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - cmake>=3.24.0,!=3.30.0
-          - &legate_core legate-core=24.06.*
+          - &legate_core legate-core==24.06.*
           - openblas
           - python-build
           - scikit-build>=0.18.0
           - setuptools>=70.0
   docs:
     common:
-      - output_types: [conda]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - sphinx
           - pydata-sphinx-theme
           - myst-parser
   run:
     common:
-      - output_types: [conda]
+      - output_types: [conda, pyproject, requirements]
         packages:
-          - cunumeric=24.06.*
+          - cunumeric==24.06.*
           - *legate_core
           - numpy
           - scikit-learn
           - typing-extensions>=4.0
   test:
     common:
-      - output_types: [conda]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - hypothesis
           - matplotlib

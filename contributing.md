@@ -10,27 +10,37 @@ conda env create \
     --name legate-boost-dev \
     -f ./conda/environments/all_cuda-118.yaml
 
-# CUDA 12.5
-conda env create \
-    --name legate-boost-dev \
-    -f ./conda/environments/all_cuda-125.yaml
-
 source activate legate-boost-dev
 ```
 
-For editable installation
+The easiest way to develop is to compile the shared library separately, then build an
+editable wheel that uses it.
 
 ```shell
-python -m pip install \
-    --no-deps \
-    --no-build-isolation \
-    -e \
-    .
+./build.sh
 ```
 
 ## Running tests
+
+CPU:
+
+```shell
+legate \
+    --sysmem 28000 \
+    --module pytest \
+    legateboost/test
 ```
-legate --module pytest legateboost/test
+
+GPU:
+
+```shell
+legate \
+    --gpus 1 \
+    --fbmem 28000 \
+    --sysmem 28000 \
+    --module pytest \
+    legateboost/test \
+    -k 'not sklearn'
 ```
 
 ## Change default CUDA architectures
@@ -41,7 +51,7 @@ If installing with `pip`, set the `CUDAARCHS` environment variable, as described
 
 ```shell
 CUDAARCHS="70;80" \
-    pip install .
+    pip install --no-build-isolation --no-deps .
 ```
 
 For CMake-based builds, pass `CMAKE_CUDA_ARCHITECTURES`.
