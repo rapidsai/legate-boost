@@ -71,7 +71,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  legate::AccessorRO<double, 3> h,
                  size_t n_outputs,
                  SparseSplitProposals<TYPE> split_proposals,
-                 int32_t* positions_local,
+                 cuda::std::tuple<int, int>* sorted_positions_local,
                  legate::Buffer<GPair, 3> histogram,
                  legate::Buffer<double, 2> node_hessians,
                  int depth)
@@ -89,12 +89,12 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     // data from X is processed.
 
     // check if thread has actual work to do
-    int32_t localSampleId = (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
-    int64_t globalSampleId = localSampleId + sample_offset;
-    bool validThread       = localSampleId < n_local_samples;
+    int32_t idx      = (blockIdx.x + elementIdx * gridDim.x) * THREADS_PER_BLOCK + threadIdx.x;
+    bool validThread = idx < n_local_samples;
     if (!validThread) continue;
+    auto [sampleNode, localSampleId] = sorted_positions_local[idx];
+    int64_t globalSampleId           = localSampleId + sample_offset;
 
-    int32_t sampleNode    = positions_local[localSampleId];
     bool computeHistogram = ComputeHistogramBin(sampleNode, depth, node_hessians);
 
     for (int32_t output = 0; output < n_outputs; output++) {
@@ -224,10 +224,10 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                      legate::Buffer<int32_t, 1> tree_feature,
                      legate::Buffer<double, 1> tree_split_value,
                      legate::Buffer<double, 1> tree_gain,
-                     int depth)
+                     cuda::std::pair<int, int> node_batch)
 {
   // using one block per (level) node to have blockwise reductions
-  int node_id = blockIdx.x + BinaryTree::LevelBegin(depth);
+  int node_id = node_batch.first + blockIdx.x;
 
   typedef cub::BlockReduce<GainFeaturePair, THREADS_PER_BLOCK> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
@@ -480,6 +480,17 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
   out_keys.destroy();
   return SparseSplitProposals<T>(split_proposals, row_pointers, num_features, n_unique);
 }
+
+// Can't put a device lambda in constructor so make this a function
+void FillPositions(legate::Buffer<cuda::std::tuple<int, int>> sorted_positions,
+                   int num_rows,
+                   cudaStream_t stream)
+{
+  LaunchN(num_rows, stream, [=] __device__(size_t idx) {
+    sorted_positions[idx] = cuda::std::make_tuple(0, idx);
+  });
+}
+
 template <typename T>
 struct TreeBuilder {
   TreeBuilder(int32_t num_rows,
@@ -495,7 +506,7 @@ struct TreeBuilder {
       max_nodes(max_nodes),
       split_proposals(split_proposals)
   {
-    positions = legate::create_buffer<int32_t>(num_rows);
+    sorted_positions = legate::create_buffer<cuda::std::tuple<int, int>>(num_rows);
     histogram_buffer =
       legate::create_buffer<GPair, 3>({max_nodes, num_outputs, split_proposals.histogram_size});
     CHECK_CUDA(
@@ -503,40 +514,51 @@ struct TreeBuilder {
                       0,
                       max_nodes * num_outputs * split_proposals.histogram_size * sizeof(GPair),
                       stream));
-    // some initialization on first pass
-    CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
-  }
-
-  ~TreeBuilder()
-  {
-    positions.destroy();
-    histogram_buffer.destroy();
-    if (cub_buffer_size > 0) cub_buffer.destroy();
+    FillPositions(sorted_positions, num_rows, stream);
   }
 
   template <typename TYPE>
   void UpdatePositions(int depth,
                        Tree& tree,
                        legate::AccessorRO<TYPE, 3> X,
-                       legate::Rect<3> X_shape)
+                       legate::Rect<3> X_shape,
+                       cuda::std::pair<int, int> node_batch)
   {
     if (depth == 0) return;
-    auto tree_split_value_ptr    = tree.split_value.ptr(0);
-    auto tree_feature_ptr        = tree.feature.ptr(0);
-    auto positions_ptr           = positions.ptr(0);
-    auto max_nodes_              = this->max_nodes;
-    auto update_positions_lambda = [=] __device__(size_t idx) {
-      int32_t& pos = positions_ptr[idx];
-      if (pos < 0 || pos >= max_nodes_ || tree_feature_ptr[pos] == -1) {
-        pos = -1;
-        return;
-      }
-      double x_value = X[{X_shape.lo[0] + (int64_t)idx, tree_feature_ptr[pos], 0}];
-      bool left      = x_value <= tree_split_value_ptr[pos];
-      pos            = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
-    };
-    LaunchN(num_rows, stream, update_positions_lambda);
+    auto tree_split_value_ptr = tree.split_value.ptr(0);
+    auto tree_feature_ptr     = tree.feature.ptr(0);
+    auto max_nodes_           = this->max_nodes;
+
+    // TODO: find the set of instances in this node batch
+
+    LaunchN(
+      num_rows, stream, [=, sorted_positions = this->sorted_positions] __device__(size_t idx) {
+        auto [pos, row] = sorted_positions[idx];
+
+        // TODO: remove this
+        // Pos actually should be a parent of these nodes
+        /*
+        if(pos < node_batch.first || pos >= node_batch.second) {
+          return;
+        }
+        */
+
+        if (pos < 0 || pos >= max_nodes_ || tree_feature_ptr[pos] == -1) {
+          sorted_positions[idx] = cuda::std::make_tuple(-1, row);
+          return;
+        }
+        double x_value        = X[{X_shape.lo[0] + (int64_t)row, tree_feature_ptr[pos], 0}];
+        bool left             = x_value <= tree_split_value_ptr[pos];
+        pos                   = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
+        sorted_positions[idx] = cuda::std::make_tuple(pos, row);
+      });
     CHECK_CUDA_STREAM(stream);
+
+    thrust::sort(
+      thrust::cuda::par.on(stream),
+      sorted_positions.ptr(0),
+      sorted_positions.ptr(num_rows),
+      [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
   }
 
   template <typename TYPE>
@@ -546,7 +568,8 @@ struct TreeBuilder {
                         legate::AccessorRO<TYPE, 3> X,
                         legate::Rect<3> X_shape,
                         legate::AccessorRO<double, 3> g,
-                        legate::AccessorRO<double, 3> h)
+                        legate::AccessorRO<double, 3> h,
+                        cuda::std::pair<int, int> node_batch)
   {
     // TODO adjust kernel parameters dynamically
     constexpr size_t elements_per_thread = 8;
@@ -564,19 +587,20 @@ struct TreeBuilder {
                                                      h,
                                                      num_outputs,
                                                      split_proposals,
-                                                     positions.ptr(0),
+                                                     sorted_positions.ptr(0),
                                                      histogram_buffer,
                                                      tree.hessian,
                                                      depth);
+
+    auto num_nodes = node_batch.second - node_batch.first;
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
-    SumAllReduce(
-      context,
-      reinterpret_cast<double*>(histogram_buffer.ptr({BinaryTree::LevelBegin(depth), 0, 0})),
-      BinaryTree::NodesInLevel(depth) * num_outputs * split_proposals.histogram_size * 2,
-      stream);
+    SumAllReduce(context,
+                 reinterpret_cast<double*>(histogram_buffer.ptr({node_batch.first, 0, 0})),
+                 num_nodes * num_outputs * split_proposals.histogram_size * 2,
+                 stream);
 
-    const int num_nodes_to_process = std::max(BinaryTree::NodesInLevel(depth) / 2, 1);
+    const int num_nodes_to_process = std::max(num_nodes / 2, 1);
     const size_t warps_needed      = num_features * num_nodes_to_process;
     const size_t warps_per_block   = THREADS_PER_BLOCK / 32;
     const size_t blocks_needed     = (warps_needed + warps_per_block - 1) / warps_per_block;
@@ -593,22 +617,22 @@ struct TreeBuilder {
     CHECK_CUDA_STREAM(stream);
   }
 
-  void PerformBestSplit(int depth, Tree& tree, double alpha)
+  void PerformBestSplit(Tree& tree, double alpha, cuda::std::pair<int, int> node_batch)
   {
-    perform_best_split<<<BinaryTree::NodesInLevel(depth), THREADS_PER_BLOCK, 0, stream>>>(
-      histogram_buffer,
-      num_features,
-      num_outputs,
-      split_proposals,
-      eps,
-      alpha,
-      tree.leaf_value,
-      tree.gradient,
-      tree.hessian,
-      tree.feature,
-      tree.split_value,
-      tree.gain,
-      depth);
+    auto num_nodes = node_batch.second - node_batch.first;
+    perform_best_split<<<num_nodes, THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
+                                                                    num_features,
+                                                                    num_outputs,
+                                                                    split_proposals,
+                                                                    eps,
+                                                                    alpha,
+                                                                    tree.leaf_value,
+                                                                    tree.gradient,
+                                                                    tree.hessian,
+                                                                    tree.feature,
+                                                                    tree.split_value,
+                                                                    tree.gain,
+                                                                    node_batch);
     CHECK_CUDA_STREAM(stream);
   }
   void InitialiseRoot(legate::TaskContext context,
@@ -636,7 +660,7 @@ struct TreeBuilder {
     CHECK_CUDA_STREAM(stream);
   }
 
-  legate::Buffer<int32_t> positions;
+  legate::Buffer<cuda::std::tuple<int, int>> sorted_positions;  // (node, row)
   const int32_t num_rows;
   const int32_t num_features;
   const int32_t num_outputs;
@@ -691,14 +715,19 @@ struct build_tree_fn {
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
     for (int depth = 0; depth < max_depth; ++depth) {
+      cuda::std::pair<int, int> node_batch(
+        BinaryTree::LevelBegin(depth),
+        BinaryTree::LevelBegin(depth) + BinaryTree::NodesInLevel(depth));
+
       // update positions from previous step
-      builder.UpdatePositions(depth, tree, X_accessor, X_shape);
+      builder.UpdatePositions(depth, tree, X_accessor, X_shape, node_batch);
 
       // actual histogram creation
-      builder.ComputeHistogram(depth, context, tree, X_accessor, X_shape, g_accessor, h_accessor);
+      builder.ComputeHistogram(
+        depth, context, tree, X_accessor, X_shape, g_accessor, h_accessor, node_batch);
 
       // Select the best split
-      builder.PerformBestSplit(depth, tree, alpha);
+      builder.PerformBestSplit(tree, alpha, node_batch);
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);
