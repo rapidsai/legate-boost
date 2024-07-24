@@ -1,6 +1,7 @@
 build
 dist/
 docs/source/examples
+docs/source/README.md
 docs/source/_static/examples/
 !docs/source/_static/examples/.gitkeep
 _skbuild
