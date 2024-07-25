@@ -1,4 +1,5 @@
 build
+*.conda
 dist/
 docs/source/examples
 docs/source/README.md
@@ -18,3 +19,7 @@ examples/notebook/*.py
 legion_prof
 benchmark
 benchmark/!*.py
+*.tar.bz2
+*.tar.gz
+*.whl
+*.zip
