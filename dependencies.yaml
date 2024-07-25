@@ -52,7 +52,7 @@ dependencies:
       - output_types: [conda]
         packages:
           - auditwheel>=6.0.0
-          - python-build
+          - python-build>=1.2.0
   docs:
     common:
       - output_types: [conda, pyproject, requirements]
