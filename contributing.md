@@ -14,7 +14,7 @@ source activate legate-boost-dev
 ```
 
 The easiest way to develop is to compile the shared library separately, then build
-an install editable wheel that uses it.
+and install an editable wheel that uses it.
 
 ```shell
 ./build.sh --editable
@@ -39,7 +39,7 @@ legate \
     --fbmem 28000 \
     --sysmem 28000 \
     --module pytest \
-    legateboost/test \
+    legateboost/test/test_estimator.py \
     -k 'not sklearn'
 ```
 

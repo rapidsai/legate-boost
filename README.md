@@ -71,8 +71,13 @@ model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max
 
 ## Installation
 
-From the project directory
+If you already have `cunumeric` and `legate-core` installed, run the following:
 
 ```shell
-pip install .
+pip install \
+    --no-build-isolation \
+    --no-deps \
+    .
 ```
+
+For more details on customizing the build and setting up a development environment, see [`contributing.md`](./contributing.md).
