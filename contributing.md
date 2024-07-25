@@ -13,11 +13,11 @@ conda env create \
 source activate legate-boost-dev
 ```
 
-The easiest way to develop is to compile the shared library separately, then build an
-editable wheel that uses it.
+The easiest way to develop is to compile the shared library separately, then build
+an install editable wheel that uses it.
 
 ```shell
-./build.sh
+./build.sh --editable
 ```
 
 ## Running tests
