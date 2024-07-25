@@ -40,7 +40,7 @@ class TrainingCallback(ABC):
         ----------
 
         model :
-            Eeither a :py:class:`~xgboost.Booster` object or a CVPack if the cv function
+            Either a :py:class:`~xgboost.Booster` object or a CVPack if the cv function
             in xgboost is being used.
         epoch :
             The current training iteration.

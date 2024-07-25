@@ -77,7 +77,7 @@ def digamma(x: cn.ndarray) -> cn.ndarray:
 
 
 def zeta(n: int | float, x: cn.ndarray) -> cn.ndarray:
-    """Riemann zeta function of two argumetns."""
+    """Riemann zeta function of two arguments."""
     xs = get_store(x)
 
     if xs.type not in (ty.float32, ty.float64):

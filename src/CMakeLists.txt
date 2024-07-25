@@ -60,14 +60,7 @@ target_compile_options(legateboost
               "$<$<COMPILE_LANGUAGE:CUDA>:${LB_CUDA_FLAGS}>"
 )
 
-
-
 if (Legion_USE_CUDA)
-  # CUDA_ARCH environment variable can override the CMAKE_CUDA_ARCHITECTURES
-  if(DEFINED ENV{CUDA_ARCH})
-    message(STATUS "legateboost: CUDA_ARCH=$ENV{CUDA_ARCH}")
-    set_property(TARGET legateboost PROPERTY CUDA_ARCHITECTURES $ENV{CUDA_ARCH} )
-  endif()
   target_compile_definitions(legateboost PRIVATE LEGATEBOOST_USE_CUDA)
 endif()
 

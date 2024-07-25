@@ -13,6 +13,16 @@ Welcome to legateboost's documentation!
    Memory usage guidelines <memory.md>
    Python API Reference <api/index.rst>
 
+.. tell sphinx about the example files (so other things can link to them),
+   but hide them from the site navigation
+
+.. toctree::
+   :hidden:
+
+   examples/batch_training/README.md
+   examples/kernel_ridge_regression/README.md
+   examples/linear_model/README.md
+   examples/probabalistic_regression/README.md
 
 Indices and tables
 ==================

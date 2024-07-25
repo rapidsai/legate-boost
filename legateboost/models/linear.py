@@ -14,7 +14,7 @@ class Linear(BaseModel):
     compared to fitting a linear model with sklearn.
 
     It is recommended to normalize the data before fitting. This ensures
-    regularisation is evening applied to all features and prevents numerical issues.
+    regularisation is evenly applied to all features and prevents numerical issues.
 
     Two solvers are available. A direct numerical solver that can be faster, but
     uses more memory, and an iterative L-BFGS solver that uses less memory

@@ -98,7 +98,7 @@ def preround(x: cn.ndarray) -> cn.ndarray:
 
 
 def get_store(input: Any) -> LogicalStore:
-    """Extracts a Legate store from any object implementing the legete data
+    """Extracts a Legate store from any object implementing the legate data
     interface.
 
     Args:

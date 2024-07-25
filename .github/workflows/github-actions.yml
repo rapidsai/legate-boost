@@ -11,7 +11,15 @@ on:
       - "branch-*"
       - "main"
 jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+    - uses: pre-commit/action@v3.0.1
+
   build-test:
+    needs: [pre-commit]
     defaults:
       run:
         shell: bash -el {0}
@@ -23,20 +31,33 @@ jobs:
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
-      - name: Install legate/cunumeric
-        run: |
-          mamba install -y -c legate -c conda-forge legate-core=24.06 cunumeric=24.06 build cmake scikit-build scikit-learn hypothesis 'pytest<8' notebook 'numpy<2' mypy openblas
-          pip install matplotlib seaborn xgboost
       - name: Checkout legateboost
         uses: actions/checkout@v4
         with:
           lfs: true
+      - name: Install legate/cunumeric
+        run: |
+          mamba install --yes -c rapidsai \
+            'rapids-dependency-file-generator>=1.14.0'
+
+          rapids-dependency-file-generator \
+            --output conda \
+            --file-key all \
+            --matrix "cuda=${CUDA_VERSION};arch=$(arch)" | tee /tmp/env.yaml
+
+          # update the current environment (instead of creating a new one), as that
+          # persists across all steps
+          mamba env update \
+            --name base \
+            --file /tmp/env.yaml
       - name: Type check legateboost
         run: |
           mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
       - name: Build legateboost
+        env:
+          CUDAARCHS: '70;80'
         run: |
-          CUDA_ARCH=70\;80 ./build.sh
+          ./build.sh
           python -m build -n --wheel
       - uses: actions/upload-artifact@v3
         with:
@@ -52,9 +73,7 @@ jobs:
       - name: Build legateboost docs
         working-directory: docs
         run: |
-          pip install sphinx pydata-sphinx-theme myst-parser
-          # invoke sphinx build using legate
-          legate --run-mode=python --module sphinx.cmd.build source build -b html
+          make html
       - uses: actions/upload-pages-artifact@v1
         with:
           path: docs/build
@@ -81,10 +100,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v2
-
-  pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v3
-    - uses: pre-commit/action@v3.0.0
