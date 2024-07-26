@@ -46,5 +46,5 @@ if hasArg --editable; then
     PIP_INSTALL_ARGS+=("--editable")
 fi
 
-echo "building legatboost Python package..."
+echo "building legateboost Python package..."
 python -m pip install "${PIP_INSTALL_ARGS[@]}" .
