@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.
+#!/bin/sh
 
 # This assumes the script is executed from the root of the repo directory
 ./build.sh
