@@ -1,0 +1,69 @@
+# Copyright (c) 2018-2024, NVIDIA CORPORATION.
+
+# TODO:
+# * add URLs
+# * scikit-build-core
+# * figure out what to do with cuda-version and cunumeric
+
+{% set pyproject_data = load_file_data("pyproject.toml") %}
+{% set version = "0.1" %}
+{% set project_data = pyproject_data["project"] %}
+{% set cuda_version = '.'.join(environ['RAPIDS_CUDA_VERSION'].split('.')[:2]) %}
+{% set cuda_major = cuda_version.split('.')[0] %}
+
+package:
+  name: legateboost
+  version: {{ version }}
+
+source:
+  path: ../../..
+
+build:
+  ignore_run_exports_from:
+    {% if cuda_major == "11" %}
+    - {{ compiler('cuda11') }}
+    {% else %}
+    - {{ compiler('cuda') }}
+    {% endif %}
+
+requirements:
+  build:
+    - cmake {{ cmake_version }}
+    - ninja
+    - python-build
+    - {{ compiler('c') }}
+    - {{ compiler('cxx') }}
+    {% if cuda_major == "11" %}
+    - {{ compiler('cuda11') }} ={{ cuda_version }}
+    {% else %}
+    - {{ compiler('cuda') }}
+    {% endif %}
+    - {{ stdlib("c") }}
+    - scikit-build >=0.18.0
+    - setuptools >=70.0
+    - legate-core {{ legate_version }}
+  host:
+    - cunumeric {{ legate_version }}
+    - libcublas-dev
+    - openblas
+    - python
+    - pip
+  run:
+    - python
+    {% for req in pyproject_data["project"]["dependencies"] %}
+    - {{ req }}
+    {% endfor %}
+
+test:
+  # requires:
+  #   - cuda-version ={{ cuda_version }}
+  imports:
+    - legateboost
+    - legateboost.metrics
+    - legateboost.models
+
+about:
+  license: {{ project_data["license"]["text"] }}
+  license_family: Apache
+  license_file: LICENSE
+  summary: {{ project_data["description"] }}
