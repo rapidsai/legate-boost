@@ -33,6 +33,38 @@ namespace cg = cooperative_groups;
 
 namespace legateboost {
 
+class Histogram {
+  legate::Buffer<GPair, 3> buffer_;  // Nodes, outputs, bins
+  cuda::std::pair<int, int> node_batch_;
+  std::size_t size_;
+
+ public:
+  Histogram(cuda::std::pair<int, int> node_batch,
+            int num_outputs,
+            int num_bins,
+            cudaStream_t stream)
+    : node_batch_(node_batch)
+  {
+    buffer_ = legate::create_buffer<GPair, 3>(
+      {node_batch.second - node_batch.first, num_outputs, num_bins});
+    size_ = (node_batch.second - node_batch.first) * num_outputs * num_bins;
+    CHECK_CUDA(
+      cudaMemsetAsync(buffer_.ptr(legate::Point<3>::ZEROES()), 0, size_ * sizeof(GPair), stream));
+  }
+
+  void destroy() { buffer_.destroy(); }
+
+  GPair* ptr() { return buffer_.ptr(legate::Point<3>::ZEROES()); }
+
+  std::size_t size() { return size_; }
+
+  // Node, output, bin
+  __device__ GPair& operator[](legate::Point<3> p)
+  {
+    return buffer_[{p[0] - node_batch_.first, p[1], p[2]}];
+  }
+};
+
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
@@ -72,9 +104,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  size_t n_outputs,
                  SparseSplitProposals<TYPE> split_proposals,
                  cuda::std::tuple<int, int>* sorted_positions,
-                 legate::Buffer<GPair, 3> histogram,
-                 legate::Buffer<double, 2> node_hessians,
-                 int depth)
+                 Histogram histogram,
+                 legate::Buffer<double, 2> node_hessians)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
   // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
@@ -122,7 +153,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
 template <typename T>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
-  scan_kernel(legate::Buffer<GPair, 3> histogram,
+  scan_kernel(Histogram histogram,
               legate::Buffer<double, 2> node_hessians,
               int n_features,
               int n_outputs,
@@ -191,7 +222,7 @@ struct GainFeaturePair {
 
 template <typename TYPE>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  perform_best_split(legate::Buffer<GPair, 3> histogram,
+  perform_best_split(Histogram histogram,
                      size_t n_features,
                      size_t n_outputs,
                      SparseSplitProposals<TYPE> split_proposals,
@@ -486,13 +517,6 @@ struct TreeBuilder {
       split_proposals(split_proposals)
   {
     sorted_positions = legate::create_buffer<cuda::std::tuple<int, int>>(num_rows);
-    histogram_buffer =
-      legate::create_buffer<GPair, 3>({max_nodes, num_outputs, split_proposals.histogram_size});
-    CHECK_CUDA(
-      cudaMemsetAsync(histogram_buffer.ptr(legate::Point<3>::ZEROES()),
-                      0,
-                      max_nodes * num_outputs * split_proposals.histogram_size * sizeof(GPair),
-                      stream));
     FillPositions(sorted_positions, num_rows, stream);
   }
 
@@ -535,7 +559,7 @@ struct TreeBuilder {
 
   template <typename TYPE>
   void ComputeHistogram(
-    int depth,
+    Histogram histogram,
     legate::TaskContext context,
     Tree& tree,
     legate::AccessorRO<TYPE, 3> X,
@@ -564,17 +588,13 @@ struct TreeBuilder {
                                                      num_outputs,
                                                      split_proposals,
                                                      instances_in_batch.first,
-                                                     histogram_buffer,
-                                                     tree.hessian,
-                                                     depth);
+                                                     histogram,
+                                                     tree.hessian);
 
     auto num_nodes = node_batch.second - node_batch.first;
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
-    SumAllReduce(context,
-                 reinterpret_cast<double*>(histogram_buffer.ptr({node_batch.first, 0, 0})),
-                 num_nodes * num_outputs * split_proposals.histogram_size * 2,
-                 stream);
+    SumAllReduce(context, reinterpret_cast<double*>(histogram.ptr()), histogram.size() * 2, stream);
 
     const size_t warps_needed    = num_features * num_nodes;
     const size_t warps_per_block = THREADS_PER_BLOCK / 32;
@@ -582,14 +602,17 @@ struct TreeBuilder {
 
     // Scan the histograms
     scan_kernel<<<blocks_needed, THREADS_PER_BLOCK, 0, stream>>>(
-      histogram_buffer, tree.hessian, num_features, num_outputs, split_proposals, node_batch);
+      histogram, tree.hessian, num_features, num_outputs, split_proposals, node_batch);
     CHECK_CUDA_STREAM(stream);
   }
 
-  void PerformBestSplit(Tree& tree, double alpha, cuda::std::pair<int, int> node_batch)
+  void PerformBestSplit(Tree& tree,
+                        Histogram histogram,
+                        double alpha,
+                        cuda::std::pair<int, int> node_batch)
   {
     auto num_nodes = node_batch.second - node_batch.first;
-    perform_best_split<<<num_nodes, THREADS_PER_BLOCK, 0, stream>>>(histogram_buffer,
+    perform_best_split<<<num_nodes, THREADS_PER_BLOCK, 0, stream>>>(histogram,
                                                                     num_features,
                                                                     num_outputs,
                                                                     split_proposals,
@@ -654,8 +677,6 @@ struct TreeBuilder {
   legate::Buffer<unsigned char> cub_buffer;
   size_t cub_buffer_size = 0;
 
-  legate::Buffer<GPair, 3> histogram_buffer;
-
   cudaStream_t stream;
 };
 
@@ -699,7 +720,7 @@ struct build_tree_fn {
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
     for (int depth = 0; depth < max_depth; ++depth) {
-      const int batch_size = 1;
+      const int batch_size = 256;
       for (int batch_begin = BinaryTree::LevelBegin(depth);
            batch_begin < BinaryTree::LevelBegin(depth) + BinaryTree::NodesInLevel(depth);
            batch_begin += batch_size) {
@@ -709,8 +730,11 @@ struct build_tree_fn {
                    BinaryTree::LevelBegin(depth) + BinaryTree::NodesInLevel(depth)));
         auto instances_in_batch = builder.FindInstancesInBatch(node_batch);
 
+        // Allocate a histogram
+        Histogram histogram(node_batch, num_outputs, split_proposals.histogram_size, stream);
+
         // actual histogram creation
-        builder.ComputeHistogram(depth,
+        builder.ComputeHistogram(histogram,
                                  context,
                                  tree,
                                  X_accessor,
@@ -721,7 +745,9 @@ struct build_tree_fn {
                                  instances_in_batch);
 
         // Select the best split
-        builder.PerformBestSplit(tree, alpha, node_batch);
+        builder.PerformBestSplit(tree, histogram, alpha, node_batch);
+
+        histogram.destroy();
 
         // Don't bother updating positions for the last level
         if (depth < max_depth - 1) {
