@@ -39,6 +39,7 @@ declare -r legate_root=$(
 )
 
 echo "Using Legate at '${legate_root}'"
+
 cmake -S . -B build -Dlegate_core_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}"
 cmake --build build -j
 
