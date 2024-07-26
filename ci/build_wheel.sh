@@ -4,6 +4,6 @@ set -e -u -o pipefail
 
 ./build.sh
 python -m build \
-    --no-build-isolation \
+    --no-isolation \
     --wheel \
     --outdir dist
