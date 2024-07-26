@@ -1,4 +1,3 @@
-import math
 from enum import IntEnum
 from typing import Any
 
@@ -6,7 +5,7 @@ import cunumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
 
 from ..library import user_context, user_lib
-from ..utils import gather, get_store
+from ..utils import get_store
 from .base_model import BaseModel
 
 
@@ -51,11 +50,6 @@ class Tree(BaseModel):
         eq.append(cn.all(self.hessian == other.hessian))
         return all(eq)
 
-    def num_procs_to_use(self, num_rows: int) -> int:
-        min_rows_per_worker = 10
-        available_procs = len(get_legate_runtime().machine)
-        return min(available_procs, int(math.ceil(num_rows / min_rows_per_worker)))
-
     def __init__(
         self,
         max_depth: int = 8,
@@ -72,14 +66,6 @@ class Tree(BaseModel):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "Tree":
-        # dont let legate create a future - make sure at least 2 sample rows
-        sample_rows_np = self.random_state.randint(
-            0, X.shape[0], max(2, self.split_samples)
-        )
-        split_proposals = gather(X, tuple(sample_rows_np))
-        split_proposals.sort(axis=0)
-        split_proposals = split_proposals.T
-
         num_outputs = g.shape[1]
 
         task = get_legate_runtime().create_auto_task(
@@ -95,6 +81,9 @@ class Tree(BaseModel):
         max_nodes = 2 ** (self.max_depth + 1)
         task.add_scalar_arg(max_nodes, types.int32)
         task.add_scalar_arg(self.alpha, types.float64)
+        task.add_scalar_arg(self.split_samples, types.int32)
+        task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
+        task.add_scalar_arg(X.shape[0], types.int64)
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
@@ -102,8 +91,6 @@ class Tree(BaseModel):
         task.add_input(h_)
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
-        task.add_input(get_store(split_proposals))
-        task.add_broadcast(get_store(split_proposals))
 
         # outputs
         leaf_value = get_legate_runtime().create_store(
