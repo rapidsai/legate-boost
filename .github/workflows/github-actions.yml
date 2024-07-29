@@ -27,7 +27,7 @@ jobs:
     env:
       CONDA_PREFIX: /opt/conda
     container:
-      image: rapidsai/devcontainers:24.08-cpp-cuda11.8-mambaforge-ubuntu22.04
+      image: rapidsai/devcontainers:23.10-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
@@ -57,8 +57,9 @@ jobs:
         env:
           CUDAARCHS: '70;80'
         run: |
-          ci/build_wheel.sh
-      - uses: actions/upload-artifact@v4
+          ./build.sh
+          python -m build -n --wheel
+      - uses: actions/upload-artifact@v3
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
@@ -73,7 +74,7 @@ jobs:
         working-directory: docs
         run: |
           make html
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v1
         with:
           path: docs/build
 
@@ -98,4 +99,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v2

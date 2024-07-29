@@ -1,6 +1,4 @@
-*.a
 build
-*.conda
 dist/
 docs/source/examples
 docs/source/README.md
@@ -13,16 +11,9 @@ legateboost/library.py
 legateboost/install_info.py
 legate_prof*
 .mypy_cache/
-*.o
-*.pyc
 __pycache__/
 .hypothesis
 examples/notebook/*.py
 legion_prof
 benchmark
 benchmark/!*.py
-*.so
-*.tar.bz2
-*.tar.gz
-*.whl
-*.zip
