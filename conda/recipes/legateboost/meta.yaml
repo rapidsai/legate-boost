@@ -30,7 +30,7 @@ requirements:
   build:
     - cmake {{ cmake_version }}
     - ninja
-    - python-build
+    # - python-build
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
     {% if cuda_major == "11" %}
