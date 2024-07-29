@@ -2,8 +2,8 @@
 
 set -e -u -o pipefail
 
-./build.sh
 python -m build \
     --no-isolation \
+    --skip-dependency-check \
     --wheel \
     --outdir dist

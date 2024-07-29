@@ -6,8 +6,31 @@ files:
       cuda: ["11.8"]
     includes:
       - build
+      - build_tools
       - docs
       - run
+      - test
+  py_build:
+    output: pyproject
+    pyproject_dir: .
+    extras:
+      table: build-system
+    includes:
+      - build
+  py_run:
+    output: pyproject
+    pyproject_dir: .
+    extras:
+      table: project
+    includes:
+      - run
+  py_test:
+    output: pyproject
+    pyproject_dir: .
+    extras:
+      table: project.optional-dependencies
+      key: test
+    includes:
       - test
 channels:
   - legate
@@ -17,31 +40,37 @@ dependencies:
     common:
       - output_types: [conda]
         packages:
-          - cmake>=3.24.0,!=3.30.0
-          - &legate_core legate-core=24.06.*
           - openblas
-          - python-build
+      - output_types: [conda, pyproject, requirements]
+        packages:
+          - cmake>=3.24.0,!=3.30.0
+          - &legate_core legate-core==24.06.*
           - scikit-build>=0.18.0
           - setuptools>=70.0
-  docs:
+  build_tools:
     common:
       - output_types: [conda]
+        packages:
+          - python-build>=1.2.0
+  docs:
+    common:
+      - output_types: [conda, pyproject, requirements]
         packages:
           - sphinx
           - pydata-sphinx-theme
           - myst-parser
   run:
     common:
-      - output_types: [conda]
+      - output_types: [conda, pyproject, requirements]
         packages:
-          - cunumeric=24.06.*
+          - cunumeric==24.06.*
           - *legate_core
           - numpy
           - scikit-learn
           - typing-extensions>=4.0
   test:
     common:
-      - output_types: [conda]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - hypothesis
           - matplotlib

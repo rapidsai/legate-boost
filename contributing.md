@@ -1,17 +1,46 @@
 # Contributing to legateboost
 
-For editable installation
+`legateboost` depends on some libraries that are not easily installable with `pip`.
+
+Use `conda` to create a development environment that includes them.
+
+```shell
+# CUDA 11.8
+conda env create \
+    --name legate-boost-dev \
+    -f ./conda/environments/all_cuda-118.yaml
+
+source activate legate-boost-dev
 ```
-pip install -e .
-```
-To include test dependencies
-```
-pip install -e .[test]
+
+The easiest way to develop is to compile the shared library separately, then build
+and install an editable wheel that uses it.
+
+```shell
+./build.sh --editable
 ```
 
 ## Running tests
+
+CPU:
+
+```shell
+legate \
+    --sysmem 28000 \
+    --module pytest \
+    legateboost/test
 ```
-legate --module pytest legateboost/test
+
+GPU:
+
+```shell
+legate \
+    --gpus 1 \
+    --fbmem 28000 \
+    --sysmem 28000 \
+    --module pytest \
+    legateboost/test/test_estimator.py \
+    -k 'not sklearn'
 ```
 
 ## Change default CUDA architectures
@@ -22,7 +51,7 @@ If installing with `pip`, set the `CUDAARCHS` environment variable, as described
 
 ```shell
 CUDAARCHS="70;80" \
-    pip install .
+    pip install --no-build-isolation --no-deps .
 ```
 
 For CMake-based builds, pass `CMAKE_CUDA_ARCHITECTURES`.
