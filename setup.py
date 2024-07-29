@@ -17,7 +17,6 @@
 import os
 from pathlib import Path
 
-from setuptools import find_packages
 from skbuild import setup
 
 import legate.install_info as lg_install_info
@@ -39,12 +38,4 @@ if env_cmake_args is not None:
     cmake_flags.append(env_cmake_args)
 os.environ["CMAKE_ARGS"] = " ".join(cmake_flags)
 
-
-setup(
-    packages=find_packages(
-        where=".",
-        include=["legateboost", "legateboost.*"],
-    ),
-    include_package_data=True,
-    zip_safe=False,
-)
+setup()
