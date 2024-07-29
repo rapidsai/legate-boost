@@ -87,7 +87,7 @@ The following general principles should be followed when developing legateboost.
 - Favour cunumeric implementations where appropriate. e.g. elementwise or matrix operations
 - Use mypy type annotations if at all possible. The typing can be checked by running the following command under the project root:
 ```
-mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
+mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
 ```
 
 ### Performance
