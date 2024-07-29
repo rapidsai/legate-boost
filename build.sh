@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e -u -o pipefail
+set -e -u -x -o pipefail
 
 NUMARGS=$#
 ARGS=$*
@@ -13,6 +13,10 @@ HELP="build liblegateboost.so and a 'legateboost' Python wheel, and install that
 
    --editable  install Python wheel in editable mode
 "
+
+WHERE_IS_PY=$(which python)
+echo "--- python: ${WHERE_IS_PY}"
+echo "--- PYTHON: ${PYTHON}"
 
 function hasArg {
     (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
@@ -47,4 +51,4 @@ if hasArg --editable; then
 fi
 
 echo "building legatboost Python package..."
-python -m pip install "${PIP_INSTALL_ARGS[@]}" .
+${PYTHON} -m pip install "${PIP_INSTALL_ARGS[@]}" .

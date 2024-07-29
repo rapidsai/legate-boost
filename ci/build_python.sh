@@ -7,7 +7,7 @@ export CMAKE_GENERATOR=Ninja
 # TODO: remove this, use RAPIDS images
 export RAPIDS_CUDA_VERSION="12.2"
 
-rm -rf ./build ./_skbuild
+rm -rf ./build ./dist ./_skbuild
 
 conda mambabuild \
     --channel conda-forge \

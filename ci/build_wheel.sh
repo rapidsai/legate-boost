@@ -2,7 +2,7 @@
 
 set -e -u -o pipefail
 
-python -m build \
+${PYTHON} -m build \
     --no-isolation \
     --skip-dependency-check \
     --wheel \

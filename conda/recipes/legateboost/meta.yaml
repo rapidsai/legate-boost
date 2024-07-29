@@ -30,7 +30,6 @@ requirements:
   build:
     - cmake {{ cmake_version }}
     - ninja
-    # - python-build
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
     {% if cuda_major == "11" %}
@@ -39,15 +38,15 @@ requirements:
     - {{ compiler('cuda') }}
     {% endif %}
     - {{ stdlib("c") }}
-    - scikit-build >=0.18.0
-    - setuptools >=70.0
-    - legate-core {{ legate_version }}
   host:
     - cunumeric {{ legate_version }}
     - libcublas-dev
+    - legate-core {{ legate_version }}
     - openblas
     - python
     - pip
+    - scikit-build >=0.18.0
+    - setuptools >=70.0
   run:
     - python
     {% for req in pyproject_data["project"]["dependencies"] %}
