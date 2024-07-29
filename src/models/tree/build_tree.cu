@@ -167,7 +167,6 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
               int n_outputs,
               const SparseSplitProposals<T> split_proposals,
               NodeBatch batch)
-
 {
   auto warp      = cg::tiled_partition<32>(cg::this_thread_block());
   int rank       = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
