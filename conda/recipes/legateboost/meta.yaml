@@ -40,6 +40,11 @@ requirements:
     - {{ stdlib("c") }}
   host:
     - cunumeric {{ legate_version }}
+    {% if cuda_major == "11" %}
+    - cudatoolkit
+    {% else %}
+    - cuda-cudart-dev
+    {% endif %}
     - libcublas-dev
     - legate-core {{ legate_version }}
     - openblas
