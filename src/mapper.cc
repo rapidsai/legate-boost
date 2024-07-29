@@ -38,37 +38,19 @@ std::vector<legate::mapping::StoreMapping> LegateboostMapper::store_mappings(
   const legate::mapping::Task& task, const std::vector<legate::mapping::StoreTarget>& options)
 {
   auto task_id = task.task_id();
-  switch (task_id) {
-    case GATHER:
-    case PREDICT: {
-      std::vector<legate::mapping::StoreMapping> mappings;
-      auto input_x = task.input(0);
+  // Enforce c-ordering for these tasks
+  std::set<LegateBoostOpCode> row_major_only = {BUILD_TREE};
+  std::vector<legate::mapping::StoreMapping> mappings;
+  if (row_major_only.count(static_cast<LegateBoostOpCode>(task_id))) {
+    for (auto input : task.inputs()) {
       mappings.push_back(
-        legate::mapping::StoreMapping::default_mapping(input_x.data(), options.front()));
+        legate::mapping::StoreMapping::default_mapping(input.data(), options.front()));
       mappings.back().policy().ordering.set_c_order();
       mappings.back().policy().exact = true;
-      return std::move(mappings);
     }
-    case BUILD_TREE: {
-      std::vector<legate::mapping::StoreMapping> mappings;
-      auto input_x = task.input(0);
-      mappings.push_back(
-        legate::mapping::StoreMapping::default_mapping(input_x.data(), options.front()));
-      mappings.back().policy().ordering.set_c_order();
-      mappings.back().policy().exact = true;
-      auto input_splits              = task.input(3);
-      mappings.push_back(
-        legate::mapping::StoreMapping::default_mapping(input_splits.data(), options.front()));
-      mappings.back().policy().ordering.set_c_order();
-      mappings.back().policy().exact = true;
-      return std::move(mappings);
-    }
-    default: {
-      return {};
-    }
+    return mappings;
   }
-  assert(false);
-  return {};
+  return mappings;
 }
 
 }  // namespace legateboost

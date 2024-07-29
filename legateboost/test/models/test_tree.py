@@ -13,6 +13,19 @@ def test_determinism(max_depth):
     check_determinism(lb.models.Tree(max_depth=max_depth))
 
 
+def test_basic():
+    # tree loss can go to zero
+    X = cn.array([[0.0], [1.0]])
+    g = cn.array([[0.0], [-1.0]])
+    h = cn.array([[1.0], [1.0]])
+    model = (
+        lb.models.Tree(max_depth=1, alpha=0.0)
+        .set_random_state(np.random.RandomState(2))
+        .fit(X, g, h)
+    )
+    assert np.allclose(model.predict(X), np.array([[0.0], [1.0]]))
+
+
 @pytest.mark.parametrize("num_outputs", [1, 5])
 def test_improving_with_depth(num_outputs):
     rs = cn.random.RandomState(0)

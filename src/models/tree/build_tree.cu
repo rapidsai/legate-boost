@@ -23,14 +23,12 @@
 
 #include <cuda/std/tuple>
 #include <thrust/execution_policy.h>
-#include <thrust/system/cuda/execution_policy.h>
+#include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/discard_iterator.h>
 #include <thrust/sort.h>
-#include <thrust/device_ptr.h>
-#include <thrust/count.h>
-#include <thrust/version.h>
-#include <thrust/binary_search.h>
+#include <thrust/random.h>
+#include <thrust/unique.h>
 #include <cooperative_groups.h>
-#include <cooperative_groups/scan.h>
 namespace cg = cooperative_groups;
 
 namespace legateboost {
@@ -72,10 +70,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  legate::AccessorRO<double, 3> g,
                  legate::AccessorRO<double, 3> h,
                  size_t n_outputs,
-                 legate::AccessorRO<TYPE, 2> split_proposal,
-                 int32_t samples_per_feature,
+                 SparseSplitProposals<TYPE> split_proposals,
                  int32_t* positions_local,
-                 legate::Buffer<GPair, 4> histogram,
+                 legate::Buffer<GPair, 3> histogram,
                  legate::Buffer<double, 2> node_hessians,
                  int depth)
 {
@@ -107,16 +104,12 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (computeHistogram && feature < n_features) {
           auto x_value = X[{globalSampleId, feature, 0}];
-          int bin_idx  = thrust::lower_bound(thrust::seq,
-                                            split_proposal.ptr({feature, 0}),
-                                            split_proposal.ptr({feature, samples_per_feature}),
-                                            x_value) -
-                        split_proposal.ptr({feature, 0});
+          auto bin_idx = split_proposals.FindBin(x_value, feature);
 
           // bin_idx is the first sample that is larger than x_value
-          if (bin_idx < samples_per_feature) {
+          if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
             double* addPosition =
-              reinterpret_cast<double*>(&histogram[{sampleNode, feature, output, bin_idx}]);
+              reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
             atomicAdd(addPosition, G);
             atomicAdd(addPosition + 1, H);
           }
@@ -126,12 +119,13 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   }
 }
 
+template <typename T>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
-  scan_kernel(legate::Buffer<GPair, 4> histogram,
+  scan_kernel(legate::Buffer<GPair, 3> histogram,
               legate::Buffer<double, 2> node_hessians,
               int n_features,
               int n_outputs,
-              int samples_per_feature,
+              const SparseSplitProposals<T> split_proposals,
               int depth,
               int num_nodes_to_process)
 
@@ -159,23 +153,22 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
     subtract_node_idx = sub;
   }
 
-  int feature_idx = i;
-  int num_tiles   = (samples_per_feature + warp.num_threads() - 1) / warp.num_threads();
+  int feature_idx                   = i;
+  auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature_idx);
+  int num_bins                      = feature_end - feature_begin;
+  int num_tiles                     = (num_bins + warp.num_threads() - 1) / warp.num_threads();
 
   for (int output = 0; output < n_outputs; output++) {
     GPair aggregate;
     // Scan left side
     for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
-      int sample_idx           = tile_idx * warp.num_threads() + warp.thread_rank();
-      bool thread_participates = sample_idx < samples_per_feature;
-      auto e = thread_participates ? histogram[{scan_node_idx, feature_idx, output, sample_idx}]
-                                   : GPair{0, 0};
+      int bin_idx              = feature_begin + tile_idx * warp.num_threads() + warp.thread_rank();
+      bool thread_participates = bin_idx < feature_end;
+      auto e = thread_participates ? histogram[{scan_node_idx, output, bin_idx}] : GPair{0, 0};
       GPair tile_aggregate;
       WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
       __syncwarp();
-      if (thread_participates) {
-        histogram[{scan_node_idx, feature_idx, output, sample_idx}] = e + aggregate;
-      }
+      if (thread_participates) { histogram[{scan_node_idx, output, bin_idx}] = e + aggregate; }
       aggregate += tile_aggregate;
     }
   }
@@ -184,13 +177,12 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
 
   for (int output = 0; output < n_outputs; output++) {
     // Infer right side
-    for (int sample_idx = warp.thread_rank(); sample_idx < samples_per_feature;
-         sample_idx += warp.num_threads()) {
-      GPair scanned_sum = histogram[{scan_node_idx, feature_idx, output, sample_idx}];
-      GPair parent_sum =
-        histogram[{BinaryTree::Parent(scan_node_idx), feature_idx, output, sample_idx}];
-      GPair other_sum                                                 = parent_sum - scanned_sum;
-      histogram[{subtract_node_idx, feature_idx, output, sample_idx}] = other_sum;
+    for (int bin_idx = feature_begin + warp.thread_rank(); bin_idx < feature_end;
+         bin_idx += warp.num_threads()) {
+      GPair scanned_sum = histogram[{scan_node_idx, output, bin_idx}];
+      GPair parent_sum  = histogram[{BinaryTree::Parent(scan_node_idx), output, bin_idx}];
+      GPair other_sum   = parent_sum - scanned_sum;
+      histogram[{subtract_node_idx, output, bin_idx}] = other_sum;
     }
   }
 }
@@ -220,11 +212,10 @@ struct GainFeaturePair {
 
 template <typename TYPE>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  perform_best_split(legate::Buffer<GPair, 4> histogram,
+  perform_best_split(legate::Buffer<GPair, 3> histogram,
                      size_t n_features,
                      size_t n_outputs,
-                     legate::AccessorRO<TYPE, 2> split_proposal,
-                     int32_t samples_per_feature,
+                     SparseSplitProposals<TYPE> split_proposals,
                      double eps,
                      double alpha,
                      legate::Buffer<double, 2> tree_leaf_value,
@@ -243,20 +234,21 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
   __shared__ double node_best_gain;
   __shared__ int node_best_feature;
-  __shared__ int node_best_feature_sample;
+  __shared__ int node_best_bin_idx;
 
-  double thread_best_gain        = 0;
-  int thread_best_feature        = -1;
-  int thread_best_feature_sample = -1;
+  double thread_best_gain = 0;
+  int thread_best_feature = -1;
+  int thread_best_bin_idx = -1;
 
   for (int feature_id = 0; feature_id < n_features; feature_id++) {
-    for (int feature_sample_idx = threadIdx.x; feature_sample_idx < samples_per_feature;
-         feature_sample_idx += blockDim.x) {
+    auto [feature_start, feature_end] = split_proposals.FeatureRange(feature_id);
+
+    for (int bin_idx = feature_start + threadIdx.x; bin_idx < feature_end; bin_idx += blockDim.x) {
       double gain = 0;
       for (int output = 0; output < n_outputs; ++output) {
         auto G          = tree_gradient[{node_id, output}];
         auto H          = tree_hessian[{node_id, output}];
-        auto [G_L, H_L] = histogram[{node_id, feature_id, output, feature_sample_idx}];
+        auto [G_L, H_L] = histogram[{node_id, output, bin_idx}];
         auto G_R        = G - G_L;
         auto H_R        = H - H_L;
 
@@ -268,28 +260,27 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
         gain += 0.5 * ((G_L * G_L) / (H_L + reg) + (G_R * G_R) / (H_R + reg) - (G * G) / (H + reg));
       }
       if (gain > thread_best_gain) {
-        thread_best_gain           = gain;
-        thread_best_feature        = feature_id;
-        thread_best_feature_sample = feature_sample_idx;
+        thread_best_gain    = gain;
+        thread_best_feature = feature_id;
+        thread_best_bin_idx = bin_idx;
       }
     }
   }
 
   // SYNC BEST GAIN TO FULL BLOCK/NODE
-  GainFeaturePair thread_best_pair{
-    thread_best_gain, thread_best_feature, thread_best_feature_sample};
+  GainFeaturePair thread_best_pair{thread_best_gain, thread_best_feature, thread_best_bin_idx};
   GainFeaturePair node_best_pair =
     BlockReduce(temp_storage).Reduce(thread_best_pair, cub::Max(), THREADS_PER_BLOCK);
   if (threadIdx.x == 0) {
-    node_best_gain           = node_best_pair.gain;
-    node_best_feature        = node_best_pair.feature;
-    node_best_feature_sample = node_best_pair.feature_sample_idx;
+    node_best_gain    = node_best_pair.gain;
+    node_best_feature = node_best_pair.feature;
+    node_best_bin_idx = node_best_pair.feature_sample_idx;
   }
   __syncthreads();
 
   if (node_best_gain > eps) {
     for (int output = threadIdx.x; output < n_outputs; output += blockDim.x) {
-      auto [G_L, H_L] = histogram[{node_id, node_best_feature, output, node_best_feature_sample}];
+      auto [G_L, H_L] = histogram[{node_id, output, node_best_bin_idx}];
       auto G_R        = tree_gradient[{node_id, output}] - G_L;
       auto H_R        = tree_hessian[{node_id, output}] - H_L;
 
@@ -304,7 +295,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
       if (output == 0) {
         tree_feature[node_id]     = node_best_feature;
-        tree_split_value[node_id] = split_proposal[{node_best_feature, node_best_feature_sample}];
+        tree_split_value[node_id] = split_proposals.split_proposals[{node_best_bin_idx}];
         tree_gain[node_id]        = node_best_gain;
       }
     }
@@ -401,27 +392,116 @@ struct Tree {
   cudaStream_t stream;
 };
 
+// Randomly sample split_samples rows from X
+// Use nccl to share the samples with all workers
+// Remove any duplicates
+// Return sparse matrix of split samples for each feature
+template <typename T>
+SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
+                                           legate::AccessorRO<T, 3> X,
+                                           legate::Rect<3> X_shape,
+                                           int split_samples,
+                                           int seed,
+                                           int64_t dataset_rows,
+                                           cudaStream_t stream)
+{
+  auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
+  auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
+  int num_features  = X_shape.hi[1] - X_shape.lo[1] + 1;
+  // Randomly choose split_samples rows
+  auto row_samples = legate::create_buffer<int64_t, 1>(split_samples);
+  auto counting    = thrust::make_counting_iterator(0);
+  thrust::transform(
+    policy, counting, counting + split_samples, row_samples.ptr(0), [=] __device__(int64_t idx) {
+      thrust::default_random_engine eng(seed);
+      thrust::uniform_int_distribution<int64_t> dist(0, dataset_rows - 1);
+      eng.discard(idx);
+      return dist(eng);
+    });
+  auto draft_proposals = legate::create_buffer<T, 2>({num_features, split_samples});
+
+  // fill with local data
+  LaunchN(num_features * split_samples, stream, [=] __device__(auto idx) {
+    auto i                  = idx / num_features;
+    auto j                  = idx % num_features;
+    auto row                = row_samples[i];
+    bool has_data           = row >= X_shape.lo[0] && row <= X_shape.hi[0];
+    draft_proposals[{j, i}] = has_data ? X[{row, j, 0}] : T(0);
+  });
+
+  // Sum reduce over all workers
+  SumAllReduce(context, draft_proposals.ptr({0, 0}), num_features * split_samples, stream);
+
+  CHECK_CUDA_STREAM(stream);
+
+  // Condense split samples to unique values
+  // First sort the samples
+  auto keys = legate::create_buffer<int32_t, 1>(num_features * split_samples);
+  thrust::transform(
+    policy, counting, counting + num_features * split_samples, keys.ptr(0), [=] __device__(int i) {
+      return i / split_samples;
+    });
+
+  // Segmented sort
+  auto begin =
+    thrust::make_zip_iterator(thrust::make_tuple(keys.ptr(0), draft_proposals.ptr({0, 0})));
+  thrust::sort(policy, begin, begin + num_features * split_samples, [] __device__(auto a, auto b) {
+    if (thrust::get<0>(a) != thrust::get<0>(b)) { return thrust::get<0>(a) < thrust::get<0>(b); }
+    return thrust::get<1>(a) < thrust::get<1>(b);
+  });
+
+  // Extract the unique values
+  auto out_keys        = legate::create_buffer<int32_t, 1>(num_features * split_samples);
+  auto split_proposals = legate::create_buffer<T, 1>(num_features * split_samples);
+  auto key_val =
+    thrust::make_zip_iterator(thrust::make_tuple(keys.ptr(0), draft_proposals.ptr({0, 0})));
+  auto out_iter =
+    thrust::make_zip_iterator(thrust::make_tuple(out_keys.ptr(0), split_proposals.ptr(0)));
+  auto result =
+    thrust::unique_copy(policy, key_val, key_val + num_features * split_samples, out_iter);
+  auto n_unique = thrust::distance(out_iter, result);
+  // Count the unique values for each feature
+  auto row_pointers = legate::create_buffer<int32_t, 1>(num_features + 1);
+  CHECK_CUDA(cudaMemsetAsync(row_pointers.ptr(0), 0, (num_features + 1) * sizeof(int32_t), stream));
+
+  thrust::reduce_by_key(policy,
+                        out_keys.ptr(0),
+                        out_keys.ptr(0) + n_unique,
+                        thrust::make_constant_iterator(1),
+                        thrust::make_discard_iterator(),
+                        row_pointers.ptr(1));
+  // Scan the counts to get the row pointers for a CSR matrix
+  thrust::inclusive_scan(
+    policy, row_pointers.ptr(1), row_pointers.ptr(1) + num_features, row_pointers.ptr(1));
+
+  CHECK_CUDA(cudaStreamSynchronize(stream));
+  row_samples.destroy();
+  draft_proposals.destroy();
+  out_keys.destroy();
+  return SparseSplitProposals<T>(split_proposals, row_pointers, num_features, n_unique);
+}
+template <typename T>
 struct TreeBuilder {
   TreeBuilder(int32_t num_rows,
               int32_t num_features,
               int32_t num_outputs,
               cudaStream_t stream,
               int32_t max_nodes,
-              int32_t samples_per_feature)
+              SparseSplitProposals<T> split_proposals)
     : num_rows(num_rows),
       num_features(num_features),
       num_outputs(num_outputs),
       stream(stream),
       max_nodes(max_nodes),
-      samples_per_feature(samples_per_feature)
+      split_proposals(split_proposals)
   {
     positions = legate::create_buffer<int32_t>(num_rows);
     histogram_buffer =
-      legate::create_buffer<GPair, 4>({max_nodes, num_features, num_outputs, samples_per_feature});
+      legate::create_buffer<GPair, 3>({max_nodes, num_outputs, split_proposals.histogram_size});
     CHECK_CUDA(
-      cudaMemsetAsync(histogram_buffer.ptr(legate::Point<4>::ZEROES()),
+      cudaMemsetAsync(histogram_buffer.ptr(legate::Point<3>::ZEROES()),
                       0,
-                      max_nodes * num_features * samples_per_feature * num_outputs * sizeof(GPair),
+                      max_nodes * num_outputs * split_proposals.histogram_size * sizeof(GPair),
                       stream));
     // some initialization on first pass
     CHECK_CUDA(cudaMemsetAsync(positions.ptr(0), 0, (size_t)num_rows * sizeof(int32_t), stream));
@@ -465,7 +545,6 @@ struct TreeBuilder {
                         Tree& tree,
                         legate::AccessorRO<TYPE, 3> X,
                         legate::Rect<3> X_shape,
-                        legate::AccessorRO<TYPE, 2> split_proposal,
                         legate::AccessorRO<double, 3> g,
                         legate::AccessorRO<double, 3> h)
   {
@@ -484,8 +563,7 @@ struct TreeBuilder {
                                                      g,
                                                      h,
                                                      num_outputs,
-                                                     split_proposal,
-                                                     samples_per_feature,
+                                                     split_proposals,
                                                      positions.ptr(0),
                                                      histogram_buffer,
                                                      tree.hessian,
@@ -494,8 +572,8 @@ struct TreeBuilder {
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
     SumAllReduce(
       context,
-      reinterpret_cast<double*>(histogram_buffer.ptr({BinaryTree::LevelBegin(depth), 0, 0, 0})),
-      BinaryTree::NodesInLevel(depth) * num_features * samples_per_feature * num_outputs * 2,
+      reinterpret_cast<double*>(histogram_buffer.ptr({BinaryTree::LevelBegin(depth), 0, 0})),
+      BinaryTree::NodesInLevel(depth) * num_outputs * split_proposals.histogram_size * 2,
       stream);
 
     const int num_nodes_to_process = std::max(BinaryTree::NodesInLevel(depth) / 2, 1);
@@ -509,24 +587,19 @@ struct TreeBuilder {
                                                                  tree.hessian,
                                                                  num_features,
                                                                  num_outputs,
-                                                                 samples_per_feature,
+                                                                 split_proposals,
                                                                  depth,
                                                                  num_nodes_to_process);
     CHECK_CUDA_STREAM(stream);
   }
 
-  template <typename TYPE>
-  void PerformBestSplit(int depth,
-                        Tree& tree,
-                        legate::AccessorRO<TYPE, 2> split_proposal,
-                        double alpha)
+  void PerformBestSplit(int depth, Tree& tree, double alpha)
   {
     perform_best_split<<<BinaryTree::NodesInLevel(depth), THREADS_PER_BLOCK, 0, stream>>>(
       histogram_buffer,
       num_features,
       num_outputs,
-      split_proposal,
-      samples_per_feature,
+      split_proposals,
       eps,
       alpha,
       tree.leaf_value,
@@ -568,12 +641,12 @@ struct TreeBuilder {
   const int32_t num_features;
   const int32_t num_outputs;
   const int32_t max_nodes;
-  const int32_t samples_per_feature;
+  SparseSplitProposals<T> split_proposals;
 
   legate::Buffer<unsigned char> cub_buffer;
   size_t cub_buffer_size = 0;
 
-  legate::Buffer<GPair, 4> histogram_buffer;
+  legate::Buffer<GPair, 3> histogram_buffer;
 
   cudaStream_t stream;
 };
@@ -585,10 +658,8 @@ struct build_tree_fn {
     auto [X, X_shape, X_accessor] = GetInputStore<T, 3>(context.input(0).data());
     auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(1).data());
     auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
-    auto [split_proposals, split_proposals_shape, split_proposals_accessor] =
-      GetInputStore<T, 2>(context.input(3).data());
+
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
-    EXPECT_DENSE_ROW_MAJOR(split_proposals_accessor.accessor, split_proposals_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
     auto num_outputs  = X_shape.hi[2] - X_shape.lo[2] + 1;
@@ -596,13 +667,14 @@ struct build_tree_fn {
     EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
-    EXPECT_IS_BROADCAST(split_proposals_shape);
-    auto samples_per_feature = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
 
     // Scalars
-    auto max_depth = context.scalars().at(0).value<int>();
-    auto max_nodes = context.scalars().at(1).value<int>();
-    auto alpha     = context.scalars().at(2).value<double>();
+    auto max_depth     = context.scalars().at(0).value<int>();
+    auto max_nodes     = context.scalars().at(1).value<int>();
+    auto alpha         = context.scalars().at(2).value<double>();
+    auto split_samples = context.scalars().at(3).value<int>();
+    auto seed          = context.scalars().at(4).value<int>();
+    auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
     auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
@@ -610,9 +682,11 @@ struct build_tree_fn {
 
     Tree tree(max_nodes, num_outputs, stream, thrust_exec_policy);
 
+    SparseSplitProposals<T> split_proposals =
+      SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows, stream);
     // Begin building the tree
-    TreeBuilder builder(
-      num_rows, num_features, num_outputs, stream, tree.max_nodes, samples_per_feature);
+    TreeBuilder<T> builder(
+      num_rows, num_features, num_outputs, stream, tree.max_nodes, split_proposals);
 
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
@@ -621,17 +695,10 @@ struct build_tree_fn {
       builder.UpdatePositions(depth, tree, X_accessor, X_shape);
 
       // actual histogram creation
-      builder.ComputeHistogram(depth,
-                               context,
-                               tree,
-                               X_accessor,
-                               X_shape,
-                               split_proposals_accessor,
-                               g_accessor,
-                               h_accessor);
+      builder.ComputeHistogram(depth, context, tree, X_accessor, X_shape, g_accessor, h_accessor);
 
       // Select the best split
-      builder.PerformBestSplit(depth, tree, split_proposals_accessor, alpha);
+      builder.PerformBestSplit(depth, tree, alpha);
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);
