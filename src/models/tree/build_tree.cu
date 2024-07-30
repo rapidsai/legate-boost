@@ -41,7 +41,7 @@ class Histogram {
 
  public:
   Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
-    : node_begin_(node_begin_), node_end_(node_end)
+    : node_begin_(node_begin), node_end_(node_end)
   {
     buffer_ = legate::create_buffer<GPair, 3>({node_end - node_begin, num_outputs, num_bins});
     size_   = (node_end - node_begin) * num_outputs * num_bins;
@@ -644,37 +644,57 @@ struct TreeBuilder {
     CHECK_CUDA_STREAM(stream);
   }
 
-  cuda::std::pair<cuda::std::tuple<int, int>*, cuda::std::tuple<int, int>*> FindInstancesInBatch(
-    cuda::std::pair<int, int> node_batch)
-  {
-    cuda::std::tuple<int, int>* begin = sorted_positions.ptr(0);
-    auto end                          = begin + num_rows;
-    auto comp                         = [] __device__(auto a, auto b) {
-      return cuda::std::get<0>(a) < cuda::std::get<0>(b);
-    };
-    auto lower = thrust::lower_bound(
-      thrust::cuda::par.on(stream), begin, end, cuda::std::tuple(node_batch.first, 0), comp);
-    auto upper = thrust::upper_bound(
-      thrust::cuda::par.on(stream), lower, end, cuda::std::tuple(node_batch.second - 1, 0), comp);
-    return cuda::std::make_pair(lower, upper);
-  }
-
   std::vector<NodeBatch> PrepareBatches(int depth)
   {
-    std::vector<NodeBatch> batches;
     const int max_batch_size = 256;
-
-    // TODO: vectorise instance finding
-    for (int batch_begin = BinaryTree::LevelBegin(depth);
-         batch_begin < BinaryTree::LevelBegin(depth) + BinaryTree::NodesInLevel(depth);
-         batch_begin += max_batch_size) {
-      auto batch_end          = std::min(batch_begin + max_batch_size,
-                                BinaryTree::LevelBegin(depth) + BinaryTree::NodesInLevel(depth));
-      auto instances_in_batch = FindInstancesInBatch({batch_begin, batch_end});
-      batches.push_back(
-        {batch_begin, batch_end, instances_in_batch.first, instances_in_batch.second});
+    // Shortcut if we have 1 batch
+    if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
+      // All instances are in batch
+      return {NodeBatch{BinaryTree::LevelBegin(depth),
+                        BinaryTree::LevelBegin(depth) + BinaryTree::NodesInLevel(depth),
+                        sorted_positions.ptr(0),
+                        sorted_positions.ptr(0) + num_rows}};
     }
-    return batches;
+
+    // Launch a kernel where each thread computes the range of instances for a batch using binary
+    // search
+    const int num_batches = (BinaryTree::NodesInLevel(depth) + max_batch_size - 1) / max_batch_size;
+    auto batches          = legate::create_buffer<NodeBatch, 1>({num_batches});
+    LaunchN(num_batches,
+            stream,
+            [                     =,
+             batches_ptr          = batches.ptr(0),
+             sorted_positions_ptr = this->sorted_positions.ptr(0),
+             num_rows             = this->num_rows] __device__(int batch_idx) {
+              int batch_begin = BinaryTree::LevelBegin(depth) + batch_idx * max_batch_size;
+              int batch_end =
+                std::min(batch_begin + max_batch_size,
+                         BinaryTree::LevelBegin(depth) + BinaryTree::NodesInLevel(depth));
+              auto comp = [] __device__(auto a, auto b) {
+                return cuda::std::get<0>(a) < cuda::std::get<0>(b);
+              };
+
+              auto lower             = thrust::lower_bound(thrust::seq,
+                                               sorted_positions_ptr,
+                                               sorted_positions_ptr + num_rows,
+                                               cuda::std::tuple(batch_begin, 0),
+                                               comp);
+              auto upper             = thrust::upper_bound(thrust::seq,
+                                               lower,
+                                               sorted_positions_ptr + num_rows,
+                                               cuda::std::tuple(batch_end - 1, 0),
+                                               comp);
+              batches_ptr[batch_idx] = {batch_begin, batch_end, lower, upper};
+            });
+
+    std::vector<NodeBatch> result(num_batches);
+    CHECK_CUDA(cudaMemcpyAsync(result.data(),
+                               batches.ptr(0),
+                               num_batches * sizeof(NodeBatch),
+                               cudaMemcpyDeviceToHost,
+                               stream));
+    CHECK_CUDA(cudaStreamSynchronize(stream));
+    return result;
   }
 
   legate::Buffer<cuda::std::tuple<int, int>> sorted_positions;  // (node, row)
