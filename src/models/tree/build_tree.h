@@ -30,6 +30,7 @@ class BinaryTree {
   __host__ __device__ static int Parent(int i) { return (i - 1) / 2; }
   __host__ __device__ static int LeftChild(int i) { return 2 * i + 1; }
   __host__ __device__ static int RightChild(int i) { return 2 * i + 2; }
+  __host__ __device__ static int Sibling(int i) { return (i % 2 == 0) ? i - 1 : i + 1; }
   __host__ __device__ static int LevelBegin(int level) { return (1 << level) - 1; }
   __host__ __device__ static int LevelEnd(int level) { return (1 << (level + 1)) - 1; }
   __host__ __device__ static int NodesInLevel(int level) { return 1 << level; }
@@ -50,11 +51,13 @@ inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
 }
 
 inline __host__ __device__ bool ComputeHistogramBin(int node_id,
-                                                    int depth,
-                                                    legate::Buffer<double, 2> node_hessians)
+                                                    legate::Buffer<double, 2> node_hessians,
+                                                    bool parent_histogram_exists)
 {
   if (node_id == 0) return true;
   if (node_id < 0) return false;
+  if (!parent_histogram_exists) return true;
+
   int parent                           = BinaryTree::Parent(node_id);
   auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_hessians);
   return histogram_node == node_id;

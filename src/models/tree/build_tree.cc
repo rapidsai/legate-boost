@@ -185,7 +185,7 @@ struct TreeBuilder {
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       auto index_local = i - X_shape.lo[0];
       auto position    = positions[index_local];
-      bool compute     = ComputeHistogramBin(position, depth, tree.hessian);
+      bool compute     = ComputeHistogramBin(position, tree.hessian, true);
       if (position < 0 || !compute) continue;
       for (int64_t j = 0; j < num_features; j++) {
         auto x_value = X[{i, j, 0}];

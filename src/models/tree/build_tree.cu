@@ -62,6 +62,11 @@ class Histogram {
     return node_begin_idx >= node_begin_ && node_end_idx <= node_end_;
   }
 
+  __device__ bool ContainsNode(int node_idx)
+  {
+    return node_idx >= node_begin_ && node_idx < node_end_;
+  }
+
   GPair* Ptr() { return buffer_.ptr(legate::Point<3>::ZEROES()); }
 
   std::size_t Size() { return size_; }
@@ -145,8 +150,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     auto [sampleNode, localSampleId] = batch.instances_begin[idx];
     int64_t globalSampleId           = localSampleId + sample_offset;
 
-    bool computeHistogram =
-      sampleNode >= 0;  // ComputeHistogramBin(sampleNode, depth, node_hessians);
+    bool computeHistogram = ComputeHistogramBin(
+      sampleNode, node_hessians, histogram.ContainsNode(BinaryTree::Parent(sampleNode)));
 
     for (int32_t output = 0; output < n_outputs; output++) {
       double G = g[{globalSampleId, 0, output}];
@@ -192,6 +197,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   __shared__ typename WarpScan::TempStorage temp_storage[THREADS_PER_BLOCK / 32];
 
   int scan_node_idx = batch.node_idx_begin + j;
+  int parent        = BinaryTree::Parent(scan_node_idx);
+  // Exit if we didn't compute this histogram
+  if (!ComputeHistogramBin(scan_node_idx, node_hessians, histogram.ContainsNode(parent))) return;
   if (i >= n_features || scan_node_idx >= batch.node_idx_end) return;
 
   int feature_idx                   = i;
@@ -211,6 +219,26 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
       __syncwarp();
       if (thread_participates) { histogram[{scan_node_idx, output, bin_idx}] = e + aggregate; }
       aggregate += tile_aggregate;
+    }
+  }
+
+  // This node has no sibling we are finished
+  if (scan_node_idx == 0) return;
+
+  int sibling_node_idx = BinaryTree::Sibling(scan_node_idx);
+
+  // The sibling did not compute a histogram
+  // Do the subtraction trick using the histogram we just computed in the previous step
+  if (!ComputeHistogramBin(sibling_node_idx, node_hessians, histogram.ContainsNode(parent))) {
+    for (int output = 0; output < n_outputs; output++) {
+      // Infer right side
+      for (int bin_idx = feature_begin + warp.thread_rank(); bin_idx < feature_end;
+           bin_idx += warp.num_threads()) {
+        GPair scanned_sum = histogram[{scan_node_idx, output, bin_idx}];
+        GPair parent_sum  = histogram[{BinaryTree::Parent(scan_node_idx), output, bin_idx}];
+        GPair other_sum   = parent_sum - scanned_sum;
+        histogram[{sibling_node_idx, output, bin_idx}] = other_sum;
+      }
     }
   }
 }
