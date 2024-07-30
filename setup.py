@@ -15,20 +15,14 @@
 # limitations under the License.
 #
 import os
+from pathlib import Path
 
 from setuptools import find_packages
 from skbuild import setup
 
-# TODO: figure out a better way to handle this
-#
-#       importing legate in setup.py fails like this when building in an environment
-#       that does not have GPUs:
-#
-#         > "libcuda.so.1: cannot open shared object file: No such file or directory"
-#
-# import legate.install_info as lg_install_info
+import legate.install_info as lg_install_info
 
-# legate_dir = Path(lg_install_info.libpath).parent.as_posix()
+legate_dir = Path(lg_install_info.libpath).parent.as_posix()
 
 # ensure 'native' is used if CUDAARCHS isn't set
 # (instead of the CMake default which is a specific architecture)
@@ -36,7 +30,7 @@ from skbuild import setup
 cuda_arch = os.getenv("CUDAARCHS", "native")
 
 cmake_flags = [
-    # f"-Dlegate_core_ROOT:STRING={legate_dir}",
+    f"-Dlegate_core_ROOT:STRING={legate_dir}",
     f"-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}",
 ]
 

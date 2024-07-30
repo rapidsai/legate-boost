@@ -45,7 +45,6 @@ requirements:
     {% else %}
     - cuda-cudart-dev
     {% endif %}
-    # try avoiding cublas dependency
     - libcublas-dev
     - legate-core {{ legate_version }}
     - openblas
@@ -62,10 +61,14 @@ requirements:
 test:
   # requires:
   #   - cuda-version ={{ cuda_version }}
-  imports:
-    - legateboost
-    - legateboost.metrics
-    - legateboost.models
+  commands:
+    - python -c "import cunumeric"
+    - python -c "import legate"
+    - python -c "import legateboost"
+  # imports:
+  #   - legateboost
+  #   - legateboost.metrics
+  #   - legateboost.models
 
 about:
   license: {{ project_data["license"]["text"] }}
