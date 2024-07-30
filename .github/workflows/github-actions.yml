@@ -63,6 +63,9 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
+      - name: Install legateboost
+        run: |
+          python -m pip install --no-deps dist/*.whl
       - name: Run cpu tests
         run: |
           legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0

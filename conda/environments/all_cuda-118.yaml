@@ -5,9 +5,9 @@ channels:
 - conda-forge
 dependencies:
 - cmake>=3.24.0,!=3.30.0
-- cunumeric=24.06.*
+- cunumeric==24.06.*
 - hypothesis
-- legate-core=24.06.*
+- legate-core==24.06.*
 - matplotlib
 - mypy
 - myst-parser
@@ -17,7 +17,7 @@ dependencies:
 - openblas
 - pydata-sphinx-theme
 - pytest<8
-- python-build
+- python-build>=1.2.0
 - scikit-build>=0.18.0
 - scikit-learn
 - seaborn
