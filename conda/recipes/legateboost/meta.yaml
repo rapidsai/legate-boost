@@ -45,7 +45,8 @@ requirements:
     {% else %}
     - cuda-cudart-dev
     {% endif %}
-    - libcublas-dev
+    # try avoiding cublas dependency
+    #- libcublas-dev
     - legate-core {{ legate_version }}
     - openblas
     - python
