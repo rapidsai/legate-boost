@@ -31,6 +31,7 @@ class BinaryTree {
   __host__ __device__ static int LeftChild(int i) { return 2 * i + 1; }
   __host__ __device__ static int RightChild(int i) { return 2 * i + 2; }
   __host__ __device__ static int LevelBegin(int level) { return (1 << level) - 1; }
+  __host__ __device__ static int LevelEnd(int level) { return (1 << (level + 1)) - 1; }
   __host__ __device__ static int NodesInLevel(int level) { return 1 << level; }
 };
 
