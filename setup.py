@@ -39,12 +39,9 @@ if env_cmake_args is not None:
     cmake_flags.append(env_cmake_args)
 os.environ["CMAKE_ARGS"] = " ".join(cmake_flags)
 
-
 setup(
     packages=find_packages(
         where=".",
         include=["legateboost", "legateboost.*"],
     ),
-    include_package_data=True,
-    zip_safe=False,
 )

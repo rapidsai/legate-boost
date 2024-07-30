@@ -52,7 +52,7 @@ jobs:
             --file /tmp/env.yaml
       - name: Type check legateboost
         run: |
-          mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
+          mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
       - name: Build legateboost
         env:
           CUDAARCHS: '70;80'
