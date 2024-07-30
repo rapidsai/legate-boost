@@ -81,8 +81,8 @@ class Histogram {
 struct NodeBatch {
   int32_t node_idx_begin;
   int32_t node_idx_end;
-  cuda::std::tuple<int, int>* instances_begin;
-  cuda::std::tuple<int, int>* instances_end;
+  cuda::std::tuple<int64_t, int64_t>* instances_begin;
+  cuda::std::tuple<int64_t, int64_t>* instances_end;
   __host__ __device__ std::size_t InstancesInBatch() const
   {
     return instances_end - instances_begin;
@@ -539,7 +539,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
 }
 
 // Can't put a device lambda in constructor so make this a function
-void FillPositions(legate::Buffer<cuda::std::tuple<int, int>> sorted_positions,
+void FillPositions(legate::Buffer<cuda::std::tuple<int64_t, int64_t>> sorted_positions,
                    std::size_t num_rows,
                    cudaStream_t stream)
 {
@@ -568,7 +568,7 @@ struct TreeBuilder {
                 split_proposals.histogram_size,
                 stream)
   {
-    sorted_positions = legate::create_buffer<cuda::std::tuple<int, int>>(num_rows);
+    sorted_positions = legate::create_buffer<cuda::std::tuple<int64_t, int64_t>>(num_rows);
     FillPositions(sorted_positions, num_rows, stream);
   }
 
@@ -760,7 +760,7 @@ struct TreeBuilder {
     return result;
   }
 
-  legate::Buffer<cuda::std::tuple<int, int>> sorted_positions;  // (node, row)
+  legate::Buffer<cuda::std::tuple<int64_t, int64_t>> sorted_positions;  // (node, row)
   const int32_t num_rows;
   const int32_t num_features;
   const int32_t num_outputs;
