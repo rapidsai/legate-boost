@@ -40,7 +40,7 @@ jobs:
       #node_type: "gpu-v100-latest-1"
 
   build-test:
-    needs: [pre-commit]
+    needs: [pre-commit, conda-python-build]
     defaults:
       run:
         shell: bash -el {0}
