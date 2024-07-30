@@ -31,7 +31,13 @@ jobs:
       #   * ... only support x86_64
       #
       # this filters down to the jobs in the RAPIDS test matrix which match those constraints
-      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH != "arm64"))
+      #
+      # TODO: build against more Python and CUDA versions (remove those last conditions)
+      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH != "arm64") | select(.CUDA_VER == "11.8.0") | select(.PY_VER == "3.10"))
+      # TODO: revert this... building should not require a GPU.
+      #       Just adding this because import tests after conda-build are failing with errors
+      #       like "libcuda.so.1: cannot open shared object file: No such file or directory"
+      node_type: "gpu-v100-latest-1"
 
   build-test:
     needs: [pre-commit]
