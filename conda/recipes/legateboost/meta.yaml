@@ -58,17 +58,13 @@ requirements:
     - {{ req }}
     {% endfor %}
 
+# no import tests... importing cunumeric / legate on systems without a GPU
+# does not work, and we don't want to require a GPU for building
 test:
   # requires:
   #   - cuda-version ={{ cuda_version }}
   commands:
-    - python -c "import cunumeric"
-    - python -c "import legate"
-    - python -c "import legateboost"
-  # imports:
-  #   - legateboost
-  #   - legateboost.metrics
-  #   - legateboost.models
+    - pip show legateboost
 
 about:
   license: {{ project_data["license"]["text"] }}
