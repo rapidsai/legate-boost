@@ -1,0 +1,13 @@
+[flake8]
+exclude =
+    __init__.py
+
+max-line-length = 88
+
+extend-ignore =
+    # line break before binary operator
+    W503
+    # whitespace before :
+    E203
+    # undefined, or defined from star imports
+    F405
