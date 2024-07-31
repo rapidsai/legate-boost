@@ -593,12 +593,6 @@ struct TreeBuilder {
         sorted_positions[idx] = cuda::std::make_tuple(pos, row);
       });
     CHECK_CUDA_STREAM(stream);
-
-    thrust::sort(
-      thrust::cuda::par.on(stream),
-      sorted_positions.ptr(0),
-      sorted_positions.ptr(num_rows),
-      [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
   }
 
   template <typename TYPE>
@@ -715,6 +709,12 @@ struct TreeBuilder {
                         sorted_positions.ptr(0),
                         sorted_positions.ptr(0) + num_rows}};
     }
+
+    thrust::sort(
+      thrust::cuda::par.on(stream),
+      sorted_positions.ptr(0),
+      sorted_positions.ptr(num_rows),
+      [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
 
     // Launch a kernel where each thread computes the range of instances for a batch using binary
     // search
