@@ -563,7 +563,7 @@ struct TreeBuilder {
       max_nodes(max_nodes),
       split_proposals(split_proposals),
       histogram(BinaryTree::LevelBegin(0),
-                BinaryTree::LevelEnd(8),
+                BinaryTree::LevelEnd(9),
                 num_outputs,
                 split_proposals.histogram_size,
                 stream)
@@ -700,7 +700,7 @@ struct TreeBuilder {
 
   std::vector<NodeBatch> PrepareBatches(int depth)
   {
-    const int max_batch_size = 256;
+    const int max_batch_size = 1024;
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
       // All instances are in batch
