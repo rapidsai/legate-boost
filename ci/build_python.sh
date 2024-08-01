@@ -9,8 +9,9 @@ rapids-print-env
 rm -rf ./build ./dist ./_skbuild
 
 conda mambabuild \
-    --channel conda-forge \
     --channel legate \
+    --channel conda-forge \
+    --channel nvidia \
     --no-force-upload \
     conda/recipes/legateboost
 
