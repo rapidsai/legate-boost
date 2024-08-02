@@ -61,7 +61,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: legateboost-wheel
-          path: dist/legateboost*.whl
+          path: dist/legate-boost*.whl
+          if-no-files-found: error
       - name: Install legate-boost
         run: |
           python -m pip install --no-deps dist/*.whl
@@ -78,7 +79,7 @@ jobs:
           make html
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/build
+          path: docs/build/html
 
 
   deploy:
