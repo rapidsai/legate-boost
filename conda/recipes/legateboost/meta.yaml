@@ -39,7 +39,9 @@ requirements:
     {% endif %}
     - {{ stdlib("c") }}
   host:
-    - cunumeric {{ legate_version }}
+    # TODO: resolve selectors in legate-core/cunumeric
+    #- cunumeric {{ legate_version }}
+    - cunumeric =24.06.*=*g28296b4e_0
     {% if cuda_major == "11" %}
     - cudatoolkit
     {% else %}
@@ -49,7 +51,7 @@ requirements:
     #- legate-core {{ legate_version }}
     # build string here is a workaround to guarantee we get the GPU-enabled package,
     # TODO: resolve this in legate-core/cunumeric before merging
-    - legate-core =24.06.*=*g28296b4e_0
+    - legate-core =24.06.*=*g28296b4e_0_ucx
     - openblas
     - python
     - pip
