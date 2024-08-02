@@ -20,6 +20,4 @@ cuda11_compiler:
   - nvcc
 
 legate_version:
-  # build string here is a workaround to guarantee we get the GPU-enabled package,
-  # TODO: resolve this in legate-core/cunumeric before merging
-  - =24.06.*=*g28296b4e_0
+  - =24.06.*
