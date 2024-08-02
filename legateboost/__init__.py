@@ -25,3 +25,4 @@ from .callbacks import (
     EarlyStopping,
 )
 from .utils import mod_col_by_idx, pick_col_by_idx, set_col_by_idx
+from .version import __version__

@@ -73,6 +73,12 @@ Run all checks manually.
 ```
 pre-commit run --all-files
 ```
+
+## Change the project version
+
+The `VERSION` file at the root of the repo is the single source for `legate-boost`'s version.
+Modify that file to change the version for wheels, conda packages, the CMake project, etc.
+
 ## Development principles
 
 The following general principles should be followed when developing `legate-boost`.
