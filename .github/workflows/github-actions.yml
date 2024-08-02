@@ -61,7 +61,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: legateboost-wheel
-          path: dist/legate-boost*.whl
+          path: dist/legate_boost*.whl
           if-no-files-found: error
       - name: Install legate-boost
         run: |
