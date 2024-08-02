@@ -16,4 +16,4 @@ __pycache__/
 examples/notebook/*.py
 legion_prof
 benchmark
-benchmark/!*.py
+!benchmark/*.py

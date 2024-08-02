@@ -1,7 +1,7 @@
 import common
 import numpy as np
 from dask import array as da
-from dask.distributed import Client
+from dask.distributed import Client, wait
 from dask_cuda import LocalCUDACluster
 from xgboost import dask as dxgb
 
@@ -23,7 +23,7 @@ def train_model(X: da.Array, y: da.Array, model_type, args, dry_run=False):
     return train_logloss
 
 
-def create_dataset(args):
+def create_dataset(args, client):
     n_processors = args.gpus
     rng = da.random.default_rng(42)
     rows = args.nrows if args.strong_scaling else args.nrows * n_processors
@@ -32,6 +32,10 @@ def create_dataset(args):
     y = rng.integers(
         0, args.nclasses, size=X.shape[0], chunks=(chunk_size), dtype=np.int32
     )
+    X, y = X.to_backend("cupy"), y.to_backend("cupy")
+    # dask is lazy, make sure the data is loaded before returning
+    X, y = client.persist([X, y])
+    wait([X, y])
     return X, y
 
 
@@ -40,9 +44,9 @@ def benchmark(args):
     # `n_workers` represents the number of GPUs since we use one GPU per worker process.
     with LocalCUDACluster(n_workers=args.gpus, threads_per_worker=4) as cluster:
         # Create client from cluster, set the backend to GPU array (cupy).
-        with Client(cluster):
+        with Client(cluster) as client:
             # Generate some random data for demonstration
-            X, y = create_dataset(args)
+            X, y = create_dataset(args, client)
             common.run_experiment(X, y, args, train_model, args.gpus, "dask-xgb")
 
 
