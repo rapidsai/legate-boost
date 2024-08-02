@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
 # read project version from VERSION file
 file(READ "${CMAKE_CURRENT_LIST_DIR}/VERSION" _version_content)
-if(_version_content MATCHES [[^([0-9][0-9])\.([0-9][0-9])\.([0-9][0-9])]])
+if(_version_content MATCHES [[^([0-9]+\.([0-9]+)\.([0-9]+)]])
   set(_legateboost_version "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
 else()
   string(REPLACE "\n" "\n  " _legateboost_content_formatted "  ${_version_content}")
