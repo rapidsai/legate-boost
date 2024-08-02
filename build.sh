@@ -5,7 +5,7 @@ set -e -u -x -o pipefail
 NUMARGS=$#
 ARGS=$*
 
-HELP="build liblegateboost.so and a 'legateboost' Python wheel, and install that wheel
+HELP="build liblegateboost.so and a 'legate-boost' Python wheel, and install that wheel
 
   $0 [<flag> ...]
 
@@ -50,5 +50,5 @@ if hasArg --editable; then
     PIP_INSTALL_ARGS+=("--editable")
 fi
 
-echo "building legatboost Python package..."
+echo "building legate-boost Python package..."
 ${PYTHON} -m pip install "${PIP_INSTALL_ARGS[@]}" .

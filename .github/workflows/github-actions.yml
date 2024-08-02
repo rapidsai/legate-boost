@@ -1,4 +1,4 @@
-name: legateboost build/test
+name: legate-boost build/test
 
 concurrency:
   group: ci-on-${{ github.event_name }}-from-${{ github.ref_name }}
@@ -52,7 +52,7 @@ jobs:
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
-      - name: Checkout legateboost
+      - name: Checkout legate-boost
         uses: actions/checkout@v4
         with:
           lfs: true
@@ -71,10 +71,10 @@ jobs:
           mamba env update \
             --name base \
             --file /tmp/env.yaml
-      - name: Type check legateboost
+      - name: Type check legate-boost
         run: |
           mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
-      - name: Build legateboost
+      - name: Build legate-boost
         env:
           CUDAARCHS: '70;80'
         run: |
@@ -83,7 +83,7 @@ jobs:
         with:
           name: legateboost-wheel
           path: dist/legateboost*.whl
-      - name: Install legateboost
+      - name: Install legate-boost
         run: |
           python -m pip install --no-deps dist/*.whl
       - name: Run cpu tests
@@ -95,7 +95,7 @@ jobs:
           nvidia-smi
           exit 0
           # legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
-      - name: Build legateboost docs
+      - name: Build legate-boost docs
         working-directory: docs
         run: |
           make html

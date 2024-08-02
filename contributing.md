@@ -1,6 +1,6 @@
-# Contributing to legateboost
+# Contributing to legate-boost
 
-`legateboost` depends on some libraries that are not easily installable with `pip`.
+`legate-boost` depends on some libraries that are not easily installable with `pip`.
 
 Use `conda` to create a development environment that includes them.
 
@@ -75,7 +75,7 @@ pre-commit run --all-files
 ```
 ## Development principles
 
-The following general principles should be followed when developing legateboost.
+The following general principles should be followed when developing `legate-boost`.
 
 ### Coding style
 
@@ -93,13 +93,13 @@ mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --e
 ### Performance
 
 - Memory usage is more often a limiting factor than computation time in large distributed training runs. E.g. A proposal that improves runtime by 2x but increases memory usage by 1.5x is likely to be rejected.
-- Legateboost should support CPUs and GPUs as first class citizens.
-- Legateboost will strive for acceptable to good performance on single machine and state-of-the-art performance in a distributed setting.
+- `legate-boost` should support CPUs and GPUs as first class citizens.
+- `legate-boost` will strive for acceptable to good performance on single machine and state-of-the-art performance in a distributed setting.
 - Accepting performance improvements will depend on how maintainable the changes are versus the improvement for a single machine and distributed setting, with a heavier weighting towards the distributed setting.
 - In deciding what level of performance optimisation is appropriate, see the below performance guidelines
-    - Legateboost should be expected to run faster than equivalent python based implementations on a single machine e.g. Sklearn.
-    - Legateboost <em>should not</em> be expected to run faster than highly optimised native implementations on a single machine. e.g. LightGBM/XGBoost.
-    - Legateboost <em>should</em> compete with the above implementions in a distributed setting.
+    - `legate-boost` should be expected to run faster than equivalent python based implementations on a single machine e.g. Sklearn.
+    - `legate-boost` <em>should not</em> be expected to run faster than highly optimised native implementations on a single machine. e.g. LightGBM/XGBoost.
+    - `legate-boost` <em>should</em> compete with the above implementions in a distributed setting.
 
 ### Testing
 
@@ -109,8 +109,10 @@ mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --e
 
 ### Supported platforms
 
-- Platform support: legateboost will support the same platforms as the legate ecosystem. Legateboost will also support conda or pip following the legate ecosystem.
-- Installation should be as simple as possible. e.g. `pip install legateboost` or `conda install legateboost`.
+- Platform support:
+    - `legate-boost` will support the same platforms as the legate ecosystem.
+    - `legate-boost` will also support conda or pip following the legate ecosystem.
+- Installation should be as simple as possible. e.g. `pip install legate-boost` or `conda install legate-boost`.
 - Dependency minimisation will facilitate the above.
 
 ### Data science considerations
@@ -122,4 +124,6 @@ TODO: review by experts
 
 ### Non-goals
 - Federated learning or privacy preserving machine learning. The literature is not advanced enough to indicate what the best approach is here.
-- External memory. Legateboost will defer data management to legate/legion. Legateboost will not implement its own external memory algorithms, unless the functionality is already implemented in legate.
+- External memory.
+    - `legate-boost` will defer data management to legate/legion.
+    - `legate-boost` will not implement its own external memory algorithms, unless the functionality is already implemented in legate.
