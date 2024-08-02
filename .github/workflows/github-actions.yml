@@ -85,7 +85,7 @@ jobs:
   deploy:
     needs: build-test
     # only main branch uploads docs
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    #if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
     permissions:
