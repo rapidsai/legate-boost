@@ -15,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
     - uses: pre-commit/action@v3.0.1
 
   build-test:
@@ -61,7 +60,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: legateboost-wheel
-          path: dist/legateboost*.whl
+          path: dist/legate_boost*.whl
+          if-no-files-found: error
       - name: Install legate-boost
         run: |
           python -m pip install --no-deps dist/*.whl
@@ -78,7 +78,7 @@ jobs:
           make html
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/build
+          path: docs/build/html
 
 
   deploy:
