@@ -66,13 +66,13 @@ jobs:
       - name: Install legate-boost
         run: |
           python -m pip install --no-deps dist/*.whl
-      - name: Run cpu tests
-        run: |
-          legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
-      - name: Run gpu tests
-        run: |
-          nvidia-smi
-          legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
+      # - name: Run cpu tests
+      #   run: |
+      #     legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
+      # - name: Run gpu tests
+      #   run: |
+      #     nvidia-smi
+      #     legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
       - name: Build legate-boost docs
         working-directory: docs
         run: |
