@@ -3,11 +3,15 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+from datetime import datetime
+
+import legateboost
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "legate-boost"
-copyright = "2023, NVIDIA"
+copyright = f"2023-{datetime.today().year}, NVIDIA"
 author = "NVIDIA"
 
 # -- General configuration ---------------------------------------------------
@@ -27,6 +31,16 @@ exclude_patterns = []
 
 source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
 
+# The version info for the project you're documenting, acts as replacement for
+# |version| and |release|, also used in various other places throughout the
+# built documents.
+#
+
+# The short X.Y version.
+version = legateboost.__version__
+
+# The full version, including alpha/beta/rc tags.
+release = version
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output

@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
-project(legateboost VERSION 1.0 LANGUAGES C CXX CUDA)
+# read project version from VERSION file
+file(READ "${CMAKE_CURRENT_LIST_DIR}/VERSION" _version_content)
+if(_version_content MATCHES [[^([0-9]+)\.([0-9]+)\.([0-9]+)]])
+  set(_legateboost_version "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
+else()
+  string(REPLACE "\n" "\n  " _legateboost_content_formatted "  ${_version_content}")
+  message(
+    FATAL_ERROR
+      "Could not determine project version. Contents of VERSION file:\n${_legateboost_content_formatted}"
+  )
+endif()
+
+project(legateboost VERSION "${_legateboost_version}" LANGUAGES C CXX CUDA)
 
 option(SANITIZE "Build with address sanitizer" OFF)
 
