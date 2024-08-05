@@ -71,7 +71,7 @@ test:
   requires:
     - cuda-version ={{ cuda_version }}
   commands:
-    - pip show legateboost
+    - pip show legate-boost
 
 about:
   license: {{ project_data["license"]["text"] }}
