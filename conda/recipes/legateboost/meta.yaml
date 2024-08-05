@@ -42,6 +42,7 @@ requirements:
     # TODO: resolve selectors in legate-core/cunumeric
     #- cunumeric {{ legate_version }}
     - cunumeric =24.06.*=*_0
+    - cuda-version ={{ cuda_version }}
     {% if cuda_major == "11" %}
     - cudatoolkit
     {% else %}
@@ -58,6 +59,7 @@ requirements:
     - scikit-build >=0.18.0
     - setuptools >=70.0
   run:
+    - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - python
     {% for req in pyproject_data["project"]["dependencies"] %}
     - {{ req }}
@@ -66,8 +68,8 @@ requirements:
 # no import tests... importing cunumeric / legate on systems without a GPU
 # does not work, and we don't want to require a GPU for building
 test:
-  # requires:
-  #   - cuda-version ={{ cuda_version }}
+  requires:
+    - cuda-version ={{ cuda_version }}
   commands:
     - pip show legateboost
 
