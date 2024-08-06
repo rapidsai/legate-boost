@@ -510,6 +510,7 @@ struct TreeBuilder {
               int32_t num_outputs,
               cudaStream_t stream,
               int32_t max_nodes,
+              int32_t max_depth,
               SparseSplitProposals<T> split_proposals)
     : num_rows(num_rows),
       num_features(num_features),
@@ -529,7 +530,7 @@ struct TreeBuilder {
     const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
     const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
     int depth                             = 0;
-    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes) depth++;
+    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) depth++;
     histogram      = Histogram(BinaryTree::LevelBegin(0),
                           BinaryTree::LevelEnd(depth),
                           num_outputs,
@@ -594,7 +595,10 @@ struct TreeBuilder {
 
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
-    SumAllReduce(context, reinterpret_cast<double*>(histogram.Ptr()), histogram.Size() * 2, stream);
+    SumAllReduce(context,
+                 reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
+                 batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
+                 stream);
 
     const size_t warps_needed    = num_features * batch.NodesInBatch();
     const size_t warps_per_block = THREADS_PER_BLOCK / 32;
@@ -774,7 +778,7 @@ struct build_tree_fn {
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows, stream);
     // Begin building the tree
     TreeBuilder<T> builder(
-      num_rows, num_features, num_outputs, stream, tree.max_nodes, split_proposals);
+      num_rows, num_features, num_outputs, stream, tree.max_nodes, max_depth, split_proposals);
 
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
