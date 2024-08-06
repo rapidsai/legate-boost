@@ -189,7 +189,7 @@ class Histogram {
     return node_idx >= node_begin_ && node_idx < node_end_;
   }
 
-  GPair* Ptr(int node_idx) { return buffer_.ptr({node_idx, 0, 0}); }
+  GPair* Ptr(int node_idx) { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
 
   std::size_t Size() { return size_; }
 

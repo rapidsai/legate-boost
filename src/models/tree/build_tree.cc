@@ -264,10 +264,10 @@ struct TreeBuilder {
 
     for (int node_idx = batch.node_idx_begin; node_idx < batch.node_idx_end; node_idx++) {
       auto parent = BinaryTree::Parent(node_idx);
-      if (!ComputeHistogramBin(node_idx, tree.hessian, histogram.ContainsNode(parent))) return;
+      if (!ComputeHistogramBin(node_idx, tree.hessian, histogram.ContainsNode(parent))) continue;
       scan_node_histogram(node_idx);
       // This node has no sibling we are finished
-      if (node_idx == 0) return;
+      if (node_idx == 0) continue;
 
       auto sibling_node_idx = BinaryTree::Sibling(node_idx);
       // The sibling did not compute a histogram
