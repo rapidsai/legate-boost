@@ -39,50 +39,9 @@ if env_cmake_args is not None:
     cmake_flags.append(env_cmake_args)
 os.environ["CMAKE_ARGS"] = " ".join(cmake_flags)
 
-requires = [
-    "cunumeric",
-    "legate-core",
-    "scikit-learn",
-    "scipy",
-    "numpy",
-    "typing_extensions",  # Required by legate.core as well.
-]
-
-extras_require = {
-    "test": [
-        "hypothesis",
-        "pytest<8",
-        "xgboost",
-        "notebook",
-        "nbconvert",
-        "seaborn",
-        "matplotlib",
-        "mypy",
-    ]
-}
-
 setup(
-    name="legateboost",
-    version="0.1",
-    description="GBM libary on Legate",
-    author="NVIDIA Corporation",
-    license="Apache 2.0",
-    classifiers=[
-        "Intended Audience :: Developers",
-        "Topic :: Database",
-        "Topic :: Scientific/Engineering",
-        "License :: OSI Approved :: Apache Software License",
-        "Programming Language :: Python",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-    ],
-    install_requires=requires,
-    extras_require=extras_require,
     packages=find_packages(
         where=".",
         include=["legateboost", "legateboost.*"],
     ),
-    include_package_data=True,
-    zip_safe=False,
 )

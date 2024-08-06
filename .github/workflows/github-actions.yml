@@ -1,4 +1,4 @@
-name: legateboost build/test
+name: legate-boost build/test
 
 concurrency:
   group: ci-on-${{ github.event_name }}-from-${{ github.ref_name }}
@@ -15,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
     - uses: pre-commit/action@v3.0.1
 
   build-test:
@@ -27,11 +26,11 @@ jobs:
     env:
       CONDA_PREFIX: /opt/conda
     container:
-      image: rapidsai/devcontainers:23.10-cpp-cuda11.8-mambaforge-ubuntu22.04
+      image: rapidsai/devcontainers:24.08-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
-      - name: Checkout legateboost
+      - name: Checkout legate-boost
         uses: actions/checkout@v4
         with:
           lfs: true
@@ -50,19 +49,22 @@ jobs:
           mamba env update \
             --name base \
             --file /tmp/env.yaml
-      - name: Type check legateboost
+      - name: Type check legate-boost
         run: |
-          mypy ./legateboost --config-file ./setup.cfg --exclude=legateboost/test --exclude=install_info
-      - name: Build legateboost
+          mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
+      - name: Build legate-boost
         env:
           CUDAARCHS: '70;80'
         run: |
-          ./build.sh
-          python -m build -n --wheel
-      - uses: actions/upload-artifact@v3
+          ci/build_wheel.sh
+      - uses: actions/upload-artifact@v4
         with:
           name: legateboost-wheel
-          path: dist/legateboost*.whl
+          path: dist/legate_boost*.whl
+          if-no-files-found: error
+      - name: Install legate-boost
+        run: |
+          python -m pip install --no-deps dist/*.whl
       - name: Run cpu tests
         run: |
           legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
@@ -70,13 +72,13 @@ jobs:
         run: |
           nvidia-smi
           legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
-      - name: Build legateboost docs
+      - name: Build legate-boost docs
         working-directory: docs
         run: |
           make html
-      - uses: actions/upload-pages-artifact@v1
+      - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/build
+          path: docs/build/html
 
 
   deploy:
@@ -99,4 +101,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4

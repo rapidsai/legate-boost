@@ -1,6 +1,6 @@
-# LegateBoost
+# legate-boost
 
-GBM implementation on Legate. The primary goals of LegateBoost is to provide a state-of-the-art distributed GBM implementation on Legate, capable of running on CPUs or GPUs at supercomputer scale.
+GBM implementation on Legate. The primary goals of `legate-boost` is to provide a state-of-the-art distributed GBM implementation on Legate, capable of running on CPUs or GPUs at supercomputer scale.
 
 [API Documentation](https://rapidsai.github.io/legate-boost)
 
@@ -27,14 +27,17 @@ model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2)
 ## Features
 
 ### Probabilistic regression
-Legateboost can learn distributions for continuous data. This is useful in cases where simply predicting the mean does not carry enough information about the training data:
+
+`legate-boost` can learn distributions for continuous data. This is useful in cases where simply predicting the mean does not carry enough information about the training data:
 
 <img src="examples/probabalistic_regression/probabilistic_regression.gif" alt="drawing" width="800"/>
 
 The above example can be found here: [examples/probabilistic_regression](examples/probabalistic_regression/README.md).
 
 ### Batch training
-Legateboost can train on datasets that do not fit into memory by splitting the dataset into batches and training the model with `partial_fit`.
+
+`legate-boost` can train on datasets that do not fit into memory by splitting the dataset into batches and training the model with `partial_fit`.
+
 ```python
 total_estimators = 100
 model = lb.LBRegressor(n_estimators=estimators_per_batch)
@@ -51,7 +54,8 @@ for i in range(total_estimators // estimators_per_batch):
 The above example can be found here: [examples/batch_training](examples/batch_training/README.md).
 
 ### Different model types
-Legateboost supports tree models, linear models, kernel ridge regression models, custom user models and any combinations of these models.
+
+`legate-boost` supports tree models, linear models, kernel ridge regression models, custom user models and any combinations of these models.
 
 The following example shows a model combining linear and decision tree base learners on a synthetic dataset.
 
@@ -71,7 +75,13 @@ model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max
 
 ## Installation
 
-From the project directory
+If you already have `cunumeric` and `legate-core` installed, run the following:
+
+```shell
+pip install \
+    --no-build-isolation \
+    --no-deps \
+    .
 ```
-pip install .
-```
+
+For more details on customizing the build and setting up a development environment, see [`contributing.md`](./contributing.md).
