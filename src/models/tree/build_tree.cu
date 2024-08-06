@@ -33,56 +33,11 @@ namespace cg = cooperative_groups;
 
 namespace legateboost {
 
-class Histogram {
-  legate::Buffer<GPair, 3> buffer_;  // Nodes, outputs, bins
-  int node_begin_;
-  int node_end_;
-  std::size_t size_;
-
- public:
-  Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
-    : node_begin_(node_begin), node_end_(node_end)
-  {
-    buffer_ = legate::create_buffer<GPair, 3>({node_end - node_begin, num_outputs, num_bins});
-    size_   = (node_end - node_begin) * num_outputs * num_bins;
-    CHECK_CUDA(
-      cudaMemsetAsync(buffer_.ptr(legate::Point<3>::ZEROES()), 0, size_ * sizeof(GPair), stream));
-  }
-
-  void Destory()
-  {
-    buffer_.destroy();
-    node_begin_ = 0;
-    node_end_   = 0;
-    size_       = 0;
-  }
-
-  bool ContainsBatch(int node_begin_idx, int node_end_idx)
-  {
-    return node_begin_idx >= node_begin_ && node_end_idx <= node_end_;
-  }
-
-  __device__ bool ContainsNode(int node_idx)
-  {
-    return node_idx >= node_begin_ && node_idx < node_end_;
-  }
-
-  GPair* Ptr() { return buffer_.ptr(legate::Point<3>::ZEROES()); }
-
-  std::size_t Size() { return size_; }
-
-  // Node, output, bin
-  __device__ GPair& operator[](legate::Point<3> p)
-  {
-    return buffer_[{p[0] - node_begin_, p[1], p[2]}];
-  }
-};
-
 struct NodeBatch {
   int32_t node_idx_begin;
   int32_t node_idx_end;
-  cuda::std::tuple<int64_t, int64_t>* instances_begin;
-  cuda::std::tuple<int64_t, int64_t>* instances_end;
+  cuda::std::tuple<int32_t, int32_t>* instances_begin;
+  cuda::std::tuple<int32_t, int32_t>* instances_end;
   __host__ __device__ std::size_t InstancesInBatch() const
   {
     return instances_end - instances_begin;
@@ -539,7 +494,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
 }
 
 // Can't put a device lambda in constructor so make this a function
-void FillPositions(legate::Buffer<cuda::std::tuple<int64_t, int64_t>> sorted_positions,
+void FillPositions(legate::Buffer<cuda::std::tuple<int32_t, int32_t>> sorted_positions,
                    std::size_t num_rows,
                    cudaStream_t stream)
 {
@@ -561,15 +516,26 @@ struct TreeBuilder {
       num_outputs(num_outputs),
       stream(stream),
       max_nodes(max_nodes),
-      split_proposals(split_proposals),
-      histogram(BinaryTree::LevelBegin(0),
-                BinaryTree::LevelEnd(9),
-                num_outputs,
-                split_proposals.histogram_size,
-                stream)
+      split_proposals(split_proposals)
   {
-    sorted_positions = legate::create_buffer<cuda::std::tuple<int64_t, int64_t>>(num_rows);
+    sorted_positions = legate::create_buffer<cuda::std::tuple<int32_t, int32_t>>(num_rows);
     FillPositions(sorted_positions, num_rows, stream);
+
+    // Calculate the number of node histograms we are willing to cache
+    // User a fixed reasonable upper bound on memory usage
+    // CAUTION: all workers MUST have the same max_batch_size
+    // Therefore we don't try to calculate this based on available memory
+    const std::size_t max_bytes      = std::pow(10, 9);  // 1 GB
+    const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
+    const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
+    int depth                             = 0;
+    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes) depth++;
+    histogram      = Histogram(BinaryTree::LevelBegin(0),
+                          BinaryTree::LevelEnd(depth),
+                          num_outputs,
+                          split_proposals.histogram_size,
+                          stream);
+    max_batch_size = max_histogram_nodes;
   }
 
   template <typename TYPE>
@@ -689,7 +655,7 @@ struct TreeBuilder {
     if (histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) { return histogram; }
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
-    histogram.Destory();
+    histogram.Destroy();
     histogram = Histogram(batch.node_idx_begin,
                           batch.node_idx_end,
                           num_outputs,
@@ -698,9 +664,9 @@ struct TreeBuilder {
     return histogram;
   }
 
-  std::vector<NodeBatch> PrepareBatches(int depth)
+  template <typename PolicyT>
+  std::vector<NodeBatch> PrepareBatches(int depth, PolicyT& policy)
   {
-    const int max_batch_size = 1024;
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
       // All instances are in batch
@@ -711,7 +677,7 @@ struct TreeBuilder {
     }
 
     thrust::sort(
-      thrust::cuda::par.on(stream),
+      policy,
       sorted_positions.ptr(0),
       sorted_positions.ptr(num_rows),
       [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
@@ -725,7 +691,8 @@ struct TreeBuilder {
             [                     =,
              batches_ptr          = batches.ptr(0),
              sorted_positions_ptr = this->sorted_positions.ptr(0),
-             num_rows             = this->num_rows] __device__(int batch_idx) {
+             num_rows             = this->num_rows,
+             max_batch_size       = this->max_batch_size] __device__(int batch_idx) {
               int batch_begin = BinaryTree::LevelBegin(depth) + batch_idx * max_batch_size;
               int batch_end   = std::min(batch_begin + max_batch_size, BinaryTree::LevelEnd(depth));
               auto comp       = [] __device__(auto a, auto b) {
@@ -760,13 +727,14 @@ struct TreeBuilder {
     return result;
   }
 
-  legate::Buffer<cuda::std::tuple<int64_t, int64_t>> sorted_positions;  // (node, row)
+  legate::Buffer<cuda::std::tuple<int32_t, int32_t>> sorted_positions;  // (node, row)
   const int32_t num_rows;
   const int32_t num_features;
   const int32_t num_outputs;
   const int32_t max_nodes;
   SparseSplitProposals<T> split_proposals;
   Histogram histogram;
+  int max_batch_size;
 
   cudaStream_t stream;
 };
@@ -811,7 +779,7 @@ struct build_tree_fn {
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
     for (int depth = 0; depth < max_depth; ++depth) {
-      auto batches = builder.PrepareBatches(depth);
+      auto batches = builder.PrepareBatches(depth, thrust_exec_policy);
       for (auto batch : batches) {
         auto histogram = builder.GetHistogram(batch);
 
