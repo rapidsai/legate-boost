@@ -50,6 +50,22 @@ def test_improving_with_depth(num_outputs):
     assert metrics[-1] < metrics[0]
 
 
+def test_max_depth():
+    # we should be able to run deep trees with OOM
+    max_depth = 20
+    X = cn.random.random((2, 1))
+    y = cn.array([500.0, 500.0])
+    model = lb.LBRegressor(
+        init=None,
+        base_models=(lb.models.Tree(max_depth=max_depth),),
+        learning_rate=1.0,
+        n_estimators=1,
+        random_state=0,
+    )
+
+    model.fit(X, y)
+
+
 def test_alpha():
     X = cn.random.random((2, 1))
     y = cn.array([500.0, 500.0])
