@@ -189,14 +189,20 @@ BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
   auto feature_idx = legate::create_buffer<int32_t, 1>({num_features});
   thrust::sequence(policy, feature_idx.ptr(0), feature_idx.ptr(0) + num_features);
   thrust::sort_by_key(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, feature_idx.ptr(0));
+  int bin_threshold = 64;
+  int features_below_threshold =
+    thrust::upper_bound(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, bin_threshold) -
+    num_bins.ptr(0);
 
   // 3. scan
   thrust::inclusive_scan(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, num_bins.ptr(0));
 
   // 4. select last <= max_cached_bins, also restrict to max_features_size_k
-  int cached_features =
+  int max_cached_features =
     thrust::upper_bound(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, max_cached_bins) -
     num_bins.ptr(0);
+
+  int cached_features = std::min(features_below_threshold, max_cached_features);
 
   // extract num_cached_bins
   int num_cached_bins = 0;
@@ -239,7 +245,7 @@ BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
 }
 
 // kernel with smem -- utilizes 1 warp per 32 samples, processing all features/outputs at once
-template <typename TYPE, int TPB, bool USE_CACHE, bool USE_PREFETCH = true>
+template <typename TYPE, int TPB, bool ENABLE_CACHE, bool USE_PREFETCH = true>
 __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   fill_histogram(legate::AccessorRO<TYPE, 3> X,
                  size_t n_local_samples,
@@ -254,10 +260,10 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
                  legate::Buffer<double, 2> node_hessians,
                  BinCache bin_cache)
 {
-  constexpr int32_t WarpSize    = 32;
-  const int32_t warp_id         = threadIdx.x / WarpSize;
-  const int32_t lane_id         = threadIdx.x % WarpSize;
-  const bool enable_gh_prefetch = USE_PREFETCH && n_outputs <= WarpSize;
+  constexpr int32_t WarpSize = 32;
+  const int32_t warp_id      = threadIdx.x / WarpSize;
+  const int32_t lane_id      = threadIdx.x % WarpSize;
+  // const bool enable_gh_prefetch = USE_PREFETCH && n_outputs <= WarpSize;
 
   extern __shared__ double smem[];
 
@@ -267,18 +273,59 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   auto [sampleNode_lane, localSampleId_lane] = (localIdx < batch.InstancesInBatch())
                                                  ? batch.instances_begin[localIdx]
                                                  : cuda::std::make_tuple(-1, -1);
-  ;
-  const bool computeHistogram =
-    localIdx < batch.InstancesInBatch() &&
-    ComputeHistogramBin(
-      sampleNode_lane, node_hessians, histogram.ContainsNode(BinaryTree::Parent(sampleNode_lane)));
 
-  // mask contains all sample bits of the next 32 ids that need to be bin'ed
-  auto lane_mask = ballot(computeHistogram);
+  // check first and last element of block
+  const bool block_use_cache =
+    cuda::std::get<0>(batch.instances_begin[blockIdx.x * TPB]) ==
+    cuda::std::get<0>(
+      batch.instances_begin[min((blockIdx.x + 1) * TPB, (uint32_t)batch.InstancesInBatch()) - 1]);
 
-  if constexpr (USE_CACHE) { bin_cache.initCache(smem); }
+  if constexpr (ENABLE_CACHE) {
+    if (block_use_cache) bin_cache.initCache(smem);
+  }
 
-  if (lane_mask != 0) {
+  for (int32_t lane_offset = 0; lane_offset < WarpSize; ++lane_offset) {
+    const int32_t localSampleId = shfl(localSampleId_lane, lane_offset);
+
+    if (localSampleId < 0) break;
+
+    const int32_t sampleNode = shfl(sampleNode_lane, lane_offset);
+
+    // maybe prefetch?
+    // TODO
+
+#pragma nounroll
+    for (int32_t feature0 = 0; feature0 < n_features; feature0 += WarpSize) {
+      const int32_t feature = feature0 + lane_id;
+      const int32_t bin_idx =
+        feature < n_features
+          ? split_proposals.FindBin(X[{sample_offset + localSampleId, feature, 0}], feature)
+          : SparseSplitProposals<TYPE>::NOT_FOUND;
+#pragma nounroll
+      for (int32_t output = 0; output < n_outputs; output++) {
+        const double val1 = g[{sample_offset + localSampleId, 0, output}];
+        const double val2 = h[{sample_offset + localSampleId, 0, output}];
+        if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
+          if (ENABLE_CACHE && block_use_cache) {
+            bin_cache.addToBin(sampleNode, output, bin_idx, feature, val1, val2, histogram, smem);
+          } else {
+            double* addPosition =
+              reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
+            atomicAdd(addPosition, val1);
+            atomicAdd(addPosition + 1, val2);
+          }
+        }
+      }
+    }
+  }
+
+  if constexpr (ENABLE_CACHE) {
+    if (block_use_cache)
+      bin_cache.flushCache(
+        cuda::std::get<0>(batch.instances_begin[blockIdx.x * TPB]), histogram, smem);
+  }
+
+  /*if (shfl(localSampleId_lane, 0) >= 0) {
     // preload G,H
     // every thread in the warp holds one element each, means that we pre-load WarpSize
     // elements of bot G & H.
@@ -332,17 +379,12 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
           // get G/H from thread that did the pre-fetch
           const int32_t prefetch_pos = lane_offset * n_outputs + output - prefetch_offset;
           const double val1          = enable_gh_prefetch ? shfl(G_lane, prefetch_pos)
-                                                          : g[{sample_offset + localSampleId, 0, output}];
-          const double val2          = enable_gh_prefetch ? shfl(H_lane, prefetch_pos)
-                                                          : h[{sample_offset + localSampleId, 0, output}];
-          if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-            if constexpr (USE_CACHE) {
-              bin_cache.addToBin(sampleNode, output, bin_idx, feature, val1, val2, histogram, smem);
-            } else {
-              double* addPosition =
-                reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
-              atomicAdd(addPosition, val1);
-              atomicAdd(addPosition + 1, val2);
+                                                          : g[{sample_offset + localSampleId, 0,
+output}]; const double val2          = enable_gh_prefetch ? shfl(H_lane, prefetch_pos) :
+h[{sample_offset + localSampleId, 0, output}]; if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND)
+{ if constexpr (USE_CACHE) { bin_cache.addToBin(sampleNode, output, bin_idx, feature, val1, val2,
+histogram, smem); } else { double* addPosition = reinterpret_cast<double*>(&histogram[{sampleNode,
+output, bin_idx}]); atomicAdd(addPosition, val1); atomicAdd(addPosition + 1, val2);
             }
           }
         }
@@ -355,7 +397,7 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
     // on lvl 0 / 1 we only have a single sample
     const int32_t histogram_node = 0;
     bin_cache.flushCache(histogram_node, histogram, smem);
-  }
+  }*/
 }
 
 template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
@@ -861,7 +903,7 @@ struct TreeBuilder {
   {
     // TODO adjust kernel parameters dynamically
 
-    if (depth == 0 && histogram_bin_cache.numCachedFeatures() > 0) {
+    if (histogram_bin_cache.numCachedFeatures() > 0) {
       const int threads_per_block = BinCache::TPB;
       const size_t blocks_x =
         (batch.InstancesInBatch() + threads_per_block - 1) / threads_per_block;
