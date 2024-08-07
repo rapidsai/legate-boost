@@ -251,8 +251,8 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
                  SparseSplitProposals<TYPE> split_proposals,
                  NodeBatch batch,
                  Histogram histogram,
-                 legate::Buffer<double, 2> node_hessians/*,
-                 BinCache bin_cache*/)
+                 legate::Buffer<double, 2> node_hessians,
+                 BinCache bin_cache)
 {
   constexpr int32_t WarpSize    = 32;
   const int32_t warp_id         = threadIdx.x / WarpSize;
@@ -276,7 +276,7 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   // mask contains all sample bits of the next 32 ids that need to be bin'ed
   auto lane_mask = ballot(computeHistogram);
 
-  // if constexpr (USE_CACHE) { bin_cache.initCache(smem); }
+  if constexpr (USE_CACHE) { bin_cache.initCache(smem); }
 
   if (lane_mask != 0) {
     // preload G,H
@@ -337,7 +337,7 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
                                                           : h[{sample_offset + localSampleId, 0, output}];
           if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
             if constexpr (USE_CACHE) {
-              // bin_cache.addToBin(sampleNode, output, bin_idx, feature, val1, val2, smem);
+              bin_cache.addToBin(sampleNode, output, bin_idx, feature, val1, val2, histogram, smem);
             } else {
               double* addPosition =
                 reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
@@ -350,13 +350,12 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
     } while (lane_mask);
   }
 
-  /*if constexpr (USE_CACHE) {
-    //assert(depth == 0 || depth == 1);
+  if constexpr (USE_CACHE) {
+    assert(depth == 0);
     // on lvl 0 / 1 we only have a single sample
-    //const int32_t histogram_node =
-//      depth == 0 ? 0 : (ComputeHistogramBin(1, 1, node_hessians) ? 1 : 2);
-    //bin_cache.flushCache(histogram_node, smem);
-  }*/
+    const int32_t histogram_node = 0;
+    bin_cache.flushCache(histogram_node, histogram, smem);
+  }
 }
 
 template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
@@ -856,11 +855,32 @@ struct TreeBuilder {
                         legate::Rect<3> X_shape,
                         legate::AccessorRO<double, 3> g,
                         legate::AccessorRO<double, 3> h,
-                        NodeBatch batch)
+                        NodeBatch batch,
+                        BinCache histogram_bin_cache,
+                        int depth)
   {
     // TODO adjust kernel parameters dynamically
 
-    {
+    if (depth == 0 && histogram_bin_cache.numCachedFeatures() > 0) {
+      const int threads_per_block = BinCache::TPB;
+      const size_t blocks_x       = (num_rows + threads_per_block - 1) / threads_per_block;
+      dim3 grid_shape             = dim3(blocks_x, 1, 1);
+
+      fill_histogram<TYPE, threads_per_block, true>
+        <<<grid_shape, threads_per_block, histogram_bin_cache.smemBytes(), stream>>>(
+          X,
+          num_rows,
+          num_features,
+          X_shape.lo[0],
+          g,
+          h,
+          num_outputs,
+          split_proposals,
+          batch,
+          histogram,
+          tree.hessian,
+          histogram_bin_cache);
+    } else {
       const int threads_per_block = 256;
       const size_t blocks_x       = (num_rows + threads_per_block - 1) / threads_per_block;
       dim3 grid_shape             = dim3(blocks_x, 1, 1);
@@ -875,8 +895,8 @@ struct TreeBuilder {
                                                        split_proposals,
                                                        batch,
                                                        histogram,
-                                                       tree.hessian/*,
-                                                       histogram_bin_cache*/);
+                                                       tree.hessian,
+                                                       histogram_bin_cache);
     }
 
     /*
@@ -985,13 +1005,13 @@ struct TreeBuilder {
                         BinaryTree::LevelEnd(depth),
                         sorted_positions.ptr(0),
                         sorted_positions.ptr(0) + num_rows}};
-    }
 
-    thrust::sort(
-      policy,
-      sorted_positions.ptr(0),
-      sorted_positions.ptr(num_rows),
-      [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
+      thrust::sort(
+        policy,
+        sorted_positions.ptr(0),
+        sorted_positions.ptr(num_rows),
+        [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
+    }
 
     // Launch a kernel where each thread computes the range of instances for a batch using binary
     // search
@@ -1087,6 +1107,13 @@ struct build_tree_fn {
     TreeBuilder<T> builder(
       num_rows, num_features, num_outputs, stream, tree.max_nodes, max_depth, split_proposals);
 
+    BinCache histogram_bin_cache =
+      SetupBinCache(split_proposals.row_pointers,
+                    num_features,
+                    num_outputs,
+                    (const void*)fill_histogram<T, BinCache::TPB, true>,
+                    stream);
+
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
     for (int depth = 0; depth < max_depth; ++depth) {
@@ -1094,8 +1121,16 @@ struct build_tree_fn {
       for (auto batch : batches) {
         auto histogram = builder.GetHistogram(batch);
 
-        builder.ComputeHistogram(
-          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
+        builder.ComputeHistogram(histogram,
+                                 context,
+                                 tree,
+                                 X_accessor,
+                                 X_shape,
+                                 g_accessor,
+                                 h_accessor,
+                                 batch,
+                                 histogram_bin_cache,
+                                 depth);
 
         builder.PerformBestSplit(tree, histogram, alpha, batch);
       }
