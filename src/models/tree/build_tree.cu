@@ -351,7 +351,7 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   }
 
   if constexpr (USE_CACHE) {
-    assert(depth == 0);
+    // assert(depth == 0);
     // on lvl 0 / 1 we only have a single sample
     const int32_t histogram_node = 0;
     bin_cache.flushCache(histogram_node, histogram, smem);
@@ -863,8 +863,9 @@ struct TreeBuilder {
 
     if (depth == 0 && histogram_bin_cache.numCachedFeatures() > 0) {
       const int threads_per_block = BinCache::TPB;
-      const size_t blocks_x       = (num_rows + threads_per_block - 1) / threads_per_block;
-      dim3 grid_shape             = dim3(blocks_x, 1, 1);
+      const size_t blocks_x =
+        (batch.InstancesInBatch() + threads_per_block - 1) / threads_per_block;
+      dim3 grid_shape = dim3(blocks_x, 1, 1);
 
       fill_histogram<TYPE, threads_per_block, true>
         <<<grid_shape, threads_per_block, histogram_bin_cache.smemBytes(), stream>>>(
@@ -882,8 +883,9 @@ struct TreeBuilder {
           histogram_bin_cache);
     } else {
       const int threads_per_block = 256;
-      const size_t blocks_x       = (num_rows + threads_per_block - 1) / threads_per_block;
-      dim3 grid_shape             = dim3(blocks_x, 1, 1);
+      const size_t blocks_x =
+        (batch.InstancesInBatch() + threads_per_block - 1) / threads_per_block;
+      dim3 grid_shape = dim3(blocks_x, 1, 1);
       fill_histogram<TYPE, threads_per_block, false>
         <<<grid_shape, threads_per_block, 0, stream>>>(X,
                                                        num_rows,
@@ -996,8 +998,87 @@ struct TreeBuilder {
   }
 
   template <typename PolicyT>
-  std::vector<NodeBatch> PrepareBatches(int depth, PolicyT& policy)
+  std::vector<NodeBatch> PrepareBatches(int depth, Tree& tree, PolicyT& policy)
   {
+    if (depth > 0) {
+      if (BinaryTree::LevelEnd(depth) < max_batch_size) {
+        // here we still work with the initial histogram containing parents
+        // which means due to the subtraction trick not all nodes have to be computed
+        auto compute_bool = legate::create_buffer<bool, 1>({BinaryTree::NodesInLevel(depth)});
+        LaunchN(BinaryTree::NodesInLevel(depth),
+                stream,
+                [offset           = BinaryTree::LevelBegin(depth),
+                 compute_bool_ptr = compute_bool.ptr(0),
+                 node_hessians    = tree.hessian] __device__(int idx) {
+                  compute_bool_ptr[idx] = ComputeHistogramBin(idx + offset, node_hessians, true);
+                });
+
+        /*{
+          auto count_negative = thrust::count_if(policy,
+                  sorted_positions.ptr(0),
+                  sorted_positions.ptr(0) + num_rows,
+                  [] __device__(auto a) { return cuda::std::get<0>(a) < 0; });
+          std::cerr << "Before sort: negative = " << count_negative << std::endl;
+        }
+        {
+          auto count_negative = thrust::count_if(policy,
+                  sorted_positions.ptr(0),
+                  sorted_positions.ptr(0) + num_rows,
+                  [offset = BinaryTree::LevelBegin(depth)] __device__(auto a) { return
+        cuda::std::get<0>(a) < offset; }); std::cerr << "Before sort: < begin = " << count_negative
+        << std::endl;
+        }
+        {
+          auto count_negative = thrust::count_if(policy,
+                  sorted_positions.ptr(0),
+                  sorted_positions.ptr(0) + num_rows,
+                  [offset = BinaryTree::LevelEnd(depth)] __device__(auto a) { return
+        cuda::std::get<0>(a) >= offset; }); std::cerr << "Before sort: >= end = " << count_negative
+        << std::endl;
+        }*/
+
+        auto comp2 = [offset           = BinaryTree::LevelBegin(depth),
+                      compute_bool_ptr = compute_bool.ptr(0)] __device__(auto a, auto b) {
+          bool need_a =
+            cuda::std::get<0>(a) < offset ? false : compute_bool_ptr[cuda::std::get<0>(a) - offset];
+          bool need_b =
+            cuda::std::get<0>(b) < offset ? false : compute_bool_ptr[cuda::std::get<0>(b) - offset];
+          if (need_a != need_b)
+            return need_a;  // true before false
+          else
+            return cuda::std::get<0>(a) < cuda::std::get<0>(b);
+        };
+
+        thrust::sort(policy, sorted_positions.ptr(0), sorted_positions.ptr(num_rows), comp2);
+
+        auto count_total =
+          thrust::count_if(policy,
+                           sorted_positions.ptr(0),
+                           sorted_positions.ptr(num_rows),
+                           [offset           = BinaryTree::LevelBegin(depth),
+                            compute_bool_ptr = compute_bool.ptr(0)] __device__(auto a) {
+                             return cuda::std::get<0>(a) >= offset &&
+                                    compute_bool_ptr[cuda::std::get<0>(a) - offset];
+                           });
+        // std::cerr << "Total " << count_total << " of " << num_rows << " weights will be added to
+        // histogram." <<  std::endl;
+
+        compute_bool.destroy();
+
+        return {NodeBatch{BinaryTree::LevelBegin(depth),
+                          BinaryTree::LevelEnd(depth),
+                          sorted_positions.ptr(0),
+                          sorted_positions.ptr(0) + count_total}};
+
+      } else {
+        thrust::sort(
+          policy,
+          sorted_positions.ptr(0),
+          sorted_positions.ptr(num_rows),
+          [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
+      }
+    }
+
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
       // All instances are in batch
@@ -1005,13 +1086,13 @@ struct TreeBuilder {
                         BinaryTree::LevelEnd(depth),
                         sorted_positions.ptr(0),
                         sorted_positions.ptr(0) + num_rows}};
-
-      thrust::sort(
-        policy,
-        sorted_positions.ptr(0),
-        sorted_positions.ptr(num_rows),
-        [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
     }
+
+    thrust::sort(
+      policy,
+      sorted_positions.ptr(0),
+      sorted_positions.ptr(num_rows),
+      [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
 
     // Launch a kernel where each thread computes the range of instances for a batch using binary
     // search
@@ -1117,7 +1198,7 @@ struct build_tree_fn {
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
     for (int depth = 0; depth < max_depth; ++depth) {
-      auto batches = builder.PrepareBatches(depth, thrust_exec_policy);
+      auto batches = builder.PrepareBatches(depth, tree, thrust_exec_policy);
       for (auto batch : batches) {
         auto histogram = builder.GetHistogram(batch);
 
@@ -1137,6 +1218,14 @@ struct build_tree_fn {
       // Update position of entire level
       // Don't bother updating positions for the last level
       if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_accessor, X_shape); }
+
+      /*{
+        auto count_negative = thrust::count_if(thrust_exec_policy,
+                  builder.sorted_positions.ptr(0),
+                  builder.sorted_positions.ptr(0) + num_rows,
+                  [] __device__(auto a) { return cuda::std::get<0>(a) < 0; });
+        std::cerr << "count negative = " << count_negative << std::endl;
+      }*/
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);
