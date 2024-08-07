@@ -73,9 +73,176 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   }
 }
 
-template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
-__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+// Cache to utilize shared memory for some bins
+// start off with level0 only (lvl 1 should also be possible as it also only has 1 sample node)
+class BinCache {
+ public:
+  legate::Buffer<int32_t, 1> cache_position;
+  legate::Buffer<int32_t, 1> bin_idx_at_position;
+  legate::Buffer<int32_t, 1> row_pointers;
+  int32_t num_features;
+  int32_t num_outputs;
+  int32_t num_cached_features;
+  int32_t num_cached_bins;
+  int32_t max_cached_bins;  // == cache_size_bytes // (2 * 8 * num_outputs)
+  static const int NOT_FOUND = -1;
+  static const int TPB       = 512;
+
+  BinCache(legate::Buffer<int32_t, 1> row_pointers,
+           legate::Buffer<int32_t, 1> cache_position,
+           legate::Buffer<int32_t, 1> bin_idx_at_position,
+           int32_t num_features,
+           int32_t num_outputs,
+           int32_t num_cached_features,
+           int32_t num_cached_bins,
+           int32_t max_cached_bins)
+    : row_pointers(row_pointers),
+      cache_position(cache_position),
+      bin_idx_at_position(bin_idx_at_position),
+      num_features(num_features),
+      num_outputs(num_outputs),
+      num_cached_features(num_cached_features),
+      num_cached_bins(num_cached_bins),
+      max_cached_bins(max_cached_bins)
+  {
+  }
+
+  __device__ inline void addToBin(int sampleNode,
+                                  int output,
+                                  int bin_idx,
+                                  int feature,
+                                  double val1,
+                                  double val2,
+                                  Histogram histogram,
+                                  double* smem)
+  {
+    auto feature_start_bin = num_cached_features > 0 ? cache_position[{feature}] : NOT_FOUND;
+    if (feature_start_bin != NOT_FOUND) {
+      int feature_bin = bin_idx - row_pointers[feature];
+      smem += ((feature_start_bin + feature_bin) * num_outputs + output) * 2;
+      atomicAdd(smem, val1);
+      atomicAdd(smem + 1, val2);
+    } else {
+      double* addPosition = reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
+      atomicAdd(addPosition, val1);
+      atomicAdd(addPosition + 1, val2);
+    }
+  }
+
+  __device__ inline void flushCache(int sampleNode, Histogram histogram, double* smem)
+  {
+    int cache_entries = num_cached_bins * num_outputs * 2;
+    __syncthreads();
+    for (int pos = threadIdx.x; pos < cache_entries; pos += blockDim.x) {
+      double value = smem[pos];
+      if (value != 0.0) {
+        int output          = (pos >> 1) % num_outputs;
+        int cache_bin       = (pos >> 1) / num_outputs;
+        int bin_idx         = bin_idx_at_position[cache_bin];
+        double* addPosition = reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
+        atomicAdd(addPosition + (pos & 1), value);
+      }
+    }
+  }
+
+  __device__ inline void initCache(double* smem)
+  {
+    int cache_entries = num_cached_bins * num_outputs * 2;
+    for (int pos = threadIdx.x; pos < cache_entries; pos += blockDim.x) { smem[pos] = 0.0; }
+    __syncthreads();
+  }
+
+  size_t smemBytes() { return num_cached_bins * num_outputs * 16; }
+
+  int32_t numCachedFeatures() { return num_cached_features; }
+};
+
+BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
+                       int32_t num_features,
+                       int32_t num_outputs,
+                       const void* kernel,
+                       cudaStream_t stream)
+{
+  auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
+  auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
+
+  // 0. retrieve max. occupancy and extract available shared memory
+  size_t avail_cache_size_bytes;
+  int occupancy;
+  cudaOccupancyMaxActiveBlocksPerMultiprocessor(&occupancy, kernel, BinCache::TPB, 0);
+  cudaOccupancyAvailableDynamicSMemPerBlock(
+    &avail_cache_size_bytes, kernel, occupancy, BinCache::TPB);
+
+  int max_cached_bins      = avail_cache_size_bytes / (16 * num_outputs);
+  auto cache_position      = legate::create_buffer<int32_t, 1>({num_features});
+  auto bin_idx_at_position = legate::create_buffer<int32_t, 1>({max_cached_bins});
+
+  // 1. compute length per feature
+  auto counting = thrust::make_counting_iterator(0);
+  auto num_bins = legate::create_buffer<int32_t, 1>({num_features});
+  thrust::transform(
+    policy, counting, counting + num_features, num_bins.ptr(0), [=] __device__(int i) {
+      return row_pointers[{i + 1}] - row_pointers[{i}];
+    });
+
+  // 2. argsort with iota
+  auto feature_idx = legate::create_buffer<int32_t, 1>({num_features});
+  thrust::sequence(policy, feature_idx.ptr(0), feature_idx.ptr(0) + num_features);
+  thrust::sort_by_key(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, feature_idx.ptr(0));
+
+  // 3. scan
+  thrust::inclusive_scan(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, num_bins.ptr(0));
+
+  // 4. select last <= max_cached_bins, also restrict to max_features_size_k
+  int cached_features =
+    thrust::upper_bound(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, max_cached_bins) -
+    num_bins.ptr(0);
+
+  // extract num_cached_bins
+  int num_cached_bins = 0;
+  if (cached_features > 0) {
+    CHECK_CUDA(cudaMemcpyAsync(&num_cached_bins,
+                               num_bins.ptr(cached_features - 1),
+                               1 * sizeof(int32_t),
+                               cudaMemcpyDeviceToHost,
+                               stream));
+  }
+
+  // 5. fill data with custom kernel
+  LaunchN(num_features, stream, [=] __device__(auto idx) {
+    auto feature_pos = feature_idx[idx];
+    auto cache_start = idx > 0 ? num_bins[idx - 1] : 0;
+    auto num_entries = num_bins[idx] - cache_start;
+    if (cache_start + num_entries < num_cached_bins) {
+      cache_position[feature_pos] = cache_start;
+      int bin_start               = row_pointers[feature_pos];
+      for (int i = 0; i < num_entries; ++i) bin_idx_at_position[cache_start + i] = bin_start + i;
+    } else {
+      cache_position[feature_pos] = BinCache::NOT_FOUND;
+    }
+  });
+
+  num_bins.destroy();
+  feature_idx.destroy();
+  std::cout << "DEBUG: caching " << cached_features << "/" << num_features
+            << " features with a total of " << num_cached_bins
+            << " bins, max_cached_bins = " << max_cached_bins << ", occupancy = " << occupancy
+            << std::endl;
+  return BinCache(row_pointers,
+                  cache_position,
+                  bin_idx_at_position,
+                  num_features,
+                  num_outputs,
+                  cached_features,
+                  num_cached_bins,
+                  max_cached_bins);
+}
+
+// kernel with smem -- utilizes 1 warp per 32 samples, processing all features/outputs at once
+template <typename TYPE, int TPB, bool USE_CACHE, bool USE_PREFETCH = true>
+__global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   fill_histogram(legate::AccessorRO<TYPE, 3> X,
+                 size_t n_local_samples,
                  size_t n_features,
                  int64_t sample_offset,
                  legate::AccessorRO<double, 3> g,
@@ -84,7 +251,126 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  SparseSplitProposals<TYPE> split_proposals,
                  NodeBatch batch,
                  Histogram histogram,
-                 legate::Buffer<double, 2> node_hessians)
+                 legate::Buffer<double, 2> node_hessians/*,
+                 BinCache bin_cache*/)
+{
+  constexpr int32_t WarpSize    = 32;
+  const int32_t warp_id         = threadIdx.x / WarpSize;
+  const int32_t lane_id         = threadIdx.x % WarpSize;
+  const bool enable_gh_prefetch = USE_PREFETCH && n_outputs <= WarpSize;
+
+  extern __shared__ double smem[];
+
+  const int32_t localIdx = blockIdx.x * TPB + warp_id * WarpSize + lane_id;
+
+  // prefetch sampleNode information for all 32 ids
+  auto [sampleNode_lane, localSampleId_lane] = (localIdx < batch.InstancesInBatch())
+                                                 ? batch.instances_begin[localIdx]
+                                                 : cuda::std::make_tuple(-1, -1);
+  ;
+  const bool computeHistogram =
+    localIdx < batch.InstancesInBatch() &&
+    ComputeHistogramBin(
+      sampleNode_lane, node_hessians, histogram.ContainsNode(BinaryTree::Parent(sampleNode_lane)));
+
+  // mask contains all sample bits of the next 32 ids that need to be bin'ed
+  auto lane_mask = ballot(computeHistogram);
+
+  // if constexpr (USE_CACHE) { bin_cache.initCache(smem); }
+
+  if (lane_mask != 0) {
+    // preload G,H
+    // every thread in the warp holds one element each, means that we pre-load WarpSize
+    // elements of bot G & H.
+    int32_t prefetch_offset = 0;
+    int32_t prefetch_sample =
+      enable_gh_prefetch ? shfl(localSampleId_lane, lane_id / n_outputs) : -1;
+    double G_lane = prefetch_sample >= 0
+                      ? g[{sample_offset + prefetch_sample, 0, lane_id % (int)n_outputs}]
+                      : 0.0;
+    double H_lane = prefetch_sample >= 0
+                      ? h[{sample_offset + prefetch_sample, 0, lane_id % (int)n_outputs}]
+                      : 0.0;
+
+    // reverse to use __clz instead of __ffs
+    lane_mask = __brev(lane_mask);
+
+    do {
+      // look for next lane_offset / sample to process within warp-batch
+      const uint32_t lane_offset  = __clz(lane_mask);
+      const int32_t sampleNode    = shfl(sampleNode_lane, lane_offset);
+      const int32_t localSampleId = shfl(localSampleId_lane, lane_offset);
+
+      // ensure all G.H for current sample are cached
+      // when cache gets updated, cache start shifts to current working sample at offset
+      if (((lane_offset + 1) * n_outputs - prefetch_offset) >= WarpSize) {
+        prefetch_offset = lane_offset * n_outputs;
+        prefetch_sample =
+          enable_gh_prefetch
+            ? shfl(localSampleId_lane, min(lane_offset + lane_id / (int)n_outputs, WarpSize - 1))
+            : -1;
+        G_lane = prefetch_sample >= 0
+                   ? g[{sample_offset + prefetch_sample, 0, lane_id % (int)n_outputs}]
+                   : 0.0;
+        H_lane = prefetch_sample >= 0
+                   ? h[{sample_offset + prefetch_sample, 0, lane_id % (int)n_outputs}]
+                   : 0.0;
+      }
+
+      // remove lane_offset bit from lane_mask for next iteration
+      lane_mask &= (0x7fffffff >> lane_offset);
+
+#pragma nounroll
+      for (int32_t feature0 = 0; feature0 < n_features; feature0 += WarpSize) {
+        const int32_t feature = feature0 + lane_id;
+        const int32_t bin_idx =
+          feature < n_features
+            ? split_proposals.FindBin(X[{sample_offset + localSampleId, feature, 0}], feature)
+            : SparseSplitProposals<TYPE>::NOT_FOUND;
+#pragma nounroll
+        for (int32_t output = 0; output < n_outputs; output++) {
+          // get G/H from thread that did the pre-fetch
+          const int32_t prefetch_pos = lane_offset * n_outputs + output - prefetch_offset;
+          const double val1          = enable_gh_prefetch ? shfl(G_lane, prefetch_pos)
+                                                          : g[{sample_offset + localSampleId, 0, output}];
+          const double val2          = enable_gh_prefetch ? shfl(H_lane, prefetch_pos)
+                                                          : h[{sample_offset + localSampleId, 0, output}];
+          if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
+            if constexpr (USE_CACHE) {
+              // bin_cache.addToBin(sampleNode, output, bin_idx, feature, val1, val2, smem);
+            } else {
+              double* addPosition =
+                reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
+              atomicAdd(addPosition, val1);
+              atomicAdd(addPosition + 1, val2);
+            }
+          }
+        }
+      }
+    } while (lane_mask);
+  }
+
+  /*if constexpr (USE_CACHE) {
+    //assert(depth == 0 || depth == 1);
+    // on lvl 0 / 1 we only have a single sample
+    //const int32_t histogram_node =
+//      depth == 0 ? 0 : (ComputeHistogramBin(1, 1, node_hessians) ? 1 : 2);
+    //bin_cache.flushCache(histogram_node, smem);
+  }*/
+}
+
+template <typename TYPE, int ELEMENTS_PER_THREAD, int FEATURES_PER_BLOCK>
+__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+  fill_histogram_old(legate::AccessorRO<TYPE, 3> X,
+                     size_t n_features,
+                     int64_t sample_offset,
+                     legate::AccessorRO<double, 3> g,
+                     legate::AccessorRO<double, 3> h,
+                     size_t n_outputs,
+                     SparseSplitProposals<TYPE> split_proposals,
+                     NodeBatch batch,
+                     Histogram histogram,
+                     legate::Buffer<double, 2> node_hessians)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
   // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
@@ -573,6 +859,27 @@ struct TreeBuilder {
                         NodeBatch batch)
   {
     // TODO adjust kernel parameters dynamically
+
+    {
+      const int threads_per_block = 256;
+      const size_t blocks_x       = (num_rows + threads_per_block - 1) / threads_per_block;
+      dim3 grid_shape             = dim3(blocks_x, 1, 1);
+      fill_histogram<TYPE, threads_per_block, false>
+        <<<grid_shape, threads_per_block, 0, stream>>>(X,
+                                                       num_rows,
+                                                       num_features,
+                                                       X_shape.lo[0],
+                                                       g,
+                                                       h,
+                                                       num_outputs,
+                                                       split_proposals,
+                                                       batch,
+                                                       histogram,
+                                                       tree.hessian/*,
+                                                       histogram_bin_cache*/);
+    }
+
+    /*
     constexpr size_t elements_per_thread = 8;
     constexpr size_t features_per_block  = 16;
 
@@ -581,7 +888,7 @@ struct TreeBuilder {
       (THREADS_PER_BLOCK * elements_per_thread);
     const size_t blocks_y = (num_features + features_per_block - 1) / features_per_block;
     dim3 grid_shape       = dim3(blocks_x, blocks_y, 1);
-    fill_histogram<TYPE, elements_per_thread, features_per_block>
+    fill_histogram_old<TYPE, elements_per_thread, features_per_block>
       <<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(X,
                                                      num_features,
                                                      X_shape.lo[0],
@@ -591,7 +898,7 @@ struct TreeBuilder {
                                                      split_proposals,
                                                      batch,
                                                      histogram,
-                                                     tree.hessian);
+                                                     tree.hessian);*/
 
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
