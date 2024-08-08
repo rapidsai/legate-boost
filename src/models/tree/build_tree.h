@@ -30,7 +30,9 @@ class BinaryTree {
   __host__ __device__ static int Parent(int i) { return (i - 1) / 2; }
   __host__ __device__ static int LeftChild(int i) { return 2 * i + 1; }
   __host__ __device__ static int RightChild(int i) { return 2 * i + 2; }
+  __host__ __device__ static int Sibling(int i) { return (i % 2 == 0) ? i - 1 : i + 1; }
   __host__ __device__ static int LevelBegin(int level) { return (1 << level) - 1; }
+  __host__ __device__ static int LevelEnd(int level) { return (1 << (level + 1)) - 1; }
   __host__ __device__ static int NodesInLevel(int level) { return 1 << level; }
 };
 
@@ -49,11 +51,13 @@ inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
 }
 
 inline __host__ __device__ bool ComputeHistogramBin(int node_id,
-                                                    int depth,
-                                                    legate::Buffer<double, 2> node_hessians)
+                                                    legate::Buffer<double, 2> node_hessians,
+                                                    bool parent_histogram_exists)
 {
   if (node_id == 0) return true;
   if (node_id < 0) return false;
+  if (!parent_histogram_exists) return true;
+
   int parent                           = BinaryTree::Parent(node_id);
   auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_hessians);
   return histogram_node == node_id;
@@ -135,6 +139,64 @@ class SparseSplitProposals {
   __host__ __device__ std::tuple<int, int> FeatureRange(int feature) const
   {
     return std::make_tuple(row_pointers[feature], row_pointers[feature + 1]);
+  }
+};
+
+class Histogram {
+  legate::Buffer<GPair, 3> buffer_;  // Nodes, outputs, bins
+  int node_begin_;
+  int node_end_;
+  std::size_t size_;
+
+ public:
+#ifdef __NVCC__
+  Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
+    : node_begin_(node_begin), node_end_(node_end)
+  {
+    buffer_ = legate::create_buffer<GPair, 3>({node_end - node_begin, num_outputs, num_bins});
+    size_   = (node_end - node_begin) * num_outputs * num_bins;
+    CHECK_CUDA(
+      cudaMemsetAsync(buffer_.ptr(legate::Point<3>::ZEROES()), 0, size_ * sizeof(GPair), stream));
+  }
+#else
+  Histogram(int node_begin, int node_end, int num_outputs, int num_bins)
+    : node_begin_(node_begin), node_end_(node_end)
+  {
+    buffer_ = legate::create_buffer<GPair, 3>({node_end - node_begin, num_outputs, num_bins});
+    size_   = (node_end - node_begin) * num_outputs * num_bins;
+    for (std::size_t i = 0; i < size_; i++) {
+      buffer_.ptr(legate::Point<3>::ZEROES())[i] = GPair{0.0, 0.0};
+    }
+  }
+#endif
+  Histogram() = default;
+
+  void Destroy()
+  {
+    if (size_ > 0) buffer_.destroy();
+    node_begin_ = 0;
+    node_end_   = 0;
+    size_       = 0;
+  }
+
+  bool ContainsBatch(int node_begin_idx, int node_end_idx)
+  {
+    return node_begin_idx >= node_begin_ && node_end_idx <= node_end_;
+  }
+
+  __device__ bool ContainsNode(int node_idx)
+  {
+    return node_idx >= node_begin_ && node_idx < node_end_;
+  }
+
+  GPair* Ptr(int node_idx) { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
+
+  std::size_t Size() { return size_; }
+
+  // Node, output, bin
+  __host__ __device__ GPair& operator[](legate::Point<3> p)
+  {
+    return buffer_[{p[0] - node_begin_, p[1], p[2]}];
   }
 };
 
