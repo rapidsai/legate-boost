@@ -77,7 +77,7 @@ requirements:
     - {{ stdlib("c") }}
   host:
     # TODO: resolve selectors in legate-core/cunumeric
-    {% if gpu_enabled_bool % }
+    {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
     {% if cuda_major == "11" %}
     - cudatoolkit
