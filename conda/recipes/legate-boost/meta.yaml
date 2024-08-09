@@ -71,9 +71,9 @@ requirements:
     - ninja
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
-    {% if gpu_enabled_bool %}
+    #{% if gpu_enabled_bool %}
     - cuda-nvcc
-    {% endif %} # if gpu_enabled_bool
+    # {% endif %} # if gpu_enabled_bool
     - {{ stdlib("c") }}
   host:
     # TODO: resolve selectors in legate-core/cunumeric
