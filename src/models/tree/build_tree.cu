@@ -116,7 +116,7 @@ class BinCache {
                                   Histogram histogram,
                                   double* smem)
   {
-    auto feature_start_bin = num_cached_features > 0 ? cache_position[{feature}] : NOT_FOUND;
+    auto feature_start_bin = cache_position[{feature}];
     if (feature_start_bin != NOT_FOUND) {
       int feature_bin = bin_idx - row_pointers[feature];
       smem += ((feature_start_bin + feature_bin) * num_outputs + output) * 2;
@@ -166,7 +166,7 @@ BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
   auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
   auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
 
-  // 0. retrieve max. occupancy and extract available shared memory
+  // retrieve max. occupancy and extract available shared memory
   size_t avail_cache_size_bytes;
   int occupancy;
   cudaOccupancyMaxActiveBlocksPerMultiprocessor(&occupancy, kernel, BinCache::TPB, 0);
@@ -177,7 +177,7 @@ BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
   auto cache_position      = legate::create_buffer<int32_t, 1>({num_features});
   auto bin_idx_at_position = legate::create_buffer<int32_t, 1>({max_cached_bins});
 
-  // 1. compute length per feature
+  // compute length per feature
   auto counting = thrust::make_counting_iterator(0);
   auto num_bins = legate::create_buffer<int32_t, 1>({num_features});
   thrust::transform(
@@ -185,23 +185,22 @@ BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
       return row_pointers[{i + 1}] - row_pointers[{i}];
     });
 
-  // 2. argsort with iota
+  // argsort with iota
   auto feature_idx = legate::create_buffer<int32_t, 1>({num_features});
   thrust::sequence(policy, feature_idx.ptr(0), feature_idx.ptr(0) + num_features);
   thrust::sort_by_key(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, feature_idx.ptr(0));
+
+  // select features_below_threshold
   int bin_threshold = 64;
   int features_below_threshold =
     thrust::upper_bound(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, bin_threshold) -
     num_bins.ptr(0);
 
-  // 3. scan
+  // select last <= max_cached_bins, also restrict to features_below_threshold
   thrust::inclusive_scan(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, num_bins.ptr(0));
-
-  // 4. select last <= max_cached_bins, also restrict to max_features_size_k
   int max_cached_features =
     thrust::upper_bound(policy, num_bins.ptr(0), num_bins.ptr(0) + num_features, max_cached_bins) -
     num_bins.ptr(0);
-
   int cached_features = std::min(features_below_threshold, max_cached_features);
 
   // extract num_cached_bins
@@ -214,7 +213,7 @@ BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
                                stream));
   }
 
-  // 5. fill data with custom kernel
+  // fill forwrd/backward indices with custom kernel
   LaunchN(num_features, stream, [=] __device__(auto idx) {
     auto feature_pos = feature_idx[idx];
     auto cache_start = idx > 0 ? num_bins[idx - 1] : 0;
@@ -230,10 +229,10 @@ BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
 
   num_bins.destroy();
   feature_idx.destroy();
-  std::cout << "DEBUG: caching " << cached_features << "/" << features_below_threshold << "/"
+  /*std::cout << "DEBUG: caching " << cached_features << "/" << features_below_threshold << "/"
             << max_cached_features << "/" << num_features << " features with a total of "
             << num_cached_bins << " bins, max_cached_bins = " << max_cached_bins
-            << ", occupancy = " << occupancy << std::endl;
+            << ", occupancy = " << occupancy << std::endl;*/
   return BinCache(row_pointers,
                   cache_position,
                   bin_idx_at_position,
@@ -248,7 +247,6 @@ BinCache SetupBinCache(legate::Buffer<int32_t, 1> row_pointers,
 template <typename TYPE, int TPB, bool USE_CACHE>
 __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   fill_histogram(legate::AccessorRO<TYPE, 3> X,
-                 size_t n_local_samples,
                  size_t n_features,
                  int64_t sample_offset,
                  legate::AccessorRO<double, 3> g,
@@ -259,6 +257,7 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
                  Histogram histogram,
                  legate::Buffer<double, 2> node_hessians,
                  int depth,
+                 bool has_sorted_positions,
                  BinCache bin_cache)
 {
   constexpr int32_t WarpSize = 32;
@@ -281,7 +280,7 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   // check first and last element of block
   const bool block_use_cache =
     USE_CACHE &&
-    (depth < 2 ||
+    (!has_sorted_positions ||
      (cuda::std::get<0>(batch.instances_begin[blockIdx.x * TPB]) ==
       cuda::std::get<0>(
         batch
@@ -297,51 +296,47 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   // reverse to use __clz instead of __ffs
   lane_mask = __brev(lane_mask);
 
-  if (lane_mask != 0) {
-    do {
-      // look for next lane_offset / sample to process within warp-batch
-      const uint32_t lane_offset  = __clz(lane_mask);
-      const int32_t sampleNode    = shfl(sampleNode_lane, lane_offset);
-      const int32_t localSampleId = shfl(localSampleId_lane, lane_offset);
+  while (lane_mask) {
+    // look for next lane_offset / sample to process within warp-batch
+    const uint32_t lane_offset  = __clz(lane_mask);
+    const int32_t sampleNode    = shfl(sampleNode_lane, lane_offset);
+    const int32_t localSampleId = shfl(localSampleId_lane, lane_offset);
 
-      // remove lane_offset bit from lane_mask for next iteration
-      lane_mask &= (0x7fffffff >> lane_offset);
+    // remove lane_offset bit from lane_mask for next iteration
+    lane_mask &= (0x7fffffff >> lane_offset);
 
-#pragma nounroll
-      for (int32_t feature0 = 0; feature0 < n_features; feature0 += WarpSize) {
-        const int32_t feature = feature0 + lane_id;
-        const int32_t bin_idx =
-          feature < n_features
-            ? split_proposals.FindBin(X[{sample_offset + localSampleId, feature, 0}], feature)
-            : SparseSplitProposals<TYPE>::NOT_FOUND;
-#pragma nounroll
-        for (int32_t output = 0; output < n_outputs; output++) {
-          // get G/H from thread that did the pre-fetch
-          const double val1 = g[{sample_offset + localSampleId, 0, output}];
-          const double val2 = h[{sample_offset + localSampleId, 0, output}];
-          if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-            if (USE_CACHE && block_use_cache) {
-              bin_cache.addToBin(sampleNode, output, bin_idx, feature, val1, val2, histogram, smem);
-            } else {
-              double* addPosition =
-                reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
-              atomicAdd(addPosition, val1);
-              atomicAdd(addPosition + 1, val2);
-            }
+    for (int32_t feature0 = 0; feature0 < n_features; feature0 += WarpSize) {
+      const int32_t feature = feature0 + lane_id;
+      const int32_t bin_idx =
+        feature < n_features
+          ? split_proposals.FindBin(X[{sample_offset + localSampleId, feature, 0}], feature)
+          : SparseSplitProposals<TYPE>::NOT_FOUND;
+      for (int32_t output = 0; output < n_outputs; output++) {
+        // get same G/H from every thread in warp
+        const double val1 = g[{sample_offset + localSampleId, 0, output}];
+        const double val2 = h[{sample_offset + localSampleId, 0, output}];
+        if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
+          if (USE_CACHE && block_use_cache) {
+            bin_cache.addToBin(sampleNode, output, bin_idx, feature, val1, val2, histogram, smem);
+          } else {
+            double* addPosition =
+              reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
+            atomicAdd(addPosition, val1);
+            atomicAdd(addPosition + 1, val2);
           }
         }
       }
-    } while (lane_mask);
+    }
   }
 
   if constexpr (USE_CACHE) {
-    assert(depth == 0 || depth == 1 || depth == 2);
-    if (depth < 2) {
+    if (!has_sorted_positions) {
       // on lvl 0 / 1 we only have a single sample
       const int32_t histogram_node =
         depth == 0 ? 0 : (ComputeHistogramBin(1, node_hessians, true) ? 1 : 2);
       bin_cache.flushCache(histogram_node, histogram, smem);
     } else if (block_use_cache) {
+      // with sorted positions we are sure that the first element is in a valid node
       bin_cache.flushCache(
         cuda::std::get<0>(batch.instances_begin[blockIdx.x * TPB]), histogram, smem);
     }
@@ -793,8 +788,13 @@ struct TreeBuilder {
                         int depth,
                         PolicyT& policy)
   {
-    // TODO improve heuristic based on num_rows/num_nodes
-    bool use_smem = depth < 3 && histogram_bin_cache.numCachedFeatures() > 0;
+    // heuristic chooses use_smem only when
+    // * at least 1024 docs per node in average
+    // * we are not in 'batching' mode yet
+    // * there are features available for caching in smem
+    bool use_smem = num_rows > (1 << (10 + depth)) &&
+                    BinaryTree::LevelEnd(depth) <= max_batch_size &&
+                    histogram_bin_cache.numCachedFeatures() > 0;
     if (use_smem) {
       // might need a tmp buffer here in case we have more than 1 node to work on
       bool need_sorted_positions = depth > 1;
@@ -811,7 +811,6 @@ struct TreeBuilder {
       fill_histogram<TYPE, threads_per_block, true>
         <<<grid_shape, threads_per_block, histogram_bin_cache.smemBytes(), stream>>>(
           X,
-          num_rows,
           num_features,
           X_shape.lo[0],
           g,
@@ -822,6 +821,7 @@ struct TreeBuilder {
           histogram,
           tree.hessian,
           depth,
+          need_sorted_positions,
           histogram_bin_cache);
 
       sorted_positions_tmp.destroy();
@@ -832,7 +832,6 @@ struct TreeBuilder {
       dim3 grid_shape = dim3(blocks_x, 1, 1);
       fill_histogram<TYPE, threads_per_block, false>
         <<<grid_shape, threads_per_block, 0, stream>>>(X,
-                                                       num_rows,
                                                        num_features,
                                                        X_shape.lo[0],
                                                        g,
@@ -843,6 +842,7 @@ struct TreeBuilder {
                                                        histogram,
                                                        tree.hessian,
                                                        depth,
+                                                       false,
                                                        histogram_bin_cache);
     }
 
@@ -1123,14 +1123,6 @@ struct build_tree_fn {
       // Update position of entire level
       // Don't bother updating positions for the last level
       if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_accessor, X_shape); }
-
-      /*{
-        auto count_negative = thrust::count_if(thrust_exec_policy,
-                  builder.sorted_positions.ptr(0),
-                  builder.sorted_positions.ptr(0) + num_rows,
-                  [] __device__(auto a) { return cuda::std::get<0>(a) < 0; });
-        std::cerr << "count negative = " << count_negative << std::endl;
-      }*/
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy);
