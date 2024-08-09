@@ -8,6 +8,7 @@ rapids-print-env
 
 rm -rf ./build ./dist ./_skbuild
 
+CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
 conda mambabuild \
     --channel legate \
     --channel conda-forge \
