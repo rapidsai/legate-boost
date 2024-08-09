@@ -39,15 +39,15 @@ jobs:
       script: ci/build_python.sh
 
   conda-python-tests-cpu:
-    needs: [conda-python-build]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-24.10
+    needs: [conda-python-builcd]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     with:
+      arch: "amd64"
       build_type: pull-request
-      # TODO: ensure this only chooses CUDA 12 jobs (and maybe just hard-code a matrix instead of relying on RAPIDS shared-workflows)
-      matrix_filter: map(select(.PY_VER == "3.10"))
+      container_image: "rapidsai/ci-conda:latest"
       # use a runner that does not have a GPU
       node_type: cpu16
-      script: ci/test_python_cpu.sh
+      run_script: ci/test_poython_cpu.sh
 
   conda-python-tests-gpu:
     needs: [conda-python-build]
