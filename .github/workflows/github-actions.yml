@@ -39,7 +39,7 @@ jobs:
       script: ci/build_python.sh
 
   conda-python-tests-cpu:
-    needs: [conda-python-builcd]
+    needs: [conda-python-build]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     with:
       arch: "amd64"
