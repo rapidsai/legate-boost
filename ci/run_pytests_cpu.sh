@@ -2,7 +2,9 @@
 
 # [description]
 #
-#   Run CPU tests. This is intended for use by both CI and local development,
+#   Run CPU tests.
+#
+#   This is intended for use by both CI and local development,
 #   so shouldn't rely on any CI-specific details.
 #
 #   Put CI-specific details in 'run_pytests_cpu.sh'.

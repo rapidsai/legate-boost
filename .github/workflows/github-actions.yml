@@ -89,9 +89,6 @@ jobs:
   #         mamba env update \
   #           --name base \
   #           --file /tmp/env.yaml
-      # - name: Type check legate-boost
-      #   run: |
-      #     mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
       # - name: Build legate-boost
       #   env:
       #     CUDAARCHS: '70;80'

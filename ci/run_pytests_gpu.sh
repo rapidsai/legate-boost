@@ -2,7 +2,9 @@
 
 # [description]
 #
-#   Run GPU tests. This is intended for use by both CI and local development,
+#   Run GPU tests.
+#
+#   This is intended for use by both CI and local development,
 #   so shouldn't rely on any CI-specific details.
 #
 #   Put CI-specific details in 'run_pytests_gpu.sh'.
