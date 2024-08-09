@@ -60,11 +60,13 @@ build:
     - SCCACHE_S3_USE_SSL
     - SCCACHE_S3_NO_CREDENTIALS
   ignore_run_exports_from:
+    {% if gpu_enabled_bool %}
     {% if cuda_major == "11" %}
     - {{ compiler('cuda11') }}
     {% else %}
     - {{ compiler('cuda') }}
-    {% endif %}
+    {% endif %} # if cuda_major
+    {% endif %} # if gpu_enabled bool
 
 requirements:
   build:
@@ -88,14 +90,14 @@ requirements:
     - cudatoolkit
     {% else %}
     - cuda-cudart-dev
-    {% endif %}
+    {% endif %} # if cuda_major
     - cunumeric {{ legate_version }} =*_0
     - legate-core {{ legate_version }} =*_ucx
     - libcublas-dev
     {% else %}
     - cunumeric {{ legate_version }} =*_cpu
     - legate-core {{ legate_version }} =*_cpu
-    {% endif %}
+    {% endif %} # if gpu_enabled
     - openblas
     - python
     - pip
