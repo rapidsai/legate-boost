@@ -6,7 +6,7 @@ rapids-print-env
 
 rapids-dependency-file-generator \
   --output conda \
-  --file-key test \
+  --file-key py_test \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION}" \
 | tee /tmp/env.yaml
 
@@ -25,6 +25,7 @@ PYTHON_CHANNEL=$(rapids-download-conda-from-s3 python)
 
 rapids-print-env
 
+# Install legate-boost conda package built in the preivous CI job
 mamba install \
   --name test \
   --channel "${PYTHON_CHANNEL}" \
