@@ -12,6 +12,7 @@ CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
 rapids-conda-retry mambabuild \
     --channel legate \
     --channel conda-forge \
+    --channel nvidia \
     --no-force-upload \
     conda/recipes/legate-boost
 
