@@ -11,14 +11,50 @@
 {% set cuda_version = '.'.join(environ['RAPIDS_CUDA_VERSION'].split('.')[:2]) %}
 {% set cuda_major = cuda_version.split('.')[0] %}
 
+# build 2 variants... *_cpu for CPU-only, *_gpu for systems with CUDA
+#
+# this follows the approach legate-core / cunumeric take
+{% if gpu_enabled == "true" %}
+  {% set gpu_enabled_bool = true %}
+{% elif gpu_enabled == "false" %}
+  {% set gpu_enabled_bool = false %}
+{% else %}
+  {# We need to have a default value for the initial pass over the recipe #}
+  {% set gpu_enabled_bool = true %}
+{% endif %}
+
+{% if gpu_enabled_bool %}
+  {% set processor_tag='_gpu' %}
+{% else %}
+  {% set processor_tag='_cpu' %}
+{% endif %}
+
 package:
-  name: legateboost
+  name: legate-boost
   version: {{ version }}
 
 source:
   path: ../../..
 
 build:
+  # ref: https://docs.conda.io/projects/conda-build/en/latest/user-guide/environment-variables.html#environment-variables-set-during-the-build-process
+  string: "cuda{{ cuda_major }}_py{{ PY_VER }}_{{ PKG_BUILDNUM }}{{ processor_tag }}"
+  script_env:
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - AWS_SESSION_TOKEN
+    - CMAKE_C_COMPILER_LAUNCHER
+    - CMAKE_CUDA_COMPILER_LAUNCHER
+    - CMAKE_CXX_COMPILER_LAUNCHER
+    - CMAKE_GENERATOR
+    - PARALLEL_LEVEL
+    - SCCACHE_BUCKET
+    - SCCACHE_IDLE_TIMEOUT
+    - SCCACHE_REGION
+    - SCCACHE_S3_KEY_PREFIX=legate-boost-aarch64 # [aarch64]
+    - SCCACHE_S3_KEY_PREFIX=legate-boost-linux64 # [linux64]
+    - SCCACHE_S3_USE_SSL
+    - SCCACHE_S3_NO_CREDENTIALS
   ignore_run_exports_from:
     {% if cuda_major == "11" %}
     - {{ compiler('cuda11') }}
@@ -32,44 +68,66 @@ requirements:
     - ninja
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
+    {% if gpu_enabled_bool %}
     {% if cuda_major == "11" %}
     - {{ compiler('cuda11') }} ={{ cuda_version }}
     {% else %}
     - {{ compiler('cuda') }}
-    {% endif %}
+    {% endif %} # if cuda_major
+    {% endif %} # if gpu_enabled_bool
     - {{ stdlib("c") }}
   host:
     # TODO: resolve selectors in legate-core/cunumeric
-    #- cunumeric {{ legate_version }}
-    - cunumeric =24.06.*=*_0
+    {% if gpu_enabled_bool % }
     - cuda-version ={{ cuda_version }}
     {% if cuda_major == "11" %}
     - cudatoolkit
     {% else %}
     - cuda-cudart-dev
     {% endif %}
+    - cunumeric ={{ legate_version }} =*_0
+    - legate-core ={{ legate_version }} =*_ucx
     - libcublas-dev
-    #- legate-core {{ legate_version }}
-    # build string here is a workaround to guarantee we get the GPU-enabled package,
-    # TODO: resolve this in legate-core/cunumeric before merging
-    - legate-core =24.06.*=*_ucx
+    {% else %}
+    - cunumeric ={{ legate_version }} =*_cpu
+    - legate-core ={{ legate_version }} =*_cpu
+    {% endif %}
     - openblas
     - python
     - pip
     - scikit-build >=0.18.0
     - setuptools >=70.0
   run:
-    - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - python
-    {% for req in pyproject_data["project"]["dependencies"] %}
-    - {{ req }}
-    {% endfor %}
+    {% if gpu_enabled_bool %}
+    # cuda-version is used to constrain __cuda
+    - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
+    - __cuda
+    - cunumeric ={{ legate_version }} =*_0
+    {% else %}
+    - cunumeric ={{ legate_version }} =*_cpu
+    {% endif %}
+    # Relying on run_exports from legate-core to pin an appropriate range of versions and
+    # GPU vs. CPU selector.
+    #
+    # legate-core uses {{ pin_subpackage(name, min_pin="x.x.x", max_pin="x.x.x") }}, which means
+    # that if legate-boost builds against, say, legate-core=24.06.0 and then a legate-core=24.06.1 is
+    # released, a new legate-boost would be required.
+    - legate-core
+    - numpy
+    - scikit-learn
+    - typing-extensions>=4.0
 
-# no import tests... importing cunumeric / legate on systems without a GPU
-# does not work, and we don't want to require a GPU for building
 test:
-  requires:
-    - cuda-version ={{ cuda_version }}
+  # import tests at build time do not work for the CUDA packages,
+  # because builds happen on machines without a GPU
+  {% if not gpu_enabled_bool %}
+  imports:
+    - legateboost
+    - legateboost.metrics
+    - legateboost.models
+    - legateboost.objectives
+  {% endif %}
   commands:
     - pip show legate-boost
 

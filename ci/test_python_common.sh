@@ -1,6 +1,17 @@
 #!/bin/bash
 
+# [description]
+#
+# Common environment-setup stuff used by different CI jobs that
+# test conda packages.
+#
+# This is intended to be source'd by other test scripts.
+
 set -e -E -u -o pipefail
+
+# source conda settings so 'conda activate' will work
+# shellcheck disable=SC1091
+. /opt/conda/etc/profile.d/conda.sh
 
 rapids-print-env
 
@@ -25,19 +36,8 @@ PYTHON_CHANNEL=$(rapids-download-conda-from-s3 python)
 
 rapids-print-env
 
-# Install legate-boost conda package built in the preivous CI job
+# Install legate-boost conda package built in the previous CI job
 mamba install \
   --name test \
   --channel "${PYTHON_CHANNEL}" \
   legate-boost
-
-rapids-logger "Running tests"
-
-legate \
-    --gpus 1 \
-    --fbmem 28000 \
-    --sysmem 28000 \
-    --module pytest legateboost/test/[!_]**.py \
-    -sv \
-    --durations=0 \
-    -k 'not sklearn'

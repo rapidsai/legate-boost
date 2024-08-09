@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e -u -o pipefail
+set -e -E -u -o pipefail
 
 export CMAKE_GENERATOR=Ninja
 
