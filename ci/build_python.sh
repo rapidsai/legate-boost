@@ -13,6 +13,6 @@ conda mambabuild \
     --channel conda-forge \
     --channel nvidia \
     --no-force-upload \
-    conda/recipes/legateboost
+    conda/recipes/legate-boost
 
 rapids-upload-conda-to-s3 python
