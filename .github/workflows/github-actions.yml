@@ -35,7 +35,7 @@ jobs:
       # TODO: build against more Python and CUDA versions (remove those last conditions)
       # NOTE: there are not CUDA 11 packages for legate-core or cunumeric
       # TODO: maybe need to not use the RAPIDS matrix, 12.5.1 might be too high
-      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH != "arm64") | select(.CUDA_VER == "12.5.1") | select(.PY_VER == "3.10"))
+      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH == "amd64") | select(.CUDA_VER == "12.5.1"))
       script: ci/build_python.sh
 
   conda-python-tests-cpu:
@@ -47,7 +47,7 @@ jobs:
       container_image: "rapidsai/ci-conda:latest"
       # use a runner that does not have a GPU
       node_type: cpu16
-      run_script: ci/test_poython_cpu.sh
+      run_script: ci/test_python_cpu.sh
 
   conda-python-tests-gpu:
     needs: [conda-python-build]
@@ -55,7 +55,7 @@ jobs:
     with:
       build_type: pull-request
       # TODO: ensure this only chooses CUDA 12 jobs (and maybe just hard-code a matrix instead of relying on RAPIDS shared-workflows)
-      matrix_filter: map(select(.PY_VER == "3.10"))
+      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH == "amd64") | select(.CUDA_VER == "12.5.1"))
       script: ci/test_python_gpu.sh
 
   # build-test:
