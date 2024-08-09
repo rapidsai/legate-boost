@@ -21,7 +21,7 @@ rapids-dependency-file-generator \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION}" \
 | tee /tmp/env.yaml
 
-mamba env create \
+rapids-mamba-retry env create \
     --yes \
     --file /tmp/env.yaml \
     --name test
@@ -37,7 +37,8 @@ PYTHON_CHANNEL=$(rapids-download-conda-from-s3 python)
 rapids-print-env
 
 # Install legate-boost conda package built in the previous CI job
-mamba install \
+rapids-mamba-retry install \
   --name test \
+  --channel legate \
   --channel "${PYTHON_CHANNEL}" \
   legate-boost

@@ -23,7 +23,7 @@ cuda11_compiler:
 # CPU-only and GPU-only packages for every variant
 gpu_enabled:
   - true
-  #- false
+  - false
 
 legate_version:
   - =24.06.*
