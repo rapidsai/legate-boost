@@ -42,7 +42,8 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-24.10
     with:
       build_type: pull-request
-      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH != "arm64") | select(.CUDA_VER == "12.5.1") | select(.PY_VER == "3.10"))
+      # TODO: ensure this only chooses CUDA 12 jobs (and maybe just hard-code a matrix instead of relying on RAPIDS shared-workflows)
+      matrix_filter: map(select(.PY_VER == "3.10"))
       script: ci/test_python.sh
 
   # build-test:
