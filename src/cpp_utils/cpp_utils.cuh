@@ -90,6 +90,25 @@ void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t str
   }
 }
 
+__device__ inline uint32_t ballot(bool inFlag, uint32_t mask = 0xffffffffu)
+{
+#if CUDART_VERSION >= 9000
+  return __ballot_sync(mask, inFlag);
+#else
+  return __ballot(inFlag);
+#endif
+}
+
+template <typename T>
+__device__ inline T shfl(T val, int srcLane, int width = 32, uint32_t mask = 0xffffffffu)
+{
+#if CUDART_VERSION >= 9000
+  return __shfl_sync(mask, val, srcLane, width);
+#else
+  return __shfl(val, srcLane, width);
+#endif
+}
+
 #if __CUDA_ARCH__ < 600
 __device__ inline double atomicAdd(double* address, double val)
 {
