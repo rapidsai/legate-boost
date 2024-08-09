@@ -19,7 +19,6 @@
 {% elif gpu_enabled == "false" %}
   {% set gpu_enabled_bool = false %}
 {% else %}
-  {# We need to have a default value for the initial pass over the recipe #}
   {% set gpu_enabled_bool = true %}
 {% endif %}
 
