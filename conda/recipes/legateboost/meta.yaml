@@ -1,0 +1,80 @@
+# Copyright (c) 2018-2024, NVIDIA CORPORATION.
+
+# TODO:
+# * add URLs
+# * scikit-build-core
+# * figure out what to do with cuda-version and cunumeric
+
+{% set pyproject_data = load_file_data("pyproject.toml") %}
+{% set version = "0.1" %}
+{% set project_data = pyproject_data["project"] %}
+{% set cuda_version = '.'.join(environ['RAPIDS_CUDA_VERSION'].split('.')[:2]) %}
+{% set cuda_major = cuda_version.split('.')[0] %}
+
+package:
+  name: legateboost
+  version: {{ version }}
+
+source:
+  path: ../../..
+
+build:
+  ignore_run_exports_from:
+    {% if cuda_major == "11" %}
+    - {{ compiler('cuda11') }}
+    {% else %}
+    - {{ compiler('cuda') }}
+    {% endif %}
+
+requirements:
+  build:
+    - cmake {{ cmake_version }}
+    - ninja
+    - {{ compiler('c') }}
+    - {{ compiler('cxx') }}
+    {% if cuda_major == "11" %}
+    - {{ compiler('cuda11') }} ={{ cuda_version }}
+    {% else %}
+    - {{ compiler('cuda') }}
+    {% endif %}
+    - {{ stdlib("c") }}
+  host:
+    # TODO: resolve selectors in legate-core/cunumeric
+    #- cunumeric {{ legate_version }}
+    - cunumeric =24.06.*=*_0
+    - cuda-version ={{ cuda_version }}
+    {% if cuda_major == "11" %}
+    - cudatoolkit
+    {% else %}
+    - cuda-cudart-dev
+    {% endif %}
+    - libcublas-dev
+    #- legate-core {{ legate_version }}
+    # build string here is a workaround to guarantee we get the GPU-enabled package,
+    # TODO: resolve this in legate-core/cunumeric before merging
+    - legate-core =24.06.*=*_ucx
+    - openblas
+    - python
+    - pip
+    - scikit-build >=0.18.0
+    - setuptools >=70.0
+  run:
+    - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
+    - python
+    {% for req in pyproject_data["project"]["dependencies"] %}
+    - {{ req }}
+    {% endfor %}
+
+# no import tests... importing cunumeric / legate on systems without a GPU
+# does not work, and we don't want to require a GPU for building
+test:
+  requires:
+    - cuda-version ={{ cuda_version }}
+  commands:
+    - pip show legate-boost
+
+about:
+  license: {{ project_data["license"]["text"] }}
+  license_family: Apache
+  license_file: LICENSE
+  summary: {{ project_data["description"] }}

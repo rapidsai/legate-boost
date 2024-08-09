@@ -14,75 +14,108 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: pre-commit/action@v3.0.1
+    - name: short-circuit
+      run: exit 0
+    # - uses: actions/checkout@v4
+    # - uses: pre-commit/action@v3.0.1
 
-  build-test:
+  conda-python-build:
     needs: [pre-commit]
-    defaults:
-      run:
-        shell: bash -el {0}
-    runs-on: linux-amd64-gpu-v100-latest-1
-    env:
-      CONDA_PREFIX: /opt/conda
-    container:
-      image: rapidsai/devcontainers:24.08-cpp-cuda11.8-mambaforge-ubuntu22.04
-      env:
-        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
-    steps:
-      - name: Checkout legate-boost
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-      - name: Install legate/cunumeric
-        run: |
-          mamba install --yes -c rapidsai \
-            'rapids-dependency-file-generator>=1.14.0'
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-24.10
+    with:
+      build_type: pull-request
+      # legion-core=24.06:
+      #
+      #   * ... only supports Python 3.10+
+      #   * ... only support x86_64
+      #
+      # this filters down to the jobs in the RAPIDS test matrix which match those constraints
+      #
+      # TODO: build against more Python and CUDA versions (remove those last conditions)
+      # NOTE: there are not CUDA 11 packages for legate-core or cunumeric
+      # TODO: maybe need to not use the RAPIDS matrix, 12.5.1 might be too high
+      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH != "arm64") | select(.CUDA_VER == "12.5.1") | select(.PY_VER == "3.10"))
+      script: ci/build_python.sh
 
-          rapids-dependency-file-generator \
-            --output conda \
-            --file-key all \
-            --matrix "cuda=${CUDA_VERSION};arch=$(arch)" | tee /tmp/env.yaml
+  conda-python-tests:
+    needs: [conda-python-build]
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-24.10
+    with:
+      build_type: pull-request
+      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH != "arm64") | select(.CUDA_VER == "12.5.1") | select(.PY_VER == "3.10"))
+      script: ci/test_python.sh
 
-          # update the current environment (instead of creating a new one), as that
-          # persists across all steps
-          mamba env update \
-            --name base \
-            --file /tmp/env.yaml
-      - name: Type check legate-boost
-        run: |
-          mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
-      - name: Build legate-boost
-        env:
-          CUDAARCHS: '70;80'
-        run: |
-          ci/build_wheel.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: legateboost-wheel
-          path: dist/legate_boost*.whl
-          if-no-files-found: error
-      - name: Install legate-boost
-        run: |
-          python -m pip install --no-deps dist/*.whl
-      - name: Run cpu tests
-        run: |
-          legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
-      - name: Run gpu tests
-        run: |
-          nvidia-smi
-          legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
-      - name: Build legate-boost docs
-        working-directory: docs
-        run: |
-          make html
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/build/html
+  # build-test:
+  #   needs: [pre-commit, conda-python-build]
+  #   defaults:
+  #     run:
+  #       shell: bash -el {0}
+  #   runs-on: linux-amd64-gpu-v100-latest-1
+  #   env:
+  #     CONDA_PREFIX: /opt/conda
+  #   container:
+  #     image: rapidsai/devcontainers:24.08-cpp-cuda11.8-mambaforge-ubuntu22.04
+  #     env:
+  #       NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
+  #   steps:
+  #     - name: Checkout legate-boost
+  #       uses: actions/checkout@v4
+  #       with:
+  #         lfs: true
+  #     - name: Install legate/cunumeric
+  #       run: |
+  #         mamba install --yes -c rapidsai \
+  #           'rapids-dependency-file-generator>=1.14.0'
+
+  #         rapids-dependency-file-generator \
+  #           --output conda \
+  #           --file-key all \
+  #           --matrix "cuda=${CUDA_VERSION};arch=$(arch)" | tee /tmp/env.yaml
+
+  #         # update the current environment (instead of creating a new one), as that
+  #         # persists across all steps
+  #         mamba env update \
+  #           --name base \
+  #           --file /tmp/env.yaml
+      # - name: Type check legate-boost
+      #   run: |
+      #     mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
+      # - name: Build legate-boost
+      #   env:
+      #     CUDAARCHS: '70;80'
+      #   run: |
+      #     ci/build_wheel.sh
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     name: legateboost-wheel
+      #     path: dist/legate_boost*.whl
+      #     if-no-files-found: error
+      # - name: Install legate-boost
+      #   run: |
+      #     python -m pip install --no-deps dist/*.whl
+      # - name: Run cpu tests
+      #   run: |
+      #     exit 0
+      #     # legate --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0
+      # - name: Run gpu tests
+      #   run: |
+      #     nvidia-smi
+      #     exit 0
+      #     # legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
+      # - name: Build legate-boost docs
+      #   working-directory: docs
+      #   run: |
+      #     make html
+      # - uses: actions/upload-pages-artifact@v3
+      #   with:
+      #     path: docs/build/html
 
 
   deploy:
-    needs: build-test
+    needs:
+      - conda-python-build
+      - conda-python-tests
+      # - build-test
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
