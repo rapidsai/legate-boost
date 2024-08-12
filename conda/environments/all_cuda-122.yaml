@@ -5,6 +5,7 @@ channels:
 - conda-forge
 dependencies:
 - cmake>=3.24.0,!=3.30.0
+- cuda-version=12.2
 - cunumeric==24.06.*
 - hypothesis
 - legate-core==24.06.*
@@ -25,4 +26,4 @@ dependencies:
 - sphinx
 - typing-extensions>=4.0
 - xgboost
-name: all_cuda-118
+name: all_cuda-122

@@ -3,10 +3,11 @@ files:
   all:
     output: conda
     matrix:
-      cuda: ["11.8"]
+      cuda: ["12.2"]
     includes:
       - build
       - build_tools
+      - cuda_version
       - docs
       - run
       - test
@@ -52,6 +53,22 @@ dependencies:
       - output_types: [conda]
         packages:
           - python-build>=1.2.0
+  cuda_version:
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              cuda: "12.0"
+            packages:
+              - cuda-version=12.0
+          - matrix:
+              cuda: "12.2"
+            packages:
+              - cuda-version=12.2
+          - matrix:
+              cuda: "12.5"
+            packages:
+              - cuda-version=12.5
   docs:
     common:
       - output_types: [conda, pyproject, requirements]
