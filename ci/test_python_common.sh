@@ -42,3 +42,9 @@ rapids-mamba-retry install \
   --channel legate \
   --channel "${PYTHON_CHANNEL}" \
   legate-boost
+
+rapids-logger "import testing"
+
+python -c "import legateboost"
+
+rapids-logger "passed import testing"

@@ -58,12 +58,8 @@ build:
     - SCCACHE_S3_NO_CREDENTIALS
   ignore_run_exports_from:
     {% if gpu_enabled_bool %}
-    {% if cuda_major == "11" %}
-    - {{ compiler('cuda11') }}
-    {% else %}
     - {{ compiler('cuda') }}
-    {% endif %} # if cuda_major
-    {% endif %} # if gpu_enabled bool
+    {% endif %}
 
 requirements:
   build:
@@ -71,19 +67,13 @@ requirements:
     - ninja
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
-    #{% if gpu_enabled_bool %}
     - cuda-nvcc
-    # {% endif %} # if gpu_enabled_bool
     - {{ stdlib("c") }}
   host:
     # TODO: resolve selectors in legate-core/cunumeric
     {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
-    {% if cuda_major == "11" %}
-    - cudatoolkit
-    {% else %}
     - cuda-cudart-dev
-    {% endif %} # if cuda_major
     - cunumeric {{ legate_version }} =*_0
     - legate-core {{ legate_version }} =*_ucx
     - libcublas-dev
