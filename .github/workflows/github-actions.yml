@@ -26,7 +26,7 @@ jobs:
     env:
       CONDA_PREFIX: /opt/conda
     container:
-      image: rapidsai/devcontainers:24.08-cpp-cuda12.2-mambaforge-ubuntu22.04
+      image: rapidsai/ci-conda:cuda12.0.1-ubuntu22.04-py3.11
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
