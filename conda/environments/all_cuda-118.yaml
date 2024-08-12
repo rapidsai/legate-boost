@@ -18,6 +18,7 @@ dependencies:
 - pydata-sphinx-theme
 - pytest<8
 - python-build>=1.2.0
+- python>=3.8,<3.12
 - scikit-build>=0.18.0
 - scikit-learn
 - seaborn
