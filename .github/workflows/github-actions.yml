@@ -45,7 +45,7 @@ jobs:
           rapids-dependency-file-generator \
             --output conda \
             --file-key all \
-            --matrix "cuda=${CUDA_VERSION};arch=$(arch)" | tee /tmp/env.yaml
+            --matrix "cuda=${CUDA_VERSION%.*};arch=$(arch)" | tee /tmp/env.yaml
 
           # update the current environment (instead of creating a new one), as that
           # persists across all steps
