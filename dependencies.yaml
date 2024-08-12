@@ -8,6 +8,7 @@ files:
       - build
       - build_tools
       - docs
+      - py_version
       - run
       - test
   py_build:
@@ -31,6 +32,11 @@ files:
       table: project.optional-dependencies
       key: test
     includes:
+      - test
+  test_python:
+    output: none
+    includes:
+      - py_version
       - test
 channels:
   - legate
@@ -59,6 +65,29 @@ dependencies:
           - sphinx
           - pydata-sphinx-theme
           - myst-parser
+  py_version:
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              py: "3.8"
+            packages:
+              - python=3.8
+          - matrix:
+              py: "3.9"
+            packages:
+              - python=3.9
+          - matrix:
+              py: "3.10"
+            packages:
+              - python=3.10
+          - matrix:
+              py: "3.11"
+            packages:
+              - python=3.11
+          - matrix:
+            packages:
+              - python>=3.8,<3.12
   run:
     common:
       - output_types: [conda, pyproject, requirements]
