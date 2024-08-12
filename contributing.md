@@ -25,22 +25,13 @@ and install an editable wheel that uses it.
 CPU:
 
 ```shell
-legate \
-    --sysmem 28000 \
-    --module pytest \
-    legateboost/test
+ci/run_pytests_cpu.sh
 ```
 
 GPU:
 
 ```shell
-legate \
-    --gpus 1 \
-    --fbmem 28000 \
-    --sysmem 28000 \
-    --module pytest \
-    legateboost/test/test_estimator.py \
-    -k 'not sklearn'
+ci/run_pytests_gpu.sh
 ```
 
 ## Change default CUDA architectures
@@ -92,8 +83,9 @@ The following general principles should be followed when developing `legate-boos
 - Avoid optimisation where possible in favour of clear implementation
 - Favour cunumeric implementations where appropriate. e.g. elementwise or matrix operations
 - Use mypy type annotations if at all possible. The typing can be checked by running the following command under the project root:
-```
-mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
+
+```shell
+ci/run_mypy.sh
 ```
 
 ### Performance
