@@ -30,6 +30,9 @@ jobs:
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
     steps:
+      - name: Set up git-lfs
+        run: |
+          conda install --yes -c conda-forge git-lfs
       - name: Checkout legate-boost
         uses: actions/checkout@v4
         with:
