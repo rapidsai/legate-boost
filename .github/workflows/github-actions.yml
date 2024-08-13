@@ -29,6 +29,7 @@ jobs:
       image: rapidsai/devcontainers:24.08-cpp-cuda11.8-mambaforge-ubuntu22.04
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }} # GPU jobs must set this container env variable
+        PYTHON_VERSION: 3.11
     steps:
       - name: Checkout legate-boost
         uses: actions/checkout@v4
@@ -42,7 +43,7 @@ jobs:
           rapids-dependency-file-generator \
             --output conda \
             --file-key all \
-            --matrix "cuda=${CUDA_VERSION};arch=$(arch)" | tee /tmp/env.yaml
+            --matrix "cuda=${CUDA_VERSION};arch=$(arch);py=${PYTHON_VERSION}" | tee /tmp/env.yaml
 
           # update the current environment (instead of creating a new one), as that
           # persists across all steps
