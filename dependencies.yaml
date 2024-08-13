@@ -47,6 +47,7 @@ dependencies:
         packages:
           - cmake>=3.24.0,!=3.30.0
           - &legate_core legate-core==24.06.*
+          - ninja>=1.11.1.1
           - scikit-build>=0.18.0
           - setuptools>=70.0
   build_tools:
