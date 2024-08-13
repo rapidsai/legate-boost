@@ -3,6 +3,7 @@
 channels:
 - legate
 - conda-forge
+- nvidia
 dependencies:
 - cmake>=3.24.0,!=3.30.0
 - cuda-version=12.2
