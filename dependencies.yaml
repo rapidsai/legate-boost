@@ -7,7 +7,6 @@ files:
     includes:
       - build
       - build_tools
-      - cuda_version
       - docs
       - py_version
       - run
