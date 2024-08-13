@@ -78,6 +78,9 @@ jobs:
       - name: Build legate-boost docs
         working-directory: docs
         run: |
+          apt-get update
+          apt-get install --no-install-recommends -y \
+            make
           make html
       - uses: actions/upload-pages-artifact@v3
         with:
