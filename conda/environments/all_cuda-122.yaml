@@ -6,6 +6,7 @@ channels:
 - nvidia
 dependencies:
 - cmake>=3.24.0,!=3.30.0
+- cuda-nvcc
 - cunumeric==24.06=*_0
 - hypothesis
 - legate-core=24.06=*_ucx

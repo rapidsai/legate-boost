@@ -54,6 +54,7 @@ dependencies:
     common:
       - output_types: [conda]
         packages:
+          - cuda-nvcc
           - python-build>=1.2.0
   cuda_version:
     specific:
