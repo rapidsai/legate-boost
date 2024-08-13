@@ -8,6 +8,7 @@ dependencies:
 - cmake>=3.24.0,!=3.30.0
 - cuda-cudart-dev
 - cuda-nvcc
+- cuda-version=12.2
 - cunumeric==24.06=*_0
 - hypothesis
 - legate-core=24.06=*_ucx
