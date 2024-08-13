@@ -1,4 +1,4 @@
-from .legateboost import LBClassifier, LBRegressor
+from .estimators import LBClassifier, LBRegressor
 from .metrics import (
     BaseMetric,
     ExponentialMetric,

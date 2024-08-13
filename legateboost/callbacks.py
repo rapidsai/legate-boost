@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from .legateboost import EvalResult, LBBase
+from .estimators import EvalResult, LBBase
 from .metrics import metrics
 
 
