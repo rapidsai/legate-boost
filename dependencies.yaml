@@ -104,11 +104,19 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cunumeric==24.06.*
-          - *legate_core
           - numpy
           - scikit-learn
           - typing-extensions>=4.0
+      - output_types: [pyproject, requirements]
+        packages:
+          - cunumeric==24.06.*
+          - *legate_core
+      # TODO: remove these fragile build-string filters once cunumeric / legate-core
+      #       packages with updated __cuda handling are available
+      - output_types: [conda]
+        packages:
+          - cunumeric==24.06=*_0
+          - legate-core=24.06=*_ucx
   test:
     common:
       - output_types: [conda, pyproject, requirements]
