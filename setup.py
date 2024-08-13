@@ -42,6 +42,6 @@ os.environ["CMAKE_ARGS"] = " ".join(cmake_flags)
 setup(
     packages=find_packages(
         where=".",
-        include=["legateboost", "legateboost.library", "legateboost.*"],
+        include=["legateboost", "legateboost.*"],
     ),
 )

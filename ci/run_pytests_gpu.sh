@@ -16,12 +16,16 @@ set -e -E -u -o pipefail
 
 nvidia-smi
 
+# run from somewhere other that the repo root, to ensure that
+# "import legateboost" matches the installed package, not the local source diretory
+cd ./legateboost
+
 legate \
     --gpus 1 \
     --fbmem 28000 \
     --sysmem 28000 \
     --module pytest \
-    legateboost/test/[!_]**.py \
+    test/[!_]**.py \
     -sv \
     --durations=0 \
     -k 'not sklearn' \

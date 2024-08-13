@@ -113,7 +113,6 @@ test:
   {% if not gpu_enabled_bool %}
   imports:
     - legateboost
-    - legateboost.library
     - legateboost.metrics
     - legateboost.models
     - legateboost.objectives
