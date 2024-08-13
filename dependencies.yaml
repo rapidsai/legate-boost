@@ -37,6 +37,7 @@ files:
 channels:
   - legate
   - conda-forge
+  - nvidia
 dependencies:
   build:
     common:
