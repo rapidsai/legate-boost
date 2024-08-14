@@ -16,6 +16,7 @@ set -e -E -u -o pipefail
 
 legate \
     --sysmem 28000 \
+    --cpus 2 \
     --module pytest \
     legateboost/test/[!_]**.py \
     -sv \
