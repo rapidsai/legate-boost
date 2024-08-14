@@ -14,14 +14,10 @@
 
 set -e -E -u -o pipefail
 
-# run from somewhere other that the repo root, to ensure that
-# "import legateboost" matches the installed package, not the local source diretory
-cd ./legateboost
-
 legate \
     --sysmem 28000 \
     --module pytest \
-    test/[!_]**.py \
+    legateboost/test/[!_]**.py \
     -sv \
     --durations=0 \
     "${@}"
