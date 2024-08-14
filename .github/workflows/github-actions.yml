@@ -46,7 +46,7 @@ jobs:
       build_type: pull-request
       container_image: "rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11"
       # use a runner that does not have a GPU
-      node_type: cpu16
+      node_type: cpu32
       run_script: ci/test_python_cpu.sh
 
   conda-python-tests-gpu:
