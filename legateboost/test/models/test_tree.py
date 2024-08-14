@@ -3,8 +3,7 @@ import pytest
 
 import cunumeric as cn
 import legateboost as lb
-from legateboost.test.models.utils import check_determinism
-from legateboost.test.utils import non_increasing
+from legateboost.testing.utils import check_determinism, non_increasing
 
 
 @pytest.mark.parametrize("max_depth", [0, 8])

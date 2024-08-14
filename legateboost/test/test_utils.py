@@ -3,7 +3,7 @@ import pytest
 from scipy import optimize
 
 import cunumeric as cn
-from legateboost.utils import gather, lbfgs, sample_average
+from legateboost.testing.utils import gather, lbfgs, sample_average
 
 
 def test_sample_average() -> None:

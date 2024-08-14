@@ -5,7 +5,7 @@ from sklearn.preprocessing import StandardScaler
 import cunumeric as cn
 import legateboost as lb
 from legate.core import TaskTarget, get_legate_runtime
-from legateboost.test.utils import non_increasing, sanity_check_models
+from legateboost.testing.utils import non_increasing, sanity_check_models
 
 np.set_printoptions(threshold=10, edgeitems=1)
 

@@ -5,7 +5,7 @@ from sklearn.metrics import mean_squared_error
 
 import cunumeric as cn
 import legateboost as lb
-from legateboost.test.utils import non_increasing
+from legateboost.testing.utils import non_increasing
 
 
 @pytest.mark.parametrize("weights", [True, False])

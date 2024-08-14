@@ -2,7 +2,7 @@ import pytest
 
 import cunumeric as cn
 import legateboost as lb
-from legateboost.test.utils import non_increasing
+from legateboost.testing.utils import non_increasing
 
 
 def test_normal() -> None:
