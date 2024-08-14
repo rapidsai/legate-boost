@@ -307,7 +307,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
       if (output == 0) {
         tree_feature[node_id]     = node_best_feature;
-        tree_split_value[node_id] = split_proposals.split_proposals[{node_best_bin_idx}];
+        tree_split_value[node_id] = split_proposals.split_proposals[node_best_bin_idx];
         tree_gain[node_id]        = node_best_gain;
       }
     }
@@ -322,20 +322,20 @@ struct Tree {
     : num_outputs(num_outputs), max_nodes(max_nodes), stream(stream)
   {
     leaf_value  = legate::create_buffer<double, 2>({max_nodes, num_outputs});
-    feature     = legate::create_buffer<int32_t, 1>({max_nodes});
-    split_value = legate::create_buffer<double, 1>({max_nodes});
-    gain        = legate::create_buffer<double, 1>({max_nodes});
+    feature     = legate::create_buffer<int32_t, 1>(max_nodes);
+    split_value = legate::create_buffer<double, 1>(max_nodes);
+    gain        = legate::create_buffer<double, 1>(max_nodes);
     hessian     = legate::create_buffer<double, 2>({max_nodes, num_outputs});
     gradient    = legate::create_buffer<double, 2>({max_nodes, num_outputs});
     thrust::fill(thrust_exec_policy,
                  leaf_value.ptr({0, 0}),
                  leaf_value.ptr({0, 0}) + max_nodes * num_outputs,
                  0.0);
-    thrust::fill(thrust_exec_policy, feature.ptr({0}), feature.ptr({0}) + max_nodes, -1);
+    thrust::fill(thrust_exec_policy, feature.ptr(0), feature.ptr(0) + max_nodes, -1);
     thrust::fill(
       thrust_exec_policy, hessian.ptr({0, 0}), hessian.ptr({0, 0}) + max_nodes * num_outputs, 0.0);
-    thrust::fill(thrust_exec_policy, split_value.ptr({0}), split_value.ptr({0}) + max_nodes, 0.0);
-    thrust::fill(thrust_exec_policy, gain.ptr({0}), gain.ptr({0}) + max_nodes, 0.0);
+    thrust::fill(thrust_exec_policy, split_value.ptr(0), split_value.ptr(0) + max_nodes, 0.0);
+    thrust::fill(thrust_exec_policy, gain.ptr(0), gain.ptr(0) + max_nodes, 0.0);
     thrust::fill(thrust_exec_policy,
                  gradient.ptr({0, 0}),
                  gradient.ptr({0, 0}) + max_nodes * num_outputs,
@@ -689,7 +689,7 @@ struct TreeBuilder {
     // Launch a kernel where each thread computes the range of instances for a batch using binary
     // search
     const int num_batches = (BinaryTree::NodesInLevel(depth) + max_batch_size - 1) / max_batch_size;
-    auto batches          = legate::create_buffer<NodeBatch, 1>({num_batches});
+    auto batches          = legate::create_buffer<NodeBatch, 1>(num_batches);
     LaunchN(num_batches,
             stream,
             [                     =,

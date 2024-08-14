@@ -24,9 +24,8 @@ void SyncCPU(legate::TaskContext context)
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
   float tmp;
-  auto result = legate::comm::coll::collAllgather(
+  legate::comm::coll::collAllgather(
     &tmp, gather_result.data(), 1, legate::comm::coll::CollDataType::CollFloat, comm_ptr);
-  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
 }
 
 // Store handles to legate and cublas
@@ -271,20 +270,20 @@ T eval_cost(NNContext* context,
   cub::DeviceReduce::Sum(nullptr,
                          temp_storage_bytes,
                          cost_array.data,
-                         result.ptr({0}),
+                         result.ptr(0),
                          cost_array.size(),
                          context->stream);
   auto temp_storage = legate::create_buffer<int8_t>({temp_storage_bytes});
-  cub::DeviceReduce::Sum(temp_storage.ptr({0}),
+  cub::DeviceReduce::Sum(temp_storage.ptr(0),
                          temp_storage_bytes,
                          cost_array.data,
-                         result.ptr({0}),
+                         result.ptr(0),
                          cost_array.size(),
                          context->stream);
-  SumAllReduce(context->legate_context, result.ptr({0}), 1, context->stream);
+  SumAllReduce(context->legate_context, result.ptr(0), 1, context->stream);
 
   T cost;
-  cudaMemcpyAsync(&cost, result.ptr({0}), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
+  cudaMemcpyAsync(&cost, result.ptr(0), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
   CHECK_CUDA(cudaStreamSynchronize(context->stream));
   if (alpha > 0.0) {
     T L2 = 0.0;

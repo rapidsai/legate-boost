@@ -43,10 +43,10 @@ void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, std::string file, i
 #define EXPECT_AXIS_ALIGNED(axis, shape_a, shape_b) \
   (expect_axis_aligned<axis>(shape_a, shape_b, __FILE__, __LINE__))
 
-template <typename ShapeT>
-void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
+template <int DIM>
+void expect_is_broadcast(const legate::Rect<DIM>& shape, std::string file, int line)
 {
-  for (int i = 0; i < sizeof(shape.lo.x) / sizeof(shape.lo[0]); i++) {
+  for (int i = 0; i < DIM; i++) {
     std::stringstream ss;
     ss << "Expected a broadcast store. Got shape: " << shape << ".";
     expect(shape.lo[i] == 0, ss.str(), file, line);
@@ -131,9 +131,7 @@ void SumAllReduce(legate::TaskContext context, T* x, int count)
   std::vector<T> data(items_per_rank * num_ranks);
   std::copy(x, x + count, data.begin());
   std::vector<T> recvbuf(items_per_rank * num_ranks);
-  auto result =
-    legate::comm::coll::collAlltoall(data.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
-  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
+  legate::comm::coll::collAlltoall(data.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
 
   // Sum partials
   std::vector<T> partials(items_per_rank, 0.0);
@@ -141,9 +139,8 @@ void SumAllReduce(legate::TaskContext context, T* x, int count)
     for (size_t i = 0; i < num_ranks; i++) { partials[j] += recvbuf[i * items_per_rank + j]; }
   }
 
-  result = legate::comm::coll::collAllgather(
+  legate::comm::coll::collAllgather(
     partials.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
-  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
   std::copy(recvbuf.begin(), recvbuf.begin() + count, x);
 }
 
