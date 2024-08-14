@@ -74,29 +74,6 @@ def mod_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
     return
 
 
-one = cn.array(1.0, dtype=cn.float64)
-two = cn.array(2.0, dtype=cn.float64)
-eps = cn.finfo(cn.float64).eps
-
-
-def preround(x: cn.ndarray) -> cn.ndarray:
-    """Apply this function to grad/hess ensure reproducible floating point
-    summation.
-
-    Algorithm 5: Reproducible Sequential Sum in 'Fast Reproducible
-    Floating-Point Summation' by Demmel and Nguyen.
-
-    Instead of using max(abs(x)) * n as an upper bound we use sum(abs(x))
-    """
-    assert x.dtype == cn.float32 or x.dtype == cn.float64
-    m = cn.sum(cn.abs(x))
-    n = x.size
-    delta = cn.floor(m / (one - two * n * eps))
-    delta = cn.maximum(delta, one)
-    M = two ** cn.ceil(cn.log2(delta))
-    return (x + M) - M
-
-
 def get_store(input: Any) -> LogicalStore:
     """Extracts a Legate store from any object implementing the legate data
     interface.
