@@ -5,10 +5,10 @@
 Use `conda` to create a development environment that includes them.
 
 ```shell
-# CUDA 11.8
+# CUDA 12.2
 conda env create \
     --name legate-boost-dev \
-    -f ./conda/environments/all_cuda-118.yaml
+    -f ./conda/environments/all_cuda-122.yaml
 
 source activate legate-boost-dev
 ```
