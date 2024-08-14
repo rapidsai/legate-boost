@@ -9,6 +9,7 @@ import pytest
 from legate.core import TaskTarget, get_legate_runtime
 
 dirname = Path(__file__).parent
+benchmark_dir = dirname / "../../benchmark"
 example_dir = dirname / "../../examples"
 sys.path.append(str(example_dir))
 noteboook_dir = example_dir / "notebook"
@@ -58,5 +59,5 @@ def test_benchmark():
         "legate --cpus 2 scaling.py --nrows 100 --ncols 5 --niter 2",
         shell=True,
         check=True,
-        cwd=sys.path[0] + "/benchmark",
+        cwd=benchmark_dir,
     )

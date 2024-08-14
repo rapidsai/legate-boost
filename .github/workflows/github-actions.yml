@@ -38,16 +38,16 @@ jobs:
       matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH == "amd64") | select(.CUDA_VER == "12.5.1"))
       script: ci/build_python.sh
 
-  # conda-python-tests-cpu:
-  #   needs: [conda-python-build]
-  #   uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
-  #   with:
-  #     arch: "amd64"
-  #     build_type: pull-request
-  #     container_image: "rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11"
-  #     # use a runner that does not have a GPU
-  #     node_type: cpu16
-  #     run_script: ci/test_python_cpu.sh
+  conda-python-tests-cpu:
+    needs: [conda-python-build]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
+    with:
+      arch: "amd64"
+      build_type: pull-request
+      container_image: "rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11"
+      # use a runner that does not have a GPU
+      node_type: cpu16
+      run_script: ci/test_python_cpu.sh
 
   conda-python-tests-gpu:
     needs: [conda-python-build]
@@ -123,7 +123,7 @@ jobs:
   deploy:
     needs:
       - conda-python-build
-      # - conda-python-tests-cpu
+      - conda-python-tests-cpu
       - conda-python-tests-gpu
       # - build-test
     # only main branch uploads docs
