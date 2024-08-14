@@ -22,7 +22,7 @@ cuda11_compiler:
 # match the legate-core / cunumeric pattern of publishing
 # CPU-only and GPU-only packages for every variant
 gpu_enabled:
-  # - true
+  - true
   - false
 
 legate_version:

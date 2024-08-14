@@ -124,7 +124,7 @@ jobs:
     needs:
       - conda-python-build
       - conda-python-tests-cpu
-      #- conda-python-tests-gpu
+      - conda-python-tests-gpu
       # - build-test
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
