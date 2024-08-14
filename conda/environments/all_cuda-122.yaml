@@ -3,15 +3,22 @@
 channels:
 - legate
 - conda-forge
+- nvidia
 dependencies:
 - cmake>=3.24.0,!=3.30.0
-- cunumeric==24.06.*
+- cuda-cudart-dev
+- cuda-nvcc
+- cuda-version>=12.2
+- cunumeric==24.06=*_0
 - hypothesis
+- legate-core=24.06=*_ucx
 - legate-core==24.06.*
+- libcublas-dev
 - matplotlib
 - mypy
 - myst-parser
 - nbconvert
+- ninja>=1.11.1.1
 - notebook
 - numpy
 - openblas
@@ -26,4 +33,4 @@ dependencies:
 - sphinx
 - typing-extensions>=4.0
 - xgboost
-name: all_cuda-118
+name: all_cuda-122
