@@ -2,12 +2,11 @@
 
 set -e -E -u -o pipefail
 
-export CMAKE_GENERATOR=Ninja
-
 rapids-print-env
 
 rm -rf ./build ./dist ./_skbuild
 
+CMAKE_GENERATOR=Ninja \
 CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
 rapids-conda-retry mambabuild \
     --channel legate \

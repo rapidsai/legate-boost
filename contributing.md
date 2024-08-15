@@ -58,6 +58,61 @@ cmake -B build -S . -DCMAKE_CUDA_ARCHITECTURES="70;80"
 cmake --build build -j
 ```
 
+## Build conda packages locally
+
+Before doing this, be sure to remove any other left-over build artifacts.
+
+```shell
+git clean -d -f -X
+```
+
+Build inside a container using one of the RAPIDS CI images.
+
+```shell
+docker run \
+  --rm \
+  -v $(pwd):/opt/legate-boost:ro \
+  -w /opt/legate-boost \
+  -it rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11 \
+  bash
+
+CMAKE_GENERATOR=Ninja \
+CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
+rapids-conda-retry mambabuild \
+    --channel legate \
+    --channel conda-forge \
+    --channel nvidia \
+    --no-force-upload \
+    conda/recipes/legate-boost
+```
+
+Once that completes, you can work with the packages.
+Environment variable `RAPIDS_CONDA_BLD_OUTPUT_DIR` points to a location with the packages and
+all the necessary data to be used as a full conda channel.
+
+For example:
+
+```shell
+# list the package contents
+cph list \
+    "$(echo ${RAPIDS_CONDA_BLD_OUTPUT_DIR}/linux-64/legate-boost-*_gpu.tar.bz2)"
+
+# check that the dependency metadata is correct
+conda search \
+    --override-channels \
+    --channel ${RAPIDS_CONDA_BLD_OUTPUT_DIR} \
+    --info \
+        legate-boost
+
+# create an environment with the package installed
+conda create \
+    --name legate-boost-test \
+    -c legate \
+    -c conda-forge \
+    -c "${RAPIDS_CONDA_BLD_OUTPUT_DIR}" \
+        legate-boost
+```
+
 ## Pre-commit hooks
 
 The pre-commit package is used for linting, formatting and type checks. This project uses strict mypy type checking.
