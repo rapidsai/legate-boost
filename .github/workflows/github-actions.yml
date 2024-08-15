@@ -13,15 +13,17 @@ on:
 jobs:
 
   # group together all jobs that must pass for a PR to be merged
-  # # (for use by branch protections)
-  # pr-builder:
-  #   if: github.ref != 'refs/heads/main'
-  #   needs:
-  #     - pre-commit
-  #     - conda-python-build
-  #     - conda-python-tests-cpu
-  #     - conda-python-tests-gpu
-  #     - 
+  # (for use by branch protections)
+  pr-builder:
+    # skip on builds from merges to main
+    if: github.ref != 'refs/heads/main'
+    needs:
+      - pre-commit
+      - conda-python-build
+      - conda-python-tests-cpu
+      - conda-python-tests-gpu
+      - build-docs
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10
 
   pre-commit:
     runs-on: ubuntu-latest
@@ -151,20 +153,33 @@ jobs:
       #     nvidia-smi
       #     exit 0
       #     # legate --gpus 1 --fbmem 28000 --sysmem 28000 --module pytest legateboost/test/[!_]**.py -sv --durations=0 -k 'not sklearn'
-      # - name: Build legate-boost docs
-      #   working-directory: docs
-      #   run: |
-      #     make html
-      # - uses: actions/upload-pages-artifact@v3
-      #   with:
-      #     path: docs/build/html
+
+  docs-build:
+    needs:
+      - conda-python-build
+    runs-on: linux-amd64-cpu4
+    container:
+      image: "rapidsai/ci-conda:latest"
+      env:
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: build docs
+        run: |
+          ci/build_docs.sh
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build/html
 
   deploy:
     needs:
       - conda-python-build
       - conda-python-tests-cpu
       - conda-python-tests-gpu
-      # - build-test
+      - build-docs
+
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
