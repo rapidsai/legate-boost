@@ -1,4 +1,4 @@
 #!/bin/sh
 
 # This assumes the script is executed from the root of the repo directory
-./build.sh
+./build.sh legate-boost
