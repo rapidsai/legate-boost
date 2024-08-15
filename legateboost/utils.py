@@ -11,7 +11,8 @@ from legate.core import (
     get_legate_runtime,
     types,
 )
-from legateboost.library import user_context, user_lib
+
+from .library import user_context, user_lib
 
 
 class PickleCunumericMixin:

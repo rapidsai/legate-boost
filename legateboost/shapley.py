@@ -10,7 +10,7 @@ from .metrics import BaseMetric
 
 # provide definitions for mypy without circular import at runtime
 if TYPE_CHECKING:
-    from .estimators import LBBase
+    from .legateboost import LBBase
 
 
 def global_shapley_attributions(
