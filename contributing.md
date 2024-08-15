@@ -7,7 +7,7 @@ Use `conda` to create a development environment that includes them.
 ```shell
 # CUDA 12.2
 conda env create \
-    --name legate-boost-dev \
+    --name legate-boost-dev-delete-me \
     -f ./conda/environments/all_cuda-122.yaml
 
 source activate legate-boost-dev
@@ -33,6 +33,12 @@ GPU:
 ```shell
 ci/run_pytests_gpu.sh
 ```
+
+## Add new tests
+
+Test cases should go in `legateboost/test`.
+
+Utility code re-used by multiple tests should be added in `legateboost/testing`.
 
 ## Change default CUDA architectures
 

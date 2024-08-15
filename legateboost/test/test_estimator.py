@@ -6,8 +6,7 @@ from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cunumeric as cn
 import legateboost as lb
-
-from .utils import non_increasing, sanity_check_models
+from legateboost.testing.utils import non_increasing, sanity_check_models
 
 
 def test_init():
