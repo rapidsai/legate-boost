@@ -46,7 +46,7 @@ jobs:
       build_type: pull-request
       container_image: "rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11"
       # use a runner that does not have a GPU
-      node_type: cpu32
+      node_type: cpu16
       run_script: ci/test_python_cpu.sh
 
   # TODO: just use custom-job with different matrix entries instead of relying on the RAPIDS test matrix?

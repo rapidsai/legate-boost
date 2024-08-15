@@ -76,12 +76,6 @@ pre-commit run --all-files
 The `VERSION` file at the root of the repo is the single source for `legate-boost`'s version.
 Modify that file to change the version for wheels, conda packages, the CMake project, etc.
 
-## Add new tests
-
-Test cases should go in `legateboost/test`.
-
-Utility code re-used by multiple tests should be added in `legateboost/testing`.
-
 ## Development principles
 
 The following general principles should be followed when developing `legate-boost`.

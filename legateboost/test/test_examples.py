@@ -9,7 +9,6 @@ import pytest
 from legate.core import TaskTarget, get_legate_runtime
 
 dirname = Path(__file__).parent
-benchmark_dir = dirname / "../../benchmark"
 example_dir = dirname / "../../examples"
 sys.path.append(str(example_dir))
 noteboook_dir = example_dir / "notebook"
