@@ -45,6 +45,91 @@ struct NodeBatch {
   __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
 };
 
+class GradientQuantiser {
+  IntegerGPair scale;
+
+ public:
+  struct AddPositive {
+    __device__ GPair operator()(GPair a, GPair b) const
+    {
+      a.grad = max(a.grad, 0.0);
+      a.hess = max(a.hess, 0.0);
+      b.grad = max(b.grad, 0.0);
+      b.hess = max(b.hess, 0.0);
+      return a + b;
+    }
+  };
+
+  struct AddNegative {
+    __device__ GPair operator()(GPair a, GPair b) const
+    {
+      a.grad = min(a.grad, 0.0);
+      a.hess = min(a.hess, 0.0);
+      b.grad = min(b.grad, 0.0);
+      b.hess = min(b.hess, 0.0);
+      return a + b;
+    }
+  };
+
+  struct ZipGPair {
+    const double* grad;
+    const double* hess;
+    __device__ GPair operator()(std::size_t idx) const { return GPair{grad[idx], hess[idx]}; }
+  };
+
+  // Calculate scale from upper bound on data
+  GradientQuantiser(legate::TaskContext context,
+                    legate::AccessorRO<double, 3> g,
+                    legate::AccessorRO<double, 3> h,
+                    legate::Rect<3> g_shape,
+                    cudaStream_t stream)
+  {
+    auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
+    auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
+    // Get the maximum positive or negative gradient/hessian sum
+
+    auto counting = thrust::make_counting_iterator(0);
+    auto zip_gpair =
+      thrust::make_transform_iterator(counting, ZipGPair{g.ptr({0, 0, 0}), h.ptr({0, 0, 0})});
+    std::array<GPair, 2> max_values;
+    max_values[0] =
+      thrust::reduce(policy, zip_gpair, zip_gpair + g_shape.volume(), GPair{}, AddPositive{});
+
+    max_values[1] =
+      thrust::reduce(policy, zip_gpair, zip_gpair + g_shape.volume(), GPair{}, AddNegative{});
+
+    SumAllReduce(context, reinterpret_cast<double*>(max_values.data()), 4);
+
+    // Find the maximum of the two
+    GPair max_value;
+    max_value.grad = std::max(max_values[0].grad, std::abs(max_values[1].grad));
+    max_value.hess = std::max(max_values[0].hess, std::abs(max_values[1].hess));
+
+    // We will quantise values between -max_int and max_int
+    // Double precision can exactly represent integers in this range
+    // So we can go back and forth between double and int64_t without overflow
+    int64_t max_int = 1ll << 51;
+    scale.grad      = max_value.grad == 0 ? 1 : max_int / max_value.grad;
+    scale.hess      = max_value.hess == 0 ? 1 : max_int / max_value.hess;
+  }
+
+  __device__ IntegerGPair Quantise(GPair value) const
+  {
+    IntegerGPair result;
+    result.grad = value.grad * scale.grad;
+    result.hess = value.hess * scale.hess;
+    return result;
+  }
+
+  __device__ GPair Dequantise(IntegerGPair value) const
+  {
+    GPair result;
+    result.grad = value.grad / scale.grad;
+    result.hess = value.hess / scale.hess;
+    return result;
+  }
+};
+
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
@@ -511,13 +596,15 @@ struct TreeBuilder {
               cudaStream_t stream,
               int32_t max_nodes,
               int32_t max_depth,
-              SparseSplitProposals<T> split_proposals)
+              SparseSplitProposals<T> split_proposals,
+              GradientQuantiser quantiser)
     : num_rows(num_rows),
       num_features(num_features),
       num_outputs(num_outputs),
       stream(stream),
       max_nodes(max_nodes),
-      split_proposals(split_proposals)
+      split_proposals(split_proposals),
+      quantiser(quantiser)
   {
     sorted_positions = legate::create_buffer<cuda::std::tuple<int32_t, int32_t>>(num_rows);
     FillPositions(sorted_positions, num_rows, stream);
@@ -739,6 +826,7 @@ struct TreeBuilder {
   SparseSplitProposals<T> split_proposals;
   Histogram histogram;
   int max_batch_size;
+  GradientQuantiser quantiser;
 
   cudaStream_t stream;
 };
@@ -776,9 +864,17 @@ struct build_tree_fn {
 
     SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows, stream);
+
+    GradientQuantiser quantiser(context, g_accessor, h_accessor, g_shape, stream);
     // Begin building the tree
-    TreeBuilder<T> builder(
-      num_rows, num_features, num_outputs, stream, tree.max_nodes, max_depth, split_proposals);
+    TreeBuilder<T> builder(num_rows,
+                           num_features,
+                           num_outputs,
+                           stream,
+                           tree.max_nodes,
+                           max_depth,
+                           split_proposals,
+                           quantiser);
 
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 

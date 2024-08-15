@@ -68,11 +68,12 @@ __host__ __device__ inline double CalculateLeafValue(double G, double H, double 
   return -G / (H + alpha);
 }
 
-struct GPair {
-  double grad = 0.0;
-  double hess = 0.0;
+template <typename T>
+struct GPairBase {
+  T grad = 0.0;
+  T hess = 0.0;
 
-  __host__ __device__ GPair& operator+=(const GPair& b)
+  __host__ __device__ GPairBase<T>& operator+=(const GPairBase<T>& b)
   {
     this->grad += b.grad;
     this->hess += b.hess;
@@ -80,15 +81,20 @@ struct GPair {
   }
 };
 
-inline __host__ __device__ GPair operator-(const GPair& a, const GPair& b)
+template <typename T>
+inline __host__ __device__ GPairBase<T> operator-(const GPairBase<T>& a, const GPairBase<T>& b)
 {
-  return GPair{a.grad - b.grad, a.hess - b.hess};
+  return GPairBase<T>{a.grad - b.grad, a.hess - b.hess};
 }
 
-inline __host__ __device__ GPair operator+(const GPair& a, const GPair& b)
+template <typename T>
+inline __host__ __device__ GPairBase<T> operator+(const GPairBase<T>& a, const GPairBase<T>& b)
 {
-  return GPair{a.grad + b.grad, a.hess + b.hess};
+  return GPairBase<T>{a.grad + b.grad, a.hess + b.hess};
 }
+
+using GPair        = GPairBase<double>;
+using IntegerGPair = GPairBase<int64_t>;
 
 // Container for the CSR matrix containing the split proposals
 template <typename T>
