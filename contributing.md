@@ -7,7 +7,7 @@ Use `conda` to create a development environment that includes them.
 ```shell
 # CUDA 12.2
 conda env create \
-    --name legate-boost-dev-delete-me \
+    --name legate-boost-dev \
     -f ./conda/environments/all_cuda-122.yaml
 
 source activate legate-boost-dev
