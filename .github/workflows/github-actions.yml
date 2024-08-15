@@ -11,6 +11,18 @@ on:
       - "branch-*"
       - "main"
 jobs:
+
+  # group together all jobs that must pass for a PR to be merged
+  # # (for use by branch protections)
+  # pr-builder:
+  #   if: github.ref != 'refs/heads/main'
+  #   needs:
+  #     - pre-commit
+  #     - conda-python-build
+  #     - conda-python-tests-cpu
+  #     - conda-python-tests-gpu
+  #     - 
+
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +46,7 @@ jobs:
         ARCH:
           - "amd64"
         CUDA_VER:
-          - "12.2.2"
+          - "12.5.1"
         PY_VER:
           - "3.10"
           - "3.11"
@@ -57,7 +69,7 @@ jobs:
         include:
           - ARCH: "amd64"
             PY_VER: "3.11"
-            CUDA_VER: "12.2.2"
+            CUDA_VER: "12.5.1"
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     with:
       arch: ${{ matrix.ARCH }}
@@ -76,7 +88,7 @@ jobs:
         include:
           - ARCH: "amd64"
             PY_VER: "3.10"
-            CUDA_VER: "12.2.2"
+            CUDA_VER: "12.5.1"
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     with:
       arch: ${{ matrix.ARCH }}
