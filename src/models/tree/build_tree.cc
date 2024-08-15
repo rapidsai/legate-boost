@@ -37,6 +37,53 @@ struct NodeBatch {
   __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
 };
 
+class Histogram {
+  legate::Buffer<GPair, 3> buffer_;  // Nodes, outputs, bins
+  int node_begin_;
+  int node_end_;
+  std::size_t size_;
+
+ public:
+  Histogram(int node_begin, int node_end, int num_outputs, int num_bins)
+    : node_begin_(node_begin), node_end_(node_end)
+  {
+    buffer_ = legate::create_buffer<GPair, 3>({node_end - node_begin, num_outputs, num_bins});
+    size_   = (node_end - node_begin) * num_outputs * num_bins;
+    for (std::size_t i = 0; i < size_; i++) {
+      buffer_.ptr(legate::Point<3>::ZEROES())[i] = GPair{0.0, 0.0};
+    }
+  }
+  Histogram() = default;
+
+  void Destroy()
+  {
+    if (size_ > 0) buffer_.destroy();
+    node_begin_ = 0;
+    node_end_   = 0;
+    size_       = 0;
+  }
+
+  bool ContainsBatch(int node_begin_idx, int node_end_idx)
+  {
+    return node_begin_idx >= node_begin_ && node_end_idx <= node_end_;
+  }
+
+  __device__ bool ContainsNode(int node_idx)
+  {
+    return node_idx >= node_begin_ && node_idx < node_end_;
+  }
+
+  GPair* Ptr(int node_idx) { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
+
+  std::size_t Size() { return size_; }
+
+  // Node, output, bin
+  __host__ __device__ GPair& operator[](legate::Point<3> p)
+  {
+    return buffer_[{p[0] - node_begin_, p[1], p[2]}];
+  }
+};
+
 struct Tree {
   Tree(int max_nodes, int num_outputs) : num_outputs(num_outputs)
   {
