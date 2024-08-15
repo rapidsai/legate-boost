@@ -1,6 +1,7 @@
 *.a
 build
 *.conda
+*.data
 dist/
 docs/source/examples
 docs/source/README.md
@@ -24,5 +25,6 @@ benchmark/!*.py
 *.so
 *.tar.bz2
 *.tar.gz
+*.test
 *.whl
 *.zip

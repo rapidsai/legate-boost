@@ -34,6 +34,12 @@ GPU:
 ci/run_pytests_gpu.sh
 ```
 
+## Add new tests
+
+Test cases should go in `legateboost/test`.
+
+Utility code re-used by multiple tests should be added in `legateboost/testing`.
+
 ## Change default CUDA architectures
 
 By default, builds here default to `CMAKE_CUDA_ARCHITECTURES=native` (whatever GPU exists on the system where the build is running).
