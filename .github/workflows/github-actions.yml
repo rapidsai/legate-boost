@@ -21,44 +21,69 @@ jobs:
 
   conda-python-build:
     needs: [pre-commit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-24.10
+    strategy:
+      fail-fast: false
+      # As of the last time this was updated, legate-core / cunumeric packages were published for only:
+      #
+      #  * architectures: amd64 only#
+      #  * CUDA: >=12.2
+      #  * Python: 3.10, 3.11, 3.12
+      #
+      # Valid set of RAPIDS ci-conda image tags: # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
+      matrix:
+        ARCH:
+          - "amd64"
+        CUDA_VER:
+          - "12.2.2"
+        PY_VER:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     secrets: inherit
     with:
+      arch: ${{ matrix.ARCH }}
       build_type: pull-request
-      # legion-core=24.06:
-      #
-      #   * ... only supports Python 3.10+
-      #   * ... only support x86_64
-      #
-      # this filters down to the jobs in the RAPIDS test matrix which match those constraints
-      #
-      # TODO: build against more Python and CUDA versions (remove those last conditions)
-      # NOTE: there are not CUDA 11 packages for legate-core or cunumeric
-      # TODO: maybe need to not use the RAPIDS matrix, 12.5.1 might be too high
-      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH == "amd64") | select(.CUDA_VER == "12.5.1"))
-      script: ci/build_python.sh
+      container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+      node_type: "cpu4"
+      run_script: ci/build_python.sh
 
   conda-python-tests-cpu:
     needs: [conda-python-build]
+    strategy:
+      fail-fast: false
+      # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
+      matrix:
+        include:
+          - ARCH: "amd64"
+            PY_VER: "3.11"
+            CUDA_VER: "12.2.2"
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     with:
-      arch: "amd64"
+      arch: ${{ matrix.ARCH }}
       build_type: pull-request
-      container_image: "rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11"
+      container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
       # use a runner that does not have a GPU
-      node_type: cpu16
+      node_type: "cpu16"
       run_script: ci/test_python_cpu.sh
 
-  # TODO: just use custom-job with different matrix entries instead of relying on the RAPIDS test matrix?
   conda-python-tests-gpu:
     needs: [conda-python-build]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-24.10
+    strategy:
+      fail-fast: false
+      # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
+      matrix:
+        include:
+          - ARCH: "amd64"
+            PY_VER: "3.10"
+            CUDA_VER: "12.2.2"
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     with:
+      arch: ${{ matrix.ARCH }}
       build_type: pull-request
-      # TODO: ensure this only chooses CUDA 12 jobs (and maybe just hard-code a matrix instead of relying on RAPIDS shared-workflows)
-      matrix_filter: map(select(.PY_VER != "3.9") | select(.ARCH == "amd64") | select(.CUDA_VER == "12.5.1"))
-      run_codecov: false
-      script: ci/test_python_gpu.sh
+      container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+      node_type: "gpu-v100-latest-1"
+      run_script: ci/test_python_gpu.sh
 
   # build-test:
   #   needs: [pre-commit, conda-python-build]
