@@ -18,6 +18,11 @@ sys.path.append(str(noteboook_dir))
 examples = list(filter(lambda x: "notebook" not in str(x), example_dir.glob("**/*.py")))
 
 
+@pytest.fixture(scope="module")
+def benchmark_dir():
+    return Path(__file__).parent / "../../benchmark"
+
+
 @pytest.mark.parametrize("path", examples, ids=[str(e.name) for e in examples])
 def test_examples(path):
     os.environ["CI"] = "1"
@@ -54,7 +59,7 @@ def test_notebooks(path):
     importlib.import_module(path.stem)
 
 
-def test_benchmark():
+def test_benchmark(benchmark_dir):
     subprocess.run(
         "legate --cpus 2 scaling.py --nrows 100 --ncols 5 --niter 2",
         shell=True,
