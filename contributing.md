@@ -73,7 +73,7 @@ docker run \
   --rm \
   -v $(pwd):/opt/legate-boost:ro \
   -w /opt/legate-boost \
-  -it rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11 \
+  -it rapidsai/ci-conda:latest \
   bash
 
 CMAKE_GENERATOR=Ninja \
