@@ -227,8 +227,8 @@ jobs:
     needs:
       - compute-build-info
       - conda-python-build
-      - conda-python-tests-cpu
-      - conda-python-tests-gpu
+      # - conda-python-tests-cpu
+      # - conda-python-tests-gpu
       - docs-build
 
     # only main branch uploads docs
