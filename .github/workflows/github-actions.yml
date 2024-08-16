@@ -111,8 +111,8 @@ jobs:
         CUDA_VER:
           - "12.5.1"
         PY_VER:
-          - "3.10"
-          - "3.11"
+          # - "3.10"
+          # - "3.11"
           - "3.12"
     runs-on: linux-${{ matrix.ARCH }}-cpu4
     container:
@@ -189,10 +189,6 @@ jobs:
       image: "rapidsai/ci-conda:latest"
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
-        RAPIDS_BUILD_TYPE: ${{ needs.compute-build-info.outputs.RAPIDS_BUILD_TYPE }}
-        RAPIDS_REF_NAME: ${{ needs.compute-build-info.outputs.RAPIDS_REF_NAME }}
-        RAPIDS_REPOSITORY: ${{ needs.compute-build-info.outputs.RAPIDS_REPOSITORY }}
-        RAPIDS_SHA: ${{ needs.compute-build-info.outputs.RAPIDS_SHA }}
     steps:
       - name: install git-lfs
         run: |
@@ -206,7 +202,7 @@ jobs:
       - name: download conda packages
         uses: actions/download-artifact@v4
         with:
-          name: legateboost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          name: legateboost-conda-cuda12.5.1-amd64-py3.12
           path: /tmp/local-conda-packages
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
