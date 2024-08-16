@@ -22,7 +22,7 @@ jobs:
       - conda-python-build
       - conda-python-tests-cpu
       - conda-python-tests-gpu
-      - build-docs
+      - docs-build
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10
 
   pre-commit:
@@ -178,7 +178,7 @@ jobs:
       - conda-python-build
       - conda-python-tests-cpu
       - conda-python-tests-gpu
-      - build-docs
+      - docs-build
 
     # only main branch uploads docs
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
