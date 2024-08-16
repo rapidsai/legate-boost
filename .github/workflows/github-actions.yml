@@ -213,7 +213,7 @@ jobs:
           run-id: ${{ github.run_id }}
       - name: build docs
         env:
-          LOCAL_CONDA_CHANNEL=/tmp/local-conda-packages
+          LOCAL_CONDA_CHANNEL: /tmp/local-conda-packages
         run: |
           echo "---"
           ls ${LOCAL_CONDA_CHANNEL}
