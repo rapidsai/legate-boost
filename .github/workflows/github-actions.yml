@@ -26,38 +26,11 @@ jobs:
     if: github.ref != 'refs/heads/main'
     needs:
       - pre-commit
-      - compute-build-info
       - conda-python-build
-      # - conda-python-tests-cpu
-      # - conda-python-tests-gpu
+      - conda-python-tests-cpu
+      - conda-python-tests-gpu
       - docs-build
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10
-
-  # Compute the environment variables needed by rapidsai/gha-tools.
-  #
-  # Doing this allows the use of rapidsai/gha-tools in workflows that need slightly
-  # different build logic than what's available in https://github.com/rapidsai/shared-workflows
-  compute-build-info:
-    runs-on: ubuntu-latest
-    outputs:
-      RAPIDS_BUILD_TYPE: ${{ steps.get-build-info.outputs.build_type }}
-      RAPIDS_REF_NAME: ${{ github.ref_name }}
-      RAPIDS_REPOSITORY: ${{ github.repository }}
-      RAPIDS_SHA: ${{ steps.get-build-info.outputs.rapids_sha }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          lfs: true
-      - id: get-build-info
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            build_type="branch"
-          else
-            build_type="pull-request"
-          fi
-          echo "build_type=${build_type}" >> "${GITHUB_OUTPUT}"
-          echo "rapids_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
   pre-commit:
     runs-on: ubuntu-latest
@@ -67,46 +40,14 @@ jobs:
     # - uses: actions/checkout@v4
     # - uses: pre-commit/action@v3.0.1
 
-  # conda-python-build:
-  #   needs:
-  #     - compute-build-info
-  #     - pre-commit
-  #   strategy:
-  #     fail-fast: false
-  #     # As of the last time this was updated, legate-core / cunumeric packages were published for only:
-  #     #
-  #     #  * architectures: amd64 only#
-  #     #  * CUDA: >=12.2
-  #     #  * Python: 3.10, 3.11, 3.12
-  #     #
-  #     # Valid set of RAPIDS ci-conda image tags: # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
-  #     matrix:
-  #       ARCH:
-  #         - "amd64"
-  #       CUDA_VER:
-  #         - "12.5.1"
-  #       PY_VER:
-  #         - "3.10"
-  #         - "3.11"
-  #         - "3.12"
-  #   uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
-  #   secrets: inherit
-  #   with:
-  #     arch: ${{ matrix.ARCH }}
-  #     build_type: ${{ needs.compute-build-info.outputs.RAPIDS_BUILD_TYPE }}
-  #     container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
-  #     node_type: "cpu4"
-  #     run_script: ci/build_python.sh
-
   conda-python-build:
     needs:
-      - compute-build-info
       - pre-commit
     strategy:
       fail-fast: false
       # As of the last time this was updated, legate-core / cunumeric packages were published for only:
       #
-      #  * architectures: amd64 only#
+      #  * architectures: amd64 only
       #  * CUDA: >=12.2
       #  * Python: 3.10, 3.11, 3.12
       #
@@ -123,8 +64,6 @@ jobs:
     runs-on: linux-${{ matrix.ARCH }}-cpu4
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
-      env:
-        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
     steps:
       - name: install git-lfs
         run: |
@@ -145,50 +84,94 @@ jobs:
           path: ${{ env.RAPIDS_CONDA_BLD_OUTPUT_DIR }}
           if-no-files-found: error
 
-  # conda-python-tests-cpu:
-  #   needs:
-  #     - compute-build-info
-  #     - conda-python-build
-  #   strategy:
-  #     fail-fast: false
-  #     # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
-  #     matrix:
-  #       include:
-  #         - ARCH: "amd64"
-  #           PY_VER: "3.11"
-  #           CUDA_VER: "12.5.1"
-  #   uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
-  #   with:
-  #     arch: ${{ matrix.ARCH }}
-  #     build_type: ${{ needs.compute-build-info.outputs.RAPIDS_BUILD_TYPE }}
-  #     container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
-  #     # use a runner that does not have a GPU
-  #     node_type: "cpu16"
-  #     run_script: ci/test_python_cpu.sh
+  conda-python-tests-cpu:
+    needs:
+      - pre-commit
+      - conda-python-build
+    strategy:
+      fail-fast: false
+      # As of the last time this was updated, legate-core / cunumeric packages were published for only:
+      #
+      #  * architectures: amd64 only
+      #  * CUDA: >=12.2
+      #  * Python: 3.10, 3.11, 3.12
+      #
+      # Valid set of RAPIDS ci-conda image tags: # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
+      matrix:
+        include:
+          - ARCH: "amd64"
+            CUDA_VER: "12.5.1"
+            PY_VER: "3.11"
+    runs-on: linux-${{ matrix.ARCH }}-cpu16
+    container:
+      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+    steps:
+      - name: install git-lfs
+        run: |
+          conda install --yes \
+            -c conda-forge \
+              git-lfs
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: download conda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - name: test
+        run: |
+          ci/test_python_cpu.sh
 
-  # conda-python-tests-gpu:
-  #   needs:
-  #     - compute-build-info
-  #     - conda-python-build
-  #   strategy:
-  #     fail-fast: false
-  #     # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
-  #     matrix:
-  #       include:
-  #         - ARCH: "amd64"
-  #           PY_VER: "3.10"
-  #           CUDA_VER: "12.5.1"
-  #   uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
-  #   with:
-  #     arch: ${{ matrix.ARCH }}
-  #     build_type: ${{ needs.compute-build-info.outputs.RAPIDS_BUILD_TYPE }}
-  #     container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
-  #     node_type: "gpu-v100-latest-1"
-  #     run_script: ci/test_python_gpu.sh
+  conda-python-tests-gpu:
+    needs:
+      - pre-commit
+      - conda-python-build
+    strategy:
+      fail-fast: false
+      # As of the last time this was updated, legate-core / cunumeric packages were published for only:
+      #
+      #  * architectures: amd64 only
+      #  * CUDA: >=12.2
+      #  * Python: 3.10, 3.11, 3.12
+      #
+      # Valid set of RAPIDS ci-conda image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
+      matrix:
+        include:
+          - ARCH: "amd64"
+            CUDA_VER: "12.5.1"
+            PY_VER: "3.10"
+    runs-on: linux-${{ matrix.ARCH }}-gpu-v100-latest-1
+    container:
+      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+    steps:
+      - name: install git-lfs
+        run: |
+          conda install --yes \
+            -c conda-forge \
+              git-lfs
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: download conda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - name: test
+        run: |
+          ci/test_python_gpu.sh
 
   docs-build:
     needs:
-      - compute-build-info
       - conda-python-build
     runs-on: linux-amd64-cpu4
     strategy:
@@ -229,10 +212,9 @@ jobs:
 
   deploy:
     needs:
-      - compute-build-info
       - conda-python-build
-      # - conda-python-tests-cpu
-      # - conda-python-tests-gpu
+      - conda-python-tests-cpu
+      - conda-python-tests-gpu
       - docs-build
 
     # only main branch uploads docs

@@ -31,14 +31,12 @@ set +u
 conda activate test-env
 set -u
 
-rapids-logger "Downloading artifacts from build jobs"
-PYTHON_CHANNEL=$(rapids-download-conda-from-s3 python)
-
 rapids-print-env
 
 # Install legate-boost conda package built in the previous CI job
 rapids-mamba-retry install \
   --name test-env \
+  --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
   --channel legate \
-  --channel "${PYTHON_CHANNEL}" \
-  legate-boost
+  --channel conda-forge \
+    legate-boost
