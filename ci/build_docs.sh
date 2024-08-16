@@ -24,17 +24,13 @@ set +u
 conda activate docs-env
 set -u
 
-rapids-logger "Downloading artifacts from build jobs"
-
-PYTHON_CHANNEL=$(rapids-download-conda-from-s3 python)
-
 rapids-print-env
 
 # Install legate-boost conda package built in the previous CI job
 rapids-mamba-retry install \
   --name docs-env \
   --channel legate \
-  --channel "${PYTHON_CHANNEL}" \
+  --channel "${LOCAL_CONDA_CHANNEL}" \
     legate-boost
 
 make -C docs html
