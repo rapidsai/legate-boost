@@ -1,4 +1,4 @@
-name: CI
+name: legate-boost build/test
 
 concurrency:
   group: ci-on-${{ github.event_name }}-from-${{ github.ref_name }}
