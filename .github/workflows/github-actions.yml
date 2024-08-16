@@ -39,6 +39,10 @@ jobs:
       RAPIDS_REPOSITORY: ${{ github.repository }}
       RAPIDS_SHA: ${{ steps.get-build-info.outputs.rapids_sha }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
       - id: get-build-info
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
@@ -150,6 +154,7 @@ jobs:
               git-lfs
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           lfs: true
       - name: build docs
         run: |
