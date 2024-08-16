@@ -163,7 +163,7 @@ jobs:
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
     steps:
-      - uses: install tools
+      - name: install git-lfs
         run: |
           conda install --yes \
             -c conda-forge \

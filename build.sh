@@ -44,7 +44,7 @@ if hasArg --editable; then
     PIP_INSTALL_ARGS+=("--editable")
 fi
 
-if hasArg liblegateboost; then
+if hasArg liblegateboost || hasArg --editable; then
     echo "building liblegateboost..."
     legate_root=$(
         python -c 'import legate.install_info as i; from pathlib import Path; print(Path(i.libpath).parent.resolve())'

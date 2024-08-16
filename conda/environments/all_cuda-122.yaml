@@ -14,6 +14,7 @@ dependencies:
 - legate-core=24.06=*_ucx
 - legate-core==24.06.*
 - libcublas-dev
+- make
 - matplotlib
 - mypy
 - myst-parser
