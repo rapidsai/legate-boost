@@ -11,6 +11,10 @@ on:
       - "branch-*"
       - "main"
 
+env:
+  # where conda-build puts files it creates
+  RAPIDS_CONDA_BLD_OUTPUT_DIR: /tmp/conda-bld-output
+
 jobs:
 
   # group together all jobs that must pass for a PR to be merged
@@ -136,7 +140,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: legateboost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
-          path: /tmp/conda-bld-output/
+          path: ${{ env.RAPIDS_CONDA_BLD_OUTPUT_DIR }}
           if-no-files-found: error
 
   # conda-python-tests-cpu:

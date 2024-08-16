@@ -19,5 +19,3 @@ conda search \
     --channel "${RAPIDS_CONDA_BLD_OUTPUT_DIR}" \
     --info \
         legate-boost
-
-rapids-upload-conda-to-s3 python
