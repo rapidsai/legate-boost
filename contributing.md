@@ -17,7 +17,7 @@ The easiest way to develop is to compile the shared library separately, then bui
 and install an editable wheel that uses it.
 
 ```shell
-./build.sh --editable
+./build.sh legate-boost --editable
 ```
 
 ## Running tests
