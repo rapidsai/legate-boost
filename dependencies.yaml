@@ -19,6 +19,12 @@ files:
       table: build-system
     includes:
       - build
+  py_docs:
+    output: none
+    includes:
+      - docs
+      - py_version
+      - run
   py_run:
     output: pyproject
     pyproject_dir: .
@@ -77,9 +83,12 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - sphinx
-          - pydata-sphinx-theme
           - myst-parser
+          - pydata-sphinx-theme
+          - sphinx
+      - output_types: [conda]
+        packages:
+          - make
   py_version:
     specific:
       - output_types: conda
@@ -99,7 +108,11 @@ dependencies:
           - matrix:
               py: "3.11"
             packages:
-              - &latest_python python=3.11
+              - python=3.11
+          - matrix:
+              py: "3.12"
+            packages:
+              - &latest_python python=3.12
           - matrix:
             packages:
               - *latest_python

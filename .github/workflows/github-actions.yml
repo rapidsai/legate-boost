@@ -1,4 +1,4 @@
-name: legate-boost build/test
+name: CI
 
 concurrency:
   group: ci-on-${{ github.event_name }}-from-${{ github.ref_name }}
@@ -8,8 +8,8 @@ on:
   push:
     branches:
       - "pull-request/[0-9]+"
-      - "branch-*"
       - "main"
+
 jobs:
 
   # group together all jobs that must pass for a PR to be merged
@@ -87,16 +87,11 @@ jobs:
         run: |
           ci/run_pytests_gpu.sh
       - name: Build legate-boost docs
-        working-directory: docs
         run: |
-          apt-get update
-          apt-get install --no-install-recommends -y \
-            make
-          make html
+          ci/build_docs.sh
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/build/html
-
 
   deploy:
     needs: build-test
