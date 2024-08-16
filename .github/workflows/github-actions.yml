@@ -163,6 +163,11 @@ jobs:
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
     steps:
+      - uses: install tools
+        run: |
+          conda install --yes \
+            -c conda-forge \
+              git-lfs
       - uses: actions/checkout@v4
         with:
           lfs: true
