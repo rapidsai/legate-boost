@@ -115,8 +115,8 @@ jobs:
         CUDA_VER:
           - "12.5.1"
         PY_VER:
-          # - "3.10"
-          # - "3.11"
+          - "3.10"
+          - "3.11"
           - "3.12"
     runs-on: linux-${{ matrix.ARCH }}-cpu4
     container:
