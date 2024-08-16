@@ -24,11 +24,11 @@ rapids-dependency-file-generator \
 rapids-mamba-retry env create \
     --yes \
     --file /tmp/env.yaml \
-    --name test
+    --name test-env
 
 # Temporarily allow unbound variables for conda activation.
 set +u
-conda activate test
+conda activate test-env
 set -u
 
 rapids-logger "Downloading artifacts from build jobs"
@@ -38,7 +38,7 @@ rapids-print-env
 
 # Install legate-boost conda package built in the previous CI job
 rapids-mamba-retry install \
-  --name test \
+  --name test-env \
   --channel legate \
   --channel "${PYTHON_CHANNEL}" \
   legate-boost

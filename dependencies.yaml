@@ -19,6 +19,12 @@ files:
       table: build-system
     includes:
       - build
+  py_docs:
+    output: none
+    includes:
+      - docs
+      - py_version
+      - run
   py_run:
     output: pyproject
     pyproject_dir: .
