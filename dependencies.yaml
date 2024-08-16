@@ -113,7 +113,11 @@ dependencies:
           - matrix:
               py: "3.11"
             packages:
-              - &latest_python python=3.11
+              - python=3.11
+          - matrix:
+              py: "3.12"
+            packages:
+              - &latest_python python=3.12
           - matrix:
             packages:
               - *latest_python
