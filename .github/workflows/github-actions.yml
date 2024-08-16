@@ -14,6 +14,8 @@ on:
 env:
   # where conda-build puts files it creates
   RAPIDS_CONDA_BLD_OUTPUT_DIR: /tmp/conda-bld-output
+  # where jobs that download conda packages store the local channel
+  RAPIDS_LOCAL_CONDA_CHANNEL: /tmp/local-conda-packages
 
 jobs:
 
@@ -139,7 +141,7 @@ jobs:
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: legateboost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_CONDA_BLD_OUTPUT_DIR }}
           if-no-files-found: error
 
@@ -189,8 +191,15 @@ jobs:
       - compute-build-info
       - conda-python-build
     runs-on: linux-amd64-cpu4
+    strategy:
+      matrix:
+        include:
+          - ARCH: amd64
+            CUDA_VER: "12.5.1"
+            PY_VER: "3.12"
+
     container:
-      image: "rapidsai/ci-conda:latest"
+      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
     steps:
@@ -206,18 +215,13 @@ jobs:
       - name: download conda packages
         uses: actions/download-artifact@v4
         with:
-          name: legateboost-conda-cuda12.5.1-amd64-py3.12
-          path: /tmp/local-conda-packages
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
           run-id: ${{ github.run_id }}
       - name: build docs
-        env:
-          LOCAL_CONDA_CHANNEL: /tmp/local-conda-packages
         run: |
-          echo "---"
-          ls ${LOCAL_CONDA_CHANNEL}
-          echo "---"
           ci/build_docs.sh
       - uses: actions/upload-pages-artifact@v3
         with:
