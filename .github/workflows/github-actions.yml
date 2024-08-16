@@ -35,10 +35,8 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-    - name: short-circuit
-      run: exit 0
-    # - uses: actions/checkout@v4
-    # - uses: pre-commit/action@v3.0.1
+    - uses: actions/checkout@v4
+    - uses: pre-commit/action@v3.0.1
 
   conda-python-build:
     needs:
@@ -65,22 +63,18 @@ jobs:
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
     steps:
-      - name: install git-lfs
-        run: |
-          conda install --yes \
-            -c conda-forge \
-              git-lfs
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: true
+          # the notebooks and PNG files stored in git LFS aren't necessary for package-building
+          lfs: false
       - name: build
         run: |
           ci/build_python.sh
       - name: upload
         uses: actions/upload-artifact@v4
         with:
-          name: legate-boost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_CONDA_BLD_OUTPUT_DIR }}
           if-no-files-found: error
 
@@ -118,7 +112,7 @@ jobs:
       - name: download conda packages
         uses: actions/download-artifact@v4
         with:
-          name: legate-boost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
@@ -148,6 +142,8 @@ jobs:
     runs-on: linux-${{ matrix.ARCH }}-gpu-v100-latest-1
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+      env:
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
     steps:
       - name: install git-lfs
         run: |
@@ -161,7 +157,7 @@ jobs:
       - name: download conda packages
         uses: actions/download-artifact@v4
         with:
-          name: legate-boost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
@@ -180,11 +176,8 @@ jobs:
           - ARCH: amd64
             CUDA_VER: "12.5.1"
             PY_VER: "3.12"
-
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
-      env:
-        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
     steps:
       - name: install git-lfs
         run: |
@@ -198,7 +191,7 @@ jobs:
       - name: download conda packages
         uses: actions/download-artifact@v4
         with:
-          name: legate-boost-conda-cuda${{ matrix.CUDA_VER}}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}

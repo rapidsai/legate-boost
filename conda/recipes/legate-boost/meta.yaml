@@ -1,20 +1,22 @@
 # Copyright (c) 2018-2024, NVIDIA CORPORATION.
 
-# TODO:
-# * add URLs
-# * scikit-build-core
-# * figure out what to do with cuda-version and cunumeric
-
 {% set pyproject_data = load_file_data("pyproject.toml") %}
-{% set version = "0.1" %}
+{% set version = load_file_regex(
+    load_file="VERSION",
+    regex_pattern="(?P<value>[0-9]+[0-9a-z\-.]+)"
+)[0] %}
+{% set py_version = environ['CONDA_PY'] %}
 {% set project_data = pyproject_data["project"] %}
 {% set cuda_version = '.'.join(environ['RAPIDS_CUDA_VERSION'].split('.')[:2]) %}
 {% set cuda_major = cuda_version.split('.')[0] %}
-{% set cuda_minor = cuda_version.split('.')[1] %}
 
-# build 2 variants... *_cpu for CPU-only, *_gpu for systems with CUDA
+# build 2 variants, with corresponding build strings:
 #
-# this follows the approach legate-core / cunumeric take
+#  '*_cpu' for CPU-only
+#  '*_gpu' for systems with CUDA
+#
+# this mirrors the approach used by cunumeric / legate-core
+# (though as of 24.06, thoey do not append a '*_gpu' to the build string for GPU packages)
 {% if gpu_enabled == "true" %}
   {% set gpu_enabled_bool = true %}
 {% elif gpu_enabled == "false" %}
@@ -37,8 +39,7 @@ source:
   path: ../../..
 
 build:
-  # ref: https://docs.conda.io/projects/conda-build/en/latest/user-guide/environment-variables.html#environment-variables-set-during-the-build-process
-  string: "cuda{{ cuda_major }}_py{{ PY_VER }}_{{ PKG_BUILDNUM }}{{ processor_tag }}"
+  string: "cuda{{ cuda_major }}_py{{ py_version }}_{{ PKG_BUILDNUM }}{{ processor_tag }}"
   script_env:
     - AWS_ACCESS_KEY_ID
     - AWS_SECRET_ACCESS_KEY
@@ -71,10 +72,11 @@ requirements:
     - cuda-nvcc
     - {{ stdlib("c") }}
   host:
-    # TODO: resolve selectors in legate-core/cunumeric
     {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
     - cuda-cudart-dev
+    # TODO: remove these selectors on cunumeric and legate-core
+    #       once packages with stricter CUDA detection are available
     - cunumeric {{ legate_version }} =*_0
     - legate-core {{ legate_version }} =*_ucx
     - libcublas-dev
@@ -93,6 +95,8 @@ requirements:
     # cuda-version is used to constrain __cuda
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - __cuda
+    # TODO: remove this selector on cunumeric
+    #       once packages with stricter CUDA detection are available
     - cunumeric {{ legate_version }} =*_0
     {% else %}
     - cunumeric {{ legate_version }} =*_cpu

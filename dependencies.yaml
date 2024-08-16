@@ -88,9 +88,9 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - myst-parser
-          - pydata-sphinx-theme
           - sphinx
+          - pydata-sphinx-theme
+          - myst-parser
       - output_types: [conda]
         packages:
           - make
