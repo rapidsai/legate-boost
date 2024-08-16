@@ -62,6 +62,13 @@ build:
     {% if gpu_enabled_bool %}
     - {{ compiler('cuda') }}
     {% endif %}
+  {% if not gpu_enabled_bool %}
+  # The CPU-only packages having more track_features than the GPU builds helps
+  # the solver to prefer the GPU builds when both are viable candidates.
+  # ref: https://docs.conda.io/projects/conda-build/en/latest/resources/define-metadata.html#track-features
+  track_features:
+    - cpu_only
+  {% endif %}
 
 requirements:
   build:
