@@ -26,6 +26,14 @@ set -u
 
 rapids-print-env
 
+echo "--- conda search ---"
+
+conda search \
+    --override-channels \
+    --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
+    --info \
+        legate-boost
+
 # Install legate-boost conda package built in the previous CI job
 rapids-mamba-retry install \
   --name docs-env \
