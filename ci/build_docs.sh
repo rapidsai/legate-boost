@@ -25,6 +25,7 @@ conda activate docs-env
 set -u
 
 rapids-logger "Downloading artifacts from build jobs"
+
 PYTHON_CHANNEL=$(rapids-download-conda-from-s3 python)
 
 rapids-print-env

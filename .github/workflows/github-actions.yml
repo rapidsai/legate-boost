@@ -10,6 +10,7 @@ on:
       - "pull-request/[0-9]+"
       - "branch-*"
       - "main"
+
 jobs:
 
   # group together all jobs that must pass for a PR to be merged
@@ -19,11 +20,34 @@ jobs:
     if: github.ref != 'refs/heads/main'
     needs:
       - pre-commit
+      - compute-build-info
       - conda-python-build
       - conda-python-tests-cpu
       - conda-python-tests-gpu
       - docs-build
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10
+
+  # Compute the environment variables needed by rapidsai/gha-tools.
+  #
+  # Doing this allows the use of rapidsai/gha-tools in workflows that need slightly
+  # different build logic than what's available in https://github.com/rapidsai/shared-workflows
+  compute-build-info:
+    runs-on: ubuntu-latest
+    outputs:
+      RAPIDS_BUILD_TYPE: ${{ steps.get-build-info.outputs.build_type }}
+      RAPIDS_REF_NAME: ${{ github.ref_name }}
+      RAPIDS_REPOSITORY: ${{ github.repository }}
+      RAPIDS_SHA: ${{ steps.get-build-info.outputs.rapids_sha }}
+    steps:
+      - id: get-build-info
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            build_type="branch"
+          else
+            build_type="pull-request"
+          fi
+          echo "build_type=${build_type}" >> "${GITHUB_OUTPUT}"
+          echo "rapids_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
   pre-commit:
     runs-on: ubuntu-latest
@@ -34,7 +58,9 @@ jobs:
     # - uses: pre-commit/action@v3.0.1
 
   conda-python-build:
-    needs: [pre-commit]
+    needs:
+      - compute-build-info
+      - pre-commit
     strategy:
       fail-fast: false
       # As of the last time this was updated, legate-core / cunumeric packages were published for only:
@@ -57,13 +83,15 @@ jobs:
     secrets: inherit
     with:
       arch: ${{ matrix.ARCH }}
-      build_type: pull-request
+      build_type: ${{ needs.compute-build-info.outputs.RAPIDS_BUILD_TYPE }}
       container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
       node_type: "cpu4"
       run_script: ci/build_python.sh
 
   conda-python-tests-cpu:
-    needs: [conda-python-build]
+    needs:
+      - compute-build-info
+      - conda-python-build
     strategy:
       fail-fast: false
       # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
@@ -75,14 +103,16 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     with:
       arch: ${{ matrix.ARCH }}
-      build_type: pull-request
+      build_type: ${{ needs.compute-build-info.outputs.RAPIDS_BUILD_TYPE }}
       container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
       # use a runner that does not have a GPU
       node_type: "cpu16"
       run_script: ci/test_python_cpu.sh
 
   conda-python-tests-gpu:
-    needs: [conda-python-build]
+    needs:
+      - compute-build-info
+      - conda-python-build
     strategy:
       fail-fast: false
       # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
@@ -94,19 +124,24 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-24.10
     with:
       arch: ${{ matrix.ARCH }}
-      build_type: pull-request
+      build_type: ${{ needs.compute-build-info.outputs.RAPIDS_BUILD_TYPE }}
       container_image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
       node_type: "gpu-v100-latest-1"
       run_script: ci/test_python_gpu.sh
 
   docs-build:
     needs:
+      - compute-build-info
       - conda-python-build
     runs-on: linux-amd64-cpu4
     container:
       image: "rapidsai/ci-conda:latest"
       env:
         NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
+        RAPIDS_BUILD_TYPE: ${{ needs.compute-build-info.outputs.RAPIDS_BUILD_TYPE }}
+        RAPIDS_REF_NAME: ${{ needs.compute-build-info.outputs.RAPIDS_REF_NAME }}
+        RAPIDS_REPOSITORY: ${{ needs.compute-build-info.outputs.RAPIDS_REPOSITORY }}
+        RAPIDS_SHA: ${{ needs.compute-build-info.outputs.RAPIDS_SHA }}
     steps:
       - name: install git-lfs
         run: |
@@ -125,6 +160,7 @@ jobs:
 
   deploy:
     needs:
+      - compute-build-info
       - conda-python-build
       - conda-python-tests-cpu
       - conda-python-tests-gpu
