@@ -11,6 +11,17 @@ on:
       - "branch-*"
       - "main"
 jobs:
+
+  # group together all jobs that must pass for a PR to be merged
+  # (for use by branch protections)
+  pr-builder:
+    # skip on builds from merges to main
+    if: github.ref != 'refs/heads/main'
+    needs:
+      - pre-commit
+      - build-test
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10
+
   pre-commit:
     runs-on: ubuntu-latest
     steps:
