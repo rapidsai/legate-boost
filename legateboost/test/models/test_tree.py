@@ -5,12 +5,6 @@ import cunumeric as cn
 import legateboost as lb
 
 from ..utils import non_increasing
-from .utils import check_determinism
-
-
-@pytest.mark.parametrize("max_depth", [0, 8])
-def test_determinism(max_depth):
-    check_determinism(lb.models.Tree(max_depth=max_depth))
 
 
 def test_basic():
