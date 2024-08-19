@@ -43,13 +43,14 @@ jobs:
       - pre-commit
     strategy:
       fail-fast: false
-      # As of the last time this was updated, legate-core / cunumeric packages were published for only:
+      # available legate-core and cunumeric packages:
       #
-      #  * architectures: amd64 only
-      #  * CUDA: >=12.2
-      #  * Python: 3.10, 3.11, 3.12
+      #   * https://anaconda.org/legate/legate-core
+      #   * https://anaconda.org/legate/cunumeric
       #
-      # Valid set of RAPIDS ci-conda image tags: # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
+      # Valid set of RAPIDS ci-conda image tags:
+      #
+      #   * https://hub.docker.com/r/rapidsai/ci-conda/tags
       matrix:
         ARCH:
           - "amd64"
@@ -84,13 +85,6 @@ jobs:
       - conda-python-build
     strategy:
       fail-fast: false
-      # As of the last time this was updated, legate-core / cunumeric packages were published for only:
-      #
-      #  * architectures: amd64 only
-      #  * CUDA: >=12.2
-      #  * Python: 3.10, 3.11, 3.12
-      #
-      # Valid set of RAPIDS ci-conda image tags: # valid CI image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
       matrix:
         include:
           - ARCH: "amd64"
