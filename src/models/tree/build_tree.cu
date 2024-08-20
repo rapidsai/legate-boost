@@ -46,15 +46,25 @@ struct NodeBatch {
 };
 
 class Histogram {
+ public:
+  using value_type = IntegerGPair;
+  // If we are using int64 as our type we need to do atomic adds as unsigned long long
+  using atomic_add_type = std::conditional<std::is_same_v<value_type::value_type, int64_t>,
+                                           unsigned long long,
+                                           value_type::value_type>::type;
+
+ private:
   legate::Buffer<IntegerGPair, 3> buffer_;  // Nodes, outputs, bins
-  int node_begin_;
-  int node_end_;
-  std::size_t size_;
+  int node_begin_   = 0;
+  int node_end_     = 0;
+  std::size_t size_ = 0;
 
  public:
   Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
     : node_begin_(node_begin), node_end_(node_end)
   {
+    static_assert(sizeof(IntegerGPair) == 2 * sizeof(atomic_add_type),
+                  "AtomicAdd type does not match size of type");
     buffer_ =
       legate::create_buffer<IntegerGPair, 3>({node_end - node_begin, num_outputs, num_bins});
     size_ = (node_end - node_begin) * num_outputs * num_bins;
@@ -96,32 +106,10 @@ class GradientQuantiser {
   IntegerGPair scale;
 
  public:
-  struct AddPositive {
-    __device__ GPair operator()(GPair a, GPair b) const
-    {
-      a.grad = max(a.grad, 0.0);
-      a.hess = max(a.hess, 0.0);
-      b.grad = max(b.grad, 0.0);
-      b.hess = max(b.hess, 0.0);
-      return a + b;
-    }
-  };
-
-  struct AddNegative {
-    __device__ GPair operator()(GPair a, GPair b) const
-    {
-      a.grad = min(a.grad, 0.0);
-      a.hess = min(a.hess, 0.0);
-      b.grad = min(b.grad, 0.0);
-      b.hess = min(b.hess, 0.0);
-      return a + b;
-    }
-  };
-
-  struct ZipGPair {
-    const double* grad;
-    const double* hess;
-    __device__ GPair operator()(std::size_t idx) const { return GPair{grad[idx], hess[idx]}; }
+  struct GetAbsGPair {
+    legate::AccessorRO<double, 3> g;
+    legate::AccessorRO<double, 3> h;
+    __device__ GPair operator()(legate::Point<3> p) const { return GPair{abs(g[p]), abs(h[p])}; }
   };
 
   // Calculate scale from upper bound on data
@@ -133,31 +121,23 @@ class GradientQuantiser {
   {
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
-    // Get the maximum positive or negative gradient/hessian sum
+    auto counting     = thrust::make_counting_iterator(0);
+    auto unravel      = thrust::make_transform_iterator(counting, UnravelIter(g_shape));
+    auto zip_gpair    = thrust::make_transform_iterator(unravel, GetAbsGPair{g, h});
+    GPair abs_sum     = thrust::reduce(
+      policy, zip_gpair, zip_gpair + g_shape.volume(), GPair{0.0, 0.0}, thrust::plus<GPair>());
+    CHECK_CUDA(cudaStreamSynchronize(stream));
 
-    auto counting = thrust::make_counting_iterator(0);
-    auto zip_gpair =
-      thrust::make_transform_iterator(counting, ZipGPair{g.ptr({0, 0, 0}), h.ptr({0, 0, 0})});
-    std::array<GPair, 2> max_values;
-    max_values[0] =
-      thrust::reduce(policy, zip_gpair, zip_gpair + g_shape.volume(), GPair{}, AddPositive{});
-
-    max_values[1] =
-      thrust::reduce(policy, zip_gpair, zip_gpair + g_shape.volume(), GPair{}, AddNegative{});
-
-    SumAllReduce(context, reinterpret_cast<double*>(max_values.data()), 4);
-
-    // Find the maximum of the two
-    GPair max_value;
-    max_value.grad = std::max(max_values[0].grad, std::abs(max_values[1].grad));
-    max_value.hess = std::max(max_values[0].hess, std::abs(max_values[1].hess));
+    SumAllReduce(context, reinterpret_cast<double*>(&abs_sum), 2);
 
     // We will quantise values between -max_int and max_int
     // Double precision can exactly represent integers in this range
     // So we can go back and forth between double and int64_t without overflow
-    int64_t max_int = 1ll << 51;
-    scale.grad      = max_value.grad == 0 ? 1 : max_int / max_value.grad;
-    scale.hess      = max_value.hess == 0 ? 1 : max_int / max_value.hess;
+    int64_t double_max_int = 1ll << 51;
+    int64_t max_int =
+      std::min<int64_t>(double_max_int, std::numeric_limits<IntegerGPair::value_type>::max());
+    scale.grad = abs_sum.grad == 0 ? 1 : max_int / abs_sum.grad;
+    scale.hess = abs_sum.hess == 0 ? 1 : max_int / abs_sum.hess;
   }
 
   __device__ IntegerGPair Quantise(GPair value) const
@@ -199,8 +179,10 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   IntegerGPair blocksum = BlockReduce(temp_storage).Sum(quantiser.Quantise({grad, hess}));
 
   if (threadIdx.x == 0) {
-    atomicAdd(reinterpret_cast<unsigned long long*>(&node_sums[{0, output}].grad), blocksum.grad);
-    atomicAdd(reinterpret_cast<unsigned long long*>(&node_sums[{0, output}].hess), blocksum.hess);
+    atomicAdd(reinterpret_cast<Histogram::atomic_add_type*>(&node_sums[{0, output}].grad),
+              blocksum.grad);
+    atomicAdd(reinterpret_cast<Histogram::atomic_add_type*>(&node_sums[{0, output}].hess),
+              blocksum.hess);
   }
 }
 
@@ -251,13 +233,10 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
           // bin_idx is the first sample that is larger than x_value
           if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-            // Atomic add is only defined for unsigned long long
-            // But this works for int64_t
-            static_assert(sizeof(gpair_quantised) == 2 * sizeof(unsigned long long));
-            unsigned long long* addPosition =
-              reinterpret_cast<unsigned long long*>(&histogram[{sampleNode, output, bin_idx}]);
-            atomicAdd(addPosition, static_cast<unsigned long long>(gpair_quantised.grad));
-            atomicAdd(addPosition + 1, static_cast<unsigned long long>(gpair_quantised.hess));
+            Histogram::atomic_add_type* addPosition = reinterpret_cast<Histogram::atomic_add_type*>(
+              &histogram[{sampleNode, output, bin_idx}]);
+            atomicAdd(addPosition, gpair_quantised.grad);
+            atomicAdd(addPosition + 1, gpair_quantised.hess);
           }
         }
       }
@@ -716,10 +695,11 @@ struct TreeBuilder {
 
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
-    SumAllReduce(context,
-                 reinterpret_cast<int64_t*>(histogram.Ptr(batch.node_idx_begin)),
-                 batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
-                 stream);
+    SumAllReduce(
+      context,
+      reinterpret_cast<Histogram::value_type::value_type*>(histogram.Ptr(batch.node_idx_begin)),
+      batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
+      stream);
 
     const size_t warps_needed    = num_features * batch.NodesInBatch();
     const size_t warps_per_block = THREADS_PER_BLOCK / 32;

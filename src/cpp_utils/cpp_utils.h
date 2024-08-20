@@ -202,9 +202,39 @@ class UnravelIter {
   }
 
   template <typename DistanceT>
+  __host__ __device__ UnravelIter operator-(DistanceT n)
+  {
+    UnravelIter copy = *this;
+    copy -= n;
+    return copy;
+  }
+
+  __host__ __device__ bool operator!=(UnravelIter const& other) const
+  {
+    return current_ != other.current_;
+  }
+
+  __host__ __device__ bool operator==(UnravelIter const& other) const
+  {
+    return current_ == other.current_;
+  }
+
+  __host__ __device__ UnravelIter operator-(UnravelIter other) const
+  {
+    other.current_ = current_ - other.current_;
+    return other;
+  }
+
+  template <typename DistanceT>
   __host__ __device__ value_type operator[](DistanceT n) const
   {
     return UnravelIndex(current_ + n, shape_);
+  }
+
+  template <typename DistanceT>
+  __host__ __device__ value_type operator()(DistanceT n) const
+  {
+    return this->operator[](n);
   }
 
   __host__ __device__ value_type operator*() const { return UnravelIndex(current_, shape_); }
