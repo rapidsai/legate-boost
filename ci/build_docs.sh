@@ -34,4 +34,6 @@ rapids-mamba-retry install \
   --channel conda-forge \
     legate-boost
 
+rapids-print-env
+
 make -C docs html
