@@ -26,8 +26,9 @@ inline const double eps = 1e-5;  // Add this term to the hessian to prevent divi
 
 template <typename T>
 struct GPairBase {
-  T grad = 0.0;
-  T hess = 0.0;
+  using value_type = T;
+  T grad           = 0.0;
+  T hess           = 0.0;
 
   __host__ __device__ GPairBase<T>& operator+=(const GPairBase<T>& b)
   {
@@ -50,7 +51,7 @@ inline __host__ __device__ GPairBase<T> operator+(const GPairBase<T>& a, const G
 }
 
 using GPair        = GPairBase<double>;
-using IntegerGPair = GPairBase<int64_t>;
+using IntegerGPair = GPairBase<int32_t>;
 
 // Some helpers for indexing into a binary tree
 class BinaryTree {
@@ -78,19 +79,6 @@ inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
   return {right_child, left_child};
 }
 
-inline __host__ __device__ bool ComputeHistogramBin(int node_id,
-                                                    legate::Buffer<double, 2> node_hessians,
-                                                    bool parent_histogram_exists)
-{
-  if (node_id == 0) return true;
-  if (node_id < 0) return false;
-  if (!parent_histogram_exists) return true;
-
-  int parent                           = BinaryTree::Parent(node_id);
-  auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_hessians);
-  return histogram_node == node_id;
-}
-
 inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
   int parent, legate::Buffer<IntegerGPair, 2> node_sums)
 {
@@ -102,8 +90,9 @@ inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
   return {right_child, left_child};
 }
 
+template <typename NodeSumsT>
 inline __host__ __device__ bool ComputeHistogramBin(int node_id,
-                                                    legate::Buffer<IntegerGPair, 2> node_sums,
+                                                    legate::Buffer<NodeSumsT, 2> node_sums,
                                                     bool parent_histogram_exists)
 {
   if (node_id == 0) return true;
@@ -114,6 +103,7 @@ inline __host__ __device__ bool ComputeHistogramBin(int node_id,
   auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_sums);
   return histogram_node == node_id;
 }
+
 __host__ __device__ inline double CalculateLeafValue(double G, double H, double alpha)
 {
   return -G / (H + alpha);
