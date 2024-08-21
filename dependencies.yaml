@@ -3,11 +3,13 @@ files:
   all:
     output: conda
     matrix:
-      cuda: ["11.8"]
+      cuda: ["12.2"]
     includes:
       - build
       - build_tools
+      - cuda_version
       - docs
+      - py_version
       - run
       - test
   py_build:
@@ -17,6 +19,12 @@ files:
       table: build-system
     includes:
       - build
+  py_docs:
+    output: none
+    includes:
+      - docs
+      - py_version
+      - run
   py_run:
     output: pyproject
     pyproject_dir: .
@@ -35,39 +43,96 @@ files:
 channels:
   - legate
   - conda-forge
+  - nvidia
 dependencies:
   build:
     common:
       - output_types: [conda]
         packages:
+          - cuda-cudart-dev
+          - libcublas-dev
           - openblas
       - output_types: [conda, pyproject, requirements]
         packages:
           - cmake>=3.24.0,!=3.30.0
           - &legate_core legate-core==24.06.*
+          - ninja>=1.11.1.1
           - scikit-build>=0.18.0
           - setuptools>=70.0
   build_tools:
     common:
       - output_types: [conda]
         packages:
+          - cuda-nvcc
           - python-build>=1.2.0
+  # NOTE: '>=' constraints are used here because some dependencies of
+  #       cunumeric have very tight cuda-version pins, e.g. libcusolver
+  cuda_version:
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              cuda: "12.2"
+            packages:
+              - cuda-version>=12.2
+          - matrix:
+              cuda: "12.5"
+            packages:
+              - cuda-version>=12.5
   docs:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - sphinx
-          - pydata-sphinx-theme
           - myst-parser
+          - pydata-sphinx-theme
+          - sphinx
+      - output_types: [conda]
+        packages:
+          - make
+  py_version:
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              py: "3.8"
+            packages:
+              - python=3.8
+          - matrix:
+              py: "3.9"
+            packages:
+              - python=3.9
+          - matrix:
+              py: "3.10"
+            packages:
+              - python=3.10
+          - matrix:
+              py: "3.11"
+            packages:
+              - python=3.11
+          - matrix:
+              py: "3.12"
+            packages:
+              - &latest_python python=3.12
+          - matrix:
+            packages:
+              - *latest_python
   run:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cunumeric==24.06.*
-          - *legate_core
           - numpy
           - scikit-learn
           - typing-extensions>=4.0
+      - output_types: [pyproject, requirements]
+        packages:
+          - cunumeric==24.06.*
+          - *legate_core
+      # TODO: remove these fragile build-string filters once cunumeric / legate-core
+      #       packages with updated __cuda handling are available
+      - output_types: [conda]
+        packages:
+          - cunumeric==24.06=*_0
+          - legate-core=24.06=*_ucx
   test:
     common:
       - output_types: [conda, pyproject, requirements]

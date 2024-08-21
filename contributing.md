@@ -5,10 +5,10 @@
 Use `conda` to create a development environment that includes them.
 
 ```shell
-# CUDA 11.8
+# CUDA 12.2
 conda env create \
     --name legate-boost-dev \
-    -f ./conda/environments/all_cuda-118.yaml
+    -f ./conda/environments/all_cuda-122.yaml
 
 source activate legate-boost-dev
 ```
@@ -17,7 +17,7 @@ The easiest way to develop is to compile the shared library separately, then bui
 and install an editable wheel that uses it.
 
 ```shell
-./build.sh --editable
+./build.sh legate-boost --editable
 ```
 
 ## Running tests
@@ -25,23 +25,20 @@ and install an editable wheel that uses it.
 CPU:
 
 ```shell
-legate \
-    --sysmem 28000 \
-    --module pytest \
-    legateboost/test
+ci/run_pytests_cpu.sh
 ```
 
 GPU:
 
 ```shell
-legate \
-    --gpus 1 \
-    --fbmem 28000 \
-    --sysmem 28000 \
-    --module pytest \
-    legateboost/test/test_estimator.py \
-    -k 'not sklearn'
+ci/run_pytests_gpu.sh
 ```
+
+## Add new tests
+
+Test cases should go in `legateboost/test`.
+
+Utility code re-used by multiple tests should be added in `legateboost/testing`.
 
 ## Change default CUDA architectures
 
@@ -92,8 +89,9 @@ The following general principles should be followed when developing `legate-boos
 - Avoid optimisation where possible in favour of clear implementation
 - Favour cunumeric implementations where appropriate. e.g. elementwise or matrix operations
 - Use mypy type annotations if at all possible. The typing can be checked by running the following command under the project root:
-```
-mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
+
+```shell
+ci/run_mypy.sh
 ```
 
 ### Performance
