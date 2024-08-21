@@ -107,9 +107,14 @@ class GradientQuantiser {
 
  public:
   struct GetAbsGPair {
+    int num_outputs;
     legate::AccessorRO<double, 3> g;
     legate::AccessorRO<double, 3> h;
-    __device__ GPair operator()(legate::Point<3> p) const { return GPair{abs(g[p]), abs(h[p])}; }
+    __device__ GPair operator()(std::size_t n) const
+    {
+      legate::Point<3> p = {n / num_outputs, 0, n % num_outputs};
+      return GPair{abs(g[p]), abs(h[p])};
+    }
   };
 
   // Calculate scale from upper bound on data
@@ -122,12 +127,11 @@ class GradientQuantiser {
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
     auto counting     = thrust::make_counting_iterator(0);
-    auto unravel      = thrust::make_transform_iterator(counting, UnravelIter(g_shape));
-    auto zip_gpair    = thrust::make_transform_iterator(unravel, GetAbsGPair{g, h});
-    GPair abs_sum     = thrust::reduce(
-      policy, zip_gpair, zip_gpair + g_shape.volume(), GPair{0.0, 0.0}, thrust::plus<GPair>());
-    CHECK_CUDA(cudaStreamSynchronize(stream));
-
+    int num_outputs   = g_shape.hi[2] - g_shape.lo[2] + 1;
+    std::size_t n     = (g_shape.hi[0] - g_shape.lo[0] + 1) * num_outputs;
+    auto zip_gpair    = thrust::make_transform_iterator(counting, GetAbsGPair{num_outputs, g, h});
+    GPair abs_sum =
+      thrust::reduce(policy, zip_gpair, zip_gpair + n, GPair{0.0, 0.0}, thrust::plus<GPair>());
     SumAllReduce(context, reinterpret_cast<double*>(&abs_sum), 2);
 
     // We will quantise values between -max_int and max_int
@@ -752,6 +756,20 @@ struct TreeBuilder {
              quantiser   = this->quantiser] __device__(int output) {
               GPair sum               = quantiser.Dequantise(node_sums[{0, output}]);
               leaf_value[{0, output}] = CalculateLeafValue(sum.grad, sum.hess, alpha);
+            });
+    LaunchN(1,
+            stream,
+            [            =,
+             node_sums   = tree.node_sums,
+             leaf_value  = tree.leaf_value,
+             num_outputs = this->num_outputs,
+             quantiser   = this->quantiser] __device__(int idx) {
+              IntegerGPair sum{0, 0};
+              for (int output = 0; output < num_outputs; output++) {
+                sum += node_sums[{0, output}];
+              }
+              auto [G, H] = quantiser.Dequantise(sum);
+              printf("Root sum: %f %f\n", G, H);
             });
     CHECK_CUDA_STREAM(stream);
   }
