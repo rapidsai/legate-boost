@@ -24,6 +24,34 @@ namespace legateboost {
 
 inline const double eps = 1e-5;  // Add this term to the hessian to prevent division by zero
 
+template <typename T>
+struct GPairBase {
+  T grad = 0.0;
+  T hess = 0.0;
+
+  __host__ __device__ GPairBase<T>& operator+=(const GPairBase<T>& b)
+  {
+    this->grad += b.grad;
+    this->hess += b.hess;
+    return *this;
+  }
+};
+
+template <typename T>
+inline __host__ __device__ GPairBase<T> operator-(const GPairBase<T>& a, const GPairBase<T>& b)
+{
+  return GPairBase<T>{a.grad - b.grad, a.hess - b.hess};
+}
+
+template <typename T>
+inline __host__ __device__ GPairBase<T> operator+(const GPairBase<T>& a, const GPairBase<T>& b)
+{
+  return GPairBase<T>{a.grad + b.grad, a.hess + b.hess};
+}
+
+using GPair        = GPairBase<double>;
+using IntegerGPair = GPairBase<int64_t>;
+
 // Some helpers for indexing into a binary tree
 class BinaryTree {
  public:
@@ -63,38 +91,33 @@ inline __host__ __device__ bool ComputeHistogramBin(int node_id,
   return histogram_node == node_id;
 }
 
+inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
+  int parent, legate::Buffer<IntegerGPair, 2> node_sums)
+{
+  int left_child  = BinaryTree::LeftChild(parent);
+  int right_child = BinaryTree::RightChild(parent);
+  if (node_sums[{left_child, 0}].hess < node_sums[{right_child, 0}].hess) {
+    return {left_child, right_child};
+  }
+  return {right_child, left_child};
+}
+
+inline __host__ __device__ bool ComputeHistogramBin(int node_id,
+                                                    legate::Buffer<IntegerGPair, 2> node_sums,
+                                                    bool parent_histogram_exists)
+{
+  if (node_id == 0) return true;
+  if (node_id < 0) return false;
+  if (!parent_histogram_exists) return true;
+
+  int parent                           = BinaryTree::Parent(node_id);
+  auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_sums);
+  return histogram_node == node_id;
+}
 __host__ __device__ inline double CalculateLeafValue(double G, double H, double alpha)
 {
   return -G / (H + alpha);
 }
-
-template <typename T>
-struct GPairBase {
-  T grad = 0.0;
-  T hess = 0.0;
-
-  __host__ __device__ GPairBase<T>& operator+=(const GPairBase<T>& b)
-  {
-    this->grad += b.grad;
-    this->hess += b.hess;
-    return *this;
-  }
-};
-
-template <typename T>
-inline __host__ __device__ GPairBase<T> operator-(const GPairBase<T>& a, const GPairBase<T>& b)
-{
-  return GPairBase<T>{a.grad - b.grad, a.hess - b.hess};
-}
-
-template <typename T>
-inline __host__ __device__ GPairBase<T> operator+(const GPairBase<T>& a, const GPairBase<T>& b)
-{
-  return GPairBase<T>{a.grad + b.grad, a.hess + b.hess};
-}
-
-using GPair        = GPairBase<double>;
-using IntegerGPair = GPairBase<int64_t>;
 
 // Container for the CSR matrix containing the split proposals
 template <typename T>
