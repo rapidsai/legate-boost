@@ -51,7 +51,7 @@ inline __host__ __device__ GPairBase<T> operator+(const GPairBase<T>& a, const G
 }
 
 using GPair        = GPairBase<double>;
-using IntegerGPair = GPairBase<int32_t>;
+using IntegerGPair = GPairBase<int64_t>;
 
 // Some helpers for indexing into a binary tree
 class BinaryTree {

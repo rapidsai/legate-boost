@@ -110,7 +110,7 @@ class GradientQuantiser {
     int num_outputs;
     legate::AccessorRO<double, 3> g;
     legate::AccessorRO<double, 3> h;
-    __device__ GPair operator()(std::size_t n) const
+    __device__ GPair operator()(int n) const
     {
       legate::Point<3> p = {n / num_outputs, 0, n % num_outputs};
       return GPair{abs(g[p]), abs(h[p])};
@@ -756,20 +756,6 @@ struct TreeBuilder {
              quantiser   = this->quantiser] __device__(int output) {
               GPair sum               = quantiser.Dequantise(node_sums[{0, output}]);
               leaf_value[{0, output}] = CalculateLeafValue(sum.grad, sum.hess, alpha);
-            });
-    LaunchN(1,
-            stream,
-            [            =,
-             node_sums   = tree.node_sums,
-             leaf_value  = tree.leaf_value,
-             num_outputs = this->num_outputs,
-             quantiser   = this->quantiser] __device__(int idx) {
-              IntegerGPair sum{0, 0};
-              for (int output = 0; output < num_outputs; output++) {
-                sum += node_sums[{0, output}];
-              }
-              auto [G, H] = quantiser.Dequantise(sum);
-              printf("Root sum: %f %f\n", G, H);
             });
     CHECK_CUDA_STREAM(stream);
   }

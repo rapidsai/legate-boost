@@ -33,6 +33,7 @@ find_package(BLAS REQUIRED)
 legate_add_cpp_subdirectory(src TARGET legateboost EXPORT legateboost-export)
 
 legate_add_cffi(${CMAKE_SOURCE_DIR}/src/legateboost.h TARGET legateboost)
+legate_python_library_template(legateboost)
 legate_default_python_install(legateboost EXPORT legateboost-export)
 
 
