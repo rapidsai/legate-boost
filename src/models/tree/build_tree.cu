@@ -45,63 +45,6 @@ struct NodeBatch {
   __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
 };
 
-class Histogram {
- public:
-  using value_type = IntegerGPair;
-  // If we are using int64 as our type we need to do atomic adds as unsigned long long
-  using atomic_add_type = std::conditional<std::is_same_v<value_type::value_type, int64_t>,
-                                           unsigned long long,
-                                           value_type::value_type>::type;
-
- private:
-  legate::Buffer<IntegerGPair, 3> buffer_;  // Nodes, outputs, bins
-  int node_begin_   = 0;
-  int node_end_     = 0;
-  std::size_t size_ = 0;
-
- public:
-  Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
-    : node_begin_(node_begin), node_end_(node_end)
-  {
-    static_assert(sizeof(IntegerGPair) == 2 * sizeof(atomic_add_type),
-                  "AtomicAdd type does not match size of type");
-    buffer_ =
-      legate::create_buffer<IntegerGPair, 3>({node_end - node_begin, num_outputs, num_bins});
-    size_ = (node_end - node_begin) * num_outputs * num_bins;
-    CHECK_CUDA(cudaMemsetAsync(
-      buffer_.ptr(legate::Point<3>::ZEROES()), 0, size_ * sizeof(IntegerGPair), stream));
-  }
-  Histogram() = default;
-
-  void Destroy()
-  {
-    if (size_ > 0) buffer_.destroy();
-    node_begin_ = 0;
-    node_end_   = 0;
-    size_       = 0;
-  }
-
-  bool ContainsBatch(int node_begin_idx, int node_end_idx)
-  {
-    return node_begin_idx >= node_begin_ && node_end_idx <= node_end_;
-  }
-
-  __device__ bool ContainsNode(int node_idx)
-  {
-    return node_idx >= node_begin_ && node_idx < node_end_;
-  }
-
-  IntegerGPair* Ptr(int node_idx) { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
-
-  std::size_t Size() { return size_; }
-
-  // Node, output, bin
-  __host__ __device__ IntegerGPair& operator[](legate::Point<3> p)
-  {
-    return buffer_[{p[0] - node_begin_, p[1], p[2]}];
-  }
-};
-
 class GradientQuantiser {
   IntegerGPair scale;
 
@@ -183,10 +126,12 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   IntegerGPair blocksum = BlockReduce(temp_storage).Sum(quantiser.Quantise({grad, hess}));
 
   if (threadIdx.x == 0) {
-    atomicAdd(reinterpret_cast<Histogram::atomic_add_type*>(&node_sums[{0, output}].grad),
-              blocksum.grad);
-    atomicAdd(reinterpret_cast<Histogram::atomic_add_type*>(&node_sums[{0, output}].hess),
-              blocksum.hess);
+    atomicAdd(
+      reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(&node_sums[{0, output}].grad),
+      blocksum.grad);
+    atomicAdd(
+      reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(&node_sums[{0, output}].hess),
+      blocksum.hess);
   }
 }
 
@@ -200,7 +145,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  size_t n_outputs,
                  SparseSplitProposals<TYPE> split_proposals,
                  NodeBatch batch,
-                 Histogram histogram,
+                 Histogram<IntegerGPair> histogram,
                  legate::Buffer<IntegerGPair, 2> node_sums,
                  GradientQuantiser quantiser)
 {
@@ -237,8 +182,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
           // bin_idx is the first sample that is larger than x_value
           if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-            Histogram::atomic_add_type* addPosition = reinterpret_cast<Histogram::atomic_add_type*>(
-              &histogram[{sampleNode, output, bin_idx}]);
+            Histogram<IntegerGPair>::atomic_add_type* addPosition =
+              reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+                &histogram[{sampleNode, output, bin_idx}]);
             atomicAdd(addPosition, gpair_quantised.grad);
             atomicAdd(addPosition + 1, gpair_quantised.hess);
           }
@@ -250,7 +196,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
 template <typename T>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
-  scan_kernel(Histogram histogram,
+  scan_kernel(Histogram<IntegerGPair> histogram,
               legate::Buffer<IntegerGPair, 2> node_sums,
               int n_features,
               int n_outputs,
@@ -343,7 +289,7 @@ struct GainFeaturePair {
 
 template <typename TYPE>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  perform_best_split(Histogram histogram,
+  perform_best_split(Histogram<IntegerGPair> histogram,
                      size_t n_features,
                      size_t n_outputs,
                      SparseSplitProposals<TYPE> split_proposals,
@@ -634,11 +580,11 @@ struct TreeBuilder {
     const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
     int depth                             = 0;
     while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) depth++;
-    histogram      = Histogram(BinaryTree::LevelBegin(0),
-                          BinaryTree::LevelEnd(depth),
-                          num_outputs,
-                          split_proposals.histogram_size,
-                          stream);
+    histogram      = Histogram<IntegerGPair>(BinaryTree::LevelBegin(0),
+                                        BinaryTree::LevelEnd(depth),
+                                        num_outputs,
+                                        split_proposals.histogram_size,
+                                        stream);
     max_batch_size = max_histogram_nodes;
   }
 
@@ -666,7 +612,7 @@ struct TreeBuilder {
   }
 
   template <typename TYPE>
-  void ComputeHistogram(Histogram histogram,
+  void ComputeHistogram(Histogram<IntegerGPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
                         legate::AccessorRO<TYPE, 3> X,
@@ -699,11 +645,11 @@ struct TreeBuilder {
 
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
-    SumAllReduce(
-      context,
-      reinterpret_cast<Histogram::value_type::value_type*>(histogram.Ptr(batch.node_idx_begin)),
-      batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
-      stream);
+    SumAllReduce(context,
+                 reinterpret_cast<Histogram<IntegerGPair>::value_type::value_type*>(
+                   histogram.Ptr(batch.node_idx_begin)),
+                 batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
+                 stream);
 
     const size_t warps_needed    = num_features * batch.NodesInBatch();
     const size_t warps_per_block = THREADS_PER_BLOCK / 32;
@@ -715,7 +661,10 @@ struct TreeBuilder {
     CHECK_CUDA_STREAM(stream);
   }
 
-  void PerformBestSplit(Tree& tree, Histogram histogram, double alpha, NodeBatch batch)
+  void PerformBestSplit(Tree& tree,
+                        Histogram<IntegerGPair> histogram,
+                        double alpha,
+                        NodeBatch batch)
   {
     perform_best_split<<<batch.NodesInBatch(), THREADS_PER_BLOCK, 0, stream>>>(histogram,
                                                                                num_features,
@@ -762,17 +711,17 @@ struct TreeBuilder {
 
   // Create a new histogram for this batch if we need to
   // Destroy the old one
-  Histogram GetHistogram(NodeBatch batch)
+  Histogram<IntegerGPair> GetHistogram(NodeBatch batch)
   {
     if (histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) { return histogram; }
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
     histogram.Destroy();
-    histogram = Histogram(batch.node_idx_begin,
-                          batch.node_idx_end,
-                          num_outputs,
-                          split_proposals.histogram_size,
-                          stream);
+    histogram = Histogram<IntegerGPair>(batch.node_idx_begin,
+                                        batch.node_idx_end,
+                                        num_outputs,
+                                        split_proposals.histogram_size,
+                                        stream);
     return histogram;
   }
 
@@ -845,7 +794,7 @@ struct TreeBuilder {
   const int32_t num_outputs;
   const int32_t max_nodes;
   SparseSplitProposals<T> split_proposals;
-  Histogram histogram;
+  Histogram<IntegerGPair> histogram;
   int max_batch_size;
   GradientQuantiser quantiser;
 

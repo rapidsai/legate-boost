@@ -68,19 +68,9 @@ class BinaryTree {
 // Estimate if the left or right child has less data
 // We compute the histogram for the child with less data
 // And infer the other side by subtraction from the parent
+template <typename GPairT>
 inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
-  int parent, legate::Buffer<double, 2> node_hessians)
-{
-  int left_child  = BinaryTree::LeftChild(parent);
-  int right_child = BinaryTree::RightChild(parent);
-  if (node_hessians[{left_child, 0}] < node_hessians[{right_child, 0}]) {
-    return {left_child, right_child};
-  }
-  return {right_child, left_child};
-}
-
-inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
-  int parent, legate::Buffer<IntegerGPair, 2> node_sums)
+  int parent, legate::Buffer<GPairT, 2> node_sums)
 {
   int left_child  = BinaryTree::LeftChild(parent);
   int right_child = BinaryTree::RightChild(parent);
@@ -90,9 +80,9 @@ inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
   return {right_child, left_child};
 }
 
-template <typename NodeSumsT>
+template <typename GPairT>
 inline __host__ __device__ bool ComputeHistogramBin(int node_id,
-                                                    legate::Buffer<NodeSumsT, 2> node_sums,
+                                                    legate::Buffer<GPairT, 2> node_sums,
                                                     bool parent_histogram_exists)
 {
   if (node_id == 0) return true;
@@ -158,6 +148,80 @@ class SparseSplitProposals {
   __host__ __device__ std::tuple<int, int> FeatureRange(int feature) const
   {
     return std::make_tuple(row_pointers[feature], row_pointers[feature + 1]);
+  }
+};
+
+template <typename GPairT>
+class Histogram {
+ public:
+  using value_type = GPairT;
+  // If we are using int64 as our type we need to do atomic adds as unsigned long long
+  using atomic_add_type =
+    typename std::conditional<std::is_same_v<typename value_type::value_type, int64_t>,
+                              unsigned long long,
+                              typename value_type::value_type>::type;
+
+ private:
+  legate::Buffer<GPairT, 3> buffer_;  // Nodes, outputs, bins
+  int node_begin_;
+  int node_end_;
+  std::size_t size_;
+
+ public:
+#ifdef __NVCC__
+  Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
+    : node_begin_(node_begin), node_end_(node_end)
+  {
+    static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
+                  "Unexpected size of GPairT");
+    static_assert(sizeof(GPairT) == 2 * sizeof(atomic_add_type),
+                  "AtomicAdd type does not match size of type");
+    buffer_ = legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins});
+    size_   = (node_end - node_begin) * num_outputs * num_bins;
+    CHECK_CUDA(
+      cudaMemsetAsync(buffer_.ptr(legate::Point<3>::ZEROES()), 0, size_ * sizeof(GPairT), stream));
+  }
+#else
+  Histogram(int node_begin, int node_end, int num_outputs, int num_bins)
+    : node_begin_(node_begin), node_end_(node_end)
+  {
+    static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
+                  "Unexpected size of GPairT");
+    buffer_ = legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins});
+    size_   = (node_end - node_begin) * num_outputs * num_bins;
+    for (std::size_t i = 0; i < size_; i++) {
+      buffer_.ptr(legate::Point<3>::ZEROES())[i] = GPairT{0.0, 0.0};
+    }
+  }
+#endif
+  Histogram() = default;
+
+  void Destroy()
+  {
+    if (size_ > 0) buffer_.destroy();
+    node_begin_ = 0;
+    node_end_   = 0;
+    size_       = 0;
+  }
+
+  bool ContainsBatch(int node_begin_idx, int node_end_idx)
+  {
+    return node_begin_idx >= node_begin_ && node_end_idx <= node_end_;
+  }
+
+  __device__ bool ContainsNode(int node_idx)
+  {
+    return node_idx >= node_begin_ && node_idx < node_end_;
+  }
+
+  GPairT* Ptr(int node_idx) { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
+
+  std::size_t Size() { return size_; }
+
+  // Node, output, bin
+  __host__ __device__ GPairT& operator[](legate::Point<3> p)
+  {
+    return buffer_[{p[0] - node_begin_, p[1], p[2]}];
   }
 };
 
