@@ -24,6 +24,35 @@ namespace legateboost {
 
 inline const double eps = 1e-5;  // Add this term to the hessian to prevent division by zero
 
+template <typename T>
+struct GPairBase {
+  using value_type = T;
+  T grad           = 0.0;
+  T hess           = 0.0;
+
+  __host__ __device__ GPairBase<T>& operator+=(const GPairBase<T>& b)
+  {
+    this->grad += b.grad;
+    this->hess += b.hess;
+    return *this;
+  }
+};
+
+template <typename T>
+inline __host__ __device__ GPairBase<T> operator-(const GPairBase<T>& a, const GPairBase<T>& b)
+{
+  return GPairBase<T>{a.grad - b.grad, a.hess - b.hess};
+}
+
+template <typename T>
+inline __host__ __device__ GPairBase<T> operator+(const GPairBase<T>& a, const GPairBase<T>& b)
+{
+  return GPairBase<T>{a.grad + b.grad, a.hess + b.hess};
+}
+
+using GPair        = GPairBase<double>;
+using IntegerGPair = GPairBase<int64_t>;
+
 // Some helpers for indexing into a binary tree
 class BinaryTree {
  public:
@@ -39,19 +68,21 @@ class BinaryTree {
 // Estimate if the left or right child has less data
 // We compute the histogram for the child with less data
 // And infer the other side by subtraction from the parent
+template <typename GPairT>
 inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
-  int parent, legate::Buffer<double, 2> node_hessians)
+  int parent, legate::Buffer<GPairT, 2> node_sums)
 {
   int left_child  = BinaryTree::LeftChild(parent);
   int right_child = BinaryTree::RightChild(parent);
-  if (node_hessians[{left_child, 0}] < node_hessians[{right_child, 0}]) {
+  if (node_sums[{left_child, 0}].hess < node_sums[{right_child, 0}].hess) {
     return {left_child, right_child};
   }
   return {right_child, left_child};
 }
 
+template <typename GPairT>
 inline __host__ __device__ bool ComputeHistogramBin(int node_id,
-                                                    legate::Buffer<double, 2> node_hessians,
+                                                    legate::Buffer<GPairT, 2> node_sums,
                                                     bool parent_histogram_exists)
 {
   if (node_id == 0) return true;
@@ -59,35 +90,13 @@ inline __host__ __device__ bool ComputeHistogramBin(int node_id,
   if (!parent_histogram_exists) return true;
 
   int parent                           = BinaryTree::Parent(node_id);
-  auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_hessians);
+  auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_sums);
   return histogram_node == node_id;
 }
 
 __host__ __device__ inline double CalculateLeafValue(double G, double H, double alpha)
 {
   return -G / (H + alpha);
-}
-
-struct GPair {
-  double grad = 0.0;
-  double hess = 0.0;
-
-  __host__ __device__ GPair& operator+=(const GPair& b)
-  {
-    this->grad += b.grad;
-    this->hess += b.hess;
-    return *this;
-  }
-};
-
-inline __host__ __device__ GPair operator-(const GPair& a, const GPair& b)
-{
-  return GPair{a.grad - b.grad, a.hess - b.hess};
-}
-
-inline __host__ __device__ GPair operator+(const GPair& a, const GPair& b)
-{
-  return GPair{a.grad + b.grad, a.hess + b.hess};
 }
 
 // Container for the CSR matrix containing the split proposals
@@ -142,8 +151,18 @@ class SparseSplitProposals {
   }
 };
 
+template <typename GPairT>
 class Histogram {
-  legate::Buffer<GPair, 3> buffer_;  // Nodes, outputs, bins
+ public:
+  using value_type = GPairT;
+  // If we are using int64 as our type we need to do atomic adds as unsigned long long
+  using atomic_add_type =
+    typename std::conditional<std::is_same_v<typename value_type::value_type, int64_t>,
+                              unsigned long long,
+                              typename value_type::value_type>::type;
+
+ private:
+  legate::Buffer<GPairT, 3> buffer_;  // Nodes, outputs, bins
   int node_begin_;
   int node_end_;
   std::size_t size_;
@@ -153,19 +172,25 @@ class Histogram {
   Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
     : node_begin_(node_begin), node_end_(node_end)
   {
-    buffer_ = legate::create_buffer<GPair, 3>({node_end - node_begin, num_outputs, num_bins});
+    static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
+                  "Unexpected size of GPairT");
+    static_assert(sizeof(GPairT) == 2 * sizeof(atomic_add_type),
+                  "AtomicAdd type does not match size of type");
+    buffer_ = legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins});
     size_   = (node_end - node_begin) * num_outputs * num_bins;
     CHECK_CUDA(
-      cudaMemsetAsync(buffer_.ptr(legate::Point<3>::ZEROES()), 0, size_ * sizeof(GPair), stream));
+      cudaMemsetAsync(buffer_.ptr(legate::Point<3>::ZEROES()), 0, size_ * sizeof(GPairT), stream));
   }
 #else
   Histogram(int node_begin, int node_end, int num_outputs, int num_bins)
     : node_begin_(node_begin), node_end_(node_end)
   {
-    buffer_ = legate::create_buffer<GPair, 3>({node_end - node_begin, num_outputs, num_bins});
+    static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
+                  "Unexpected size of GPairT");
+    buffer_ = legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins});
     size_   = (node_end - node_begin) * num_outputs * num_bins;
     for (std::size_t i = 0; i < size_; i++) {
-      buffer_.ptr(legate::Point<3>::ZEROES())[i] = GPair{0.0, 0.0};
+      buffer_.ptr(legate::Point<3>::ZEROES())[i] = GPairT{0.0, 0.0};
     }
   }
 #endif
@@ -189,12 +214,12 @@ class Histogram {
     return node_idx >= node_begin_ && node_idx < node_end_;
   }
 
-  GPair* Ptr(int node_idx) { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
+  GPairT* Ptr(int node_idx) { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
 
   std::size_t Size() { return size_; }
 
   // Node, output, bin
-  __host__ __device__ GPair& operator[](legate::Point<3> p)
+  __host__ __device__ GPairT& operator[](legate::Point<3> p)
   {
     return buffer_[{p[0] - node_begin_, p[1], p[2]}];
   }
