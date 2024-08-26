@@ -96,6 +96,8 @@ requirements:
     - pip
     - scikit-build >=0.18.0
     - setuptools >=70.0
+    # try to expose what's pulling in 'mkl'
+    - nomkl
   run:
     - python
     {% if gpu_enabled_bool %}
@@ -118,6 +120,7 @@ requirements:
     - numpy
     - scikit-learn
     - typing-extensions>=4.0
+    - nomkl
 
 test:
   # import tests at build time do not work for the CUDA packages,
