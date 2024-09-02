@@ -46,7 +46,7 @@ struct NodeBatch {
 };
 
 class GradientQuantiser {
-  IntegerGPair scale;
+  GPair scale;
 
  public:
   struct GetAbsGPair {
@@ -65,7 +65,8 @@ class GradientQuantiser {
                     legate::AccessorRO<double, 3> g,
                     legate::AccessorRO<double, 3> h,
                     legate::Rect<3> g_shape,
-                    cudaStream_t stream)
+                    cudaStream_t stream,
+                    int int_bits)
   {
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
@@ -81,18 +82,32 @@ class GradientQuantiser {
     // Double precision can exactly represent integers in this range
     // So we can go back and forth between double and int64_t without overflow
     int64_t double_max_int = 1ll << 51;
-    int64_t max_int =
-      std::min<int64_t>(double_max_int, std::numeric_limits<IntegerGPair::value_type>::max());
-    scale.grad = abs_sum.grad == 0 ? 1 : max_int / abs_sum.grad;
-    scale.hess = abs_sum.hess == 0 ? 1 : max_int / abs_sum.hess;
+    int64_t max_int        = std::min<int64_t>(double_max_int, 1ll << (int_bits - 1));
+    scale.grad             = abs_sum.grad == 0 ? 1 : max_int / abs_sum.grad;
+    scale.hess             = abs_sum.hess == 0 ? 1 : max_int / abs_sum.hess;
   }
 
-  __device__ IntegerGPair Quantise(GPair value) const
+  /*
+    __device__ IntegerGPair Quantise(GPair value) const
+    {
+      IntegerGPair result;
+      result.grad = value.grad * scale.grad;
+      result.hess = value.hess * scale.hess;
+      return result;
+    }
+  */
+
+  __device__ IntegerGPair QuantiseStochasticRounding(GPair value, int64_t seed) const
   {
-    IntegerGPair result;
-    result.grad = value.grad * scale.grad;
-    result.hess = value.hess * scale.hess;
-    return result;
+    thrust::default_random_engine eng(seed);
+    thrust::uniform_real_distribution<double> dist(0.0, 1.0);
+    auto scaled_grad                        = value.grad * scale.grad;
+    auto scaled_hess                        = value.hess * scale.hess;
+    double grad_remainder                   = scaled_grad - floor(scaled_grad);
+    double hess_remainder                   = scaled_hess - floor(scaled_hess);
+    IntegerGPair::value_type grad_quantised = floor(scaled_grad) + (dist(eng) < grad_remainder);
+    IntegerGPair::value_type hess_quantised = floor(scaled_hess) + (dist(eng) < hess_remainder);
+    return IntegerGPair{grad_quantised, hess_quantised};
   }
 
   __device__ GPair Dequantise(IntegerGPair value) const
@@ -104,6 +119,26 @@ class GradientQuantiser {
   }
 };
 
+__device__ int hash(int a)
+{
+  a = (a + 0x7ed55d16) + (a << 12);
+  a = (a ^ 0xc761c23c) ^ (a >> 19);
+  a = (a + 0x165667b1) + (a << 5);
+  a = (a + 0xd3a2646c) ^ (a << 9);
+  a = (a + 0xfd7046c5) + (a << 3);
+  a = (a ^ 0xb55a4f09) ^ (a >> 16);
+  return a;
+}
+
+__device__ int64_t hash_combine(int64_t seed) { return seed; }
+
+template <typename... Rest>
+__device__ int64_t hash_combine(int64_t seed, const int& v, Rest... rest)
+{
+  seed ^= hash(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  return hash_combine(seed, rest...);
+}
+
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
@@ -111,7 +146,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                    int64_t sample_offset,
                    legate::Buffer<IntegerGPair, 2> node_sums,
                    size_t n_outputs,
-                   GradientQuantiser quantiser)
+                   GradientQuantiser quantiser,
+                   int64_t seed)
 {
   typedef cub::BlockReduce<IntegerGPair, THREADS_PER_BLOCK> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
@@ -123,7 +159,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   double grad = sample_id < n_local_samples ? g[{sample_id + sample_offset, 0, output}] : 0.0;
   double hess = sample_id < n_local_samples ? h[{sample_id + sample_offset, 0, output}] : 0.0;
 
-  IntegerGPair blocksum = BlockReduce(temp_storage).Sum(quantiser.Quantise({grad, hess}));
+  auto quantised = quantiser.QuantiseStochasticRounding(
+    {grad, hess}, hash_combine(seed, sample_id + sample_offset, output));
+  IntegerGPair blocksum = BlockReduce(temp_storage).Sum(quantised);
 
   if (threadIdx.x == 0) {
     atomicAdd(
@@ -147,7 +185,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  NodeBatch batch,
                  Histogram<IntegerGPair> histogram,
                  legate::Buffer<IntegerGPair, 2> node_sums,
-                 GradientQuantiser quantiser)
+                 GradientQuantiser quantiser,
+                 int64_t seed)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
   // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
@@ -172,8 +211,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
       sampleNode, node_sums, histogram.ContainsNode(BinaryTree::Parent(sampleNode)));
 
     for (int32_t output = 0; output < n_outputs; output++) {
-      auto gpair_quantised =
-        quantiser.Quantise({g[{globalSampleId, 0, output}], h[{globalSampleId, 0, output}]});
+      auto gpair_quantised = quantiser.QuantiseStochasticRounding(
+        {g[{globalSampleId, 0, output}], h[{globalSampleId, 0, output}]},
+        hash_combine(seed, globalSampleId, output));
       for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (computeHistogram && feature < n_features) {
@@ -619,7 +659,8 @@ struct TreeBuilder {
                         legate::Rect<3> X_shape,
                         legate::AccessorRO<double, 3> g,
                         legate::AccessorRO<double, 3> h,
-                        NodeBatch batch)
+                        NodeBatch batch,
+                        int64_t seed)
   {
     // TODO adjust kernel parameters dynamically
     constexpr size_t elements_per_thread = 8;
@@ -641,7 +682,8 @@ struct TreeBuilder {
                                                      batch,
                                                      histogram,
                                                      tree.node_sums,
-                                                     quantiser);
+                                                     quantiser,
+                                                     seed);
 
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
@@ -686,12 +728,13 @@ struct TreeBuilder {
                       legate::AccessorRO<double, 3> g,
                       legate::AccessorRO<double, 3> h,
                       legate::Rect<3> g_shape,
-                      double alpha)
+                      double alpha,
+                      int64_t seed)
   {
     const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     dim3 grid_shape     = dim3(blocks, num_outputs);
     reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
-      g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser);
+      g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser, seed);
     CHECK_CUDA_STREAM(stream);
 
     SumAllReduce(
@@ -819,12 +862,13 @@ struct build_tree_fn {
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
     // Scalars
-    auto max_depth     = context.scalars().at(0).value<int>();
-    auto max_nodes     = context.scalars().at(1).value<int>();
-    auto alpha         = context.scalars().at(2).value<double>();
-    auto split_samples = context.scalars().at(3).value<int>();
-    auto seed          = context.scalars().at(4).value<int>();
-    auto dataset_rows  = context.scalars().at(5).value<int64_t>();
+    auto max_depth         = context.scalars().at(0).value<int>();
+    auto max_nodes         = context.scalars().at(1).value<int>();
+    auto alpha             = context.scalars().at(2).value<double>();
+    auto split_samples     = context.scalars().at(3).value<int>();
+    auto seed              = context.scalars().at(4).value<int>();
+    auto dataset_rows      = context.scalars().at(5).value<int64_t>();
+    auto quantisation_bits = context.scalars().at(6).value<int>();
 
     auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
@@ -835,7 +879,8 @@ struct build_tree_fn {
     SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows, stream);
 
-    GradientQuantiser quantiser(context, g_accessor, h_accessor, g_shape, stream);
+    GradientQuantiser quantiser(
+      context, g_accessor, h_accessor, g_shape, stream, quantisation_bits);
 
     // Begin building the tree
     TreeBuilder<T> builder(num_rows,
@@ -847,7 +892,7 @@ struct build_tree_fn {
                            split_proposals,
                            quantiser);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
+    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha, seed);
 
     for (int depth = 0; depth < max_depth; ++depth) {
       auto batches = builder.PrepareBatches(depth, thrust_exec_policy);
@@ -855,7 +900,7 @@ struct build_tree_fn {
         auto histogram = builder.GetHistogram(batch);
 
         builder.ComputeHistogram(
-          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
+          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch, seed);
 
         builder.PerformBestSplit(tree, histogram, alpha, batch);
       }

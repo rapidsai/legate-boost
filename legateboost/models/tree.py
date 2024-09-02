@@ -55,10 +55,12 @@ class Tree(BaseModel):
         max_depth: int = 8,
         split_samples: int = 256,
         alpha: float = 1.0,
+        quantisation_bits=16,
     ) -> None:
         self.max_depth = max_depth
         self.split_samples = split_samples
         self.alpha = alpha
+        self.quantisation_bits = quantisation_bits
 
     def fit(
         self,
@@ -84,6 +86,7 @@ class Tree(BaseModel):
         task.add_scalar_arg(self.split_samples, types.int32)
         task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
         task.add_scalar_arg(X.shape[0], types.int64)
+        task.add_scalar_arg(self.quantisation_bits, types.int32)
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
