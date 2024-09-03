@@ -12,7 +12,7 @@ else()
   )
 endif()
 
-project(legateboost VERSION "${_legateboost_version}" LANGUAGES C CXX CUDA)
+project(legateboost VERSION "${_legateboost_version}" LANGUAGES C CXX)
 
 option(SANITIZE "Build with address sanitizer" OFF)
 
@@ -28,17 +28,58 @@ set(BUILD_SHARED_LIBS ON)
 # Not required. We will build it if not found.
 find_package(legateboost QUIET)
 find_package(legate_core REQUIRED)
+
+if(Legion_USE_CUDA)
+  enable_language(CUDA)
+endif()
+
 find_package(BLAS REQUIRED)
 
-legate_add_cpp_subdirectory(src TARGET legateboost EXPORT legateboost-export)
-
-legate_add_cffi(${CMAKE_SOURCE_DIR}/src/legateboost.h TARGET legateboost)
-legate_python_library_template(legateboost)
-legate_default_python_install(legateboost EXPORT legateboost-export)
-
+add_subdirectory(src)
 
 if (SANITIZE)
   message(STATUS "Adding sanitizer flags")
   add_compile_options(-fsanitize=address)
   add_link_options(-fsanitize=address)
+endif()
+
+include(cmake/legateboost/get_rapids_cmake.cmake)
+legateboost_get_rapids_cmake()
+
+include(cmake/legateboost/generate_install_info.cmake)
+legateboost_generate_install_info(${CMAKE_CURRENT_SOURCE_DIR}/src/legateboost.h TARGET legateboost)
+
+include(cmake/legateboost/add_cffi.cmake)
+legateboost_add_cffi(legateboost)
+
+include(GNUInstallDirs)
+
+rapids_cmake_install_lib_dir(lib_dir)
+
+install(TARGETS legateboost DESTINATION ${lib_dir} EXPORT legateboost-export)
+
+install(DIRECTORY cmake/legateboost/
+        DESTINATION "${lib_dir}/cmake/legateboost" FILES_MATCHING
+        PATTERN "*.cmake")
+
+rapids_export(INSTALL legateboost
+  EXPORT_SET legateboost-export
+  GLOBAL_TARGETS legateboost
+  NAMESPACE legate::)
+
+# build export targets
+rapids_export(BUILD legateboost
+  EXPORT_SET legateboost-export
+  GLOBAL_TARGETS legateboote
+  NAMESPACE legate::)
+
+if(SKBUILD)
+  add_library(legateboost_python INTERFACE)
+  add_library(legate::legateboost_python ALIAS legateboost_python)
+  target_link_libraries(legateboost_python INTERFACE legate::core legate::legateboost)
+
+  install(TARGETS legateboost_python DESTINATION ${lib_dir} EXPORT legateboost-export)
+
+  rapids_export(INSTALL legateboost_python EXPORT_SET legateboost-export
+    GLOBAL_TARGETS legateboost_python NAMESPACE legate::)
 endif()

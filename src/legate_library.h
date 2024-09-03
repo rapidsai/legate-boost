@@ -22,8 +22,8 @@ struct Registry {
 
 template <typename T, int ID>
 struct Task : public legate::LegateTask<T> {
-  using Registrar              = Registry;
-  static constexpr int TASK_ID = ID;
+  using Registrar               = Registry;
+  static constexpr auto TASK_ID = legate::LocalTaskID{ID};
 };
 
 }  // namespace legateboost
