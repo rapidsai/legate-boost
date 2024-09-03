@@ -16,12 +16,15 @@ set -e -E -u -o pipefail
 
 nvidia-smi
 
+# Go into package folder to not import source package
+cd legateboost/test
+
 legate \
     --gpus 1 \
     --fbmem 28000 \
     --sysmem 28000 \
     --module pytest \
-    legateboost/test \
+    . \
     -sv \
     --durations=0 \
     -k 'not sklearn' \
