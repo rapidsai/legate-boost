@@ -263,7 +263,9 @@ class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
     auto const& in = context.input(0);
     legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, thrust::host);
   }
+#ifdef LEGATEBOOST_USE_CUDA
   static void gpu_variant(legate::TaskContext context);
+#endif
 };
 
 }  // namespace legateboost
