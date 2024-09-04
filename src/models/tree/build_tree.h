@@ -117,12 +117,10 @@ class SparseSplitProposals {
   {
     auto feature_row_begin = row_pointers[feature];
     auto feature_row_end   = row_pointers[feature + 1];
-    auto ptr               = thrust::lower_bound(thrust::seq,
-                                   split_proposals.ptr({feature_row_begin}),
-                                   split_proposals.ptr({feature_row_end}),
-                                   x);
-    if (ptr == split_proposals.ptr({feature_row_end})) return NOT_FOUND;
-    return ptr - split_proposals.ptr({0});
+    auto ptr               = thrust::lower_bound(
+      thrust::seq, split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
+    if (ptr == split_proposals.ptr(feature_row_end)) return NOT_FOUND;
+    return ptr - split_proposals.ptr(0);
   }
 #else
   int FindBin(T x, int feature) const
@@ -130,9 +128,9 @@ class SparseSplitProposals {
     auto feature_row_begin = row_pointers[feature];
     auto feature_row_end   = row_pointers[feature + 1];
     auto ptr               = std::lower_bound(
-      split_proposals.ptr({feature_row_begin}), split_proposals.ptr({feature_row_end}), x);
-    if (ptr == split_proposals.ptr({feature_row_end})) return NOT_FOUND;
-    return ptr - split_proposals.ptr({0});
+      split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
+    if (ptr == split_proposals.ptr(feature_row_end)) return NOT_FOUND;
+    return ptr - split_proposals.ptr(0);
   }
 #endif
 
