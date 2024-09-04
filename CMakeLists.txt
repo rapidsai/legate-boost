@@ -49,9 +49,6 @@ legateboost_get_rapids_cmake()
 include(cmake/legateboost/generate_install_info.cmake)
 legateboost_generate_install_info(${CMAKE_CURRENT_SOURCE_DIR}/src/legateboost.h TARGET legateboost)
 
-include(cmake/legateboost/add_cffi.cmake)
-legateboost_add_cffi(legateboost)
-
 include(GNUInstallDirs)
 
 rapids_cmake_install_lib_dir(lib_dir)

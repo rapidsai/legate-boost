@@ -1,27 +1,5 @@
-#=============================================================================
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#=============================================================================
-
-include_guard(GLOBAL)
-
-function(legateboost_add_cffi py_path)
-  list(APPEND CMAKE_MESSAGE_CONTEXT "add_cffi")
-
-  string(REPLACE "/" "_" target "${py_path}")
-  string(REPLACE "/" "." py_import_path "${py_path}")
-
-  set(fn_library "${CMAKE_CURRENT_SOURCE_DIR}/${py_path}/library.py")
-  set(file_template
-      [=[
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES.
+#                         All rights reserved.
 # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
@@ -31,16 +9,15 @@ function(legateboost_add_cffi py_path)
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-from legate.core import (
-    get_legate_runtime,
-)
 import os
 import platform
-from typing import Any
 from ctypes import CDLL, RTLD_GLOBAL
+from typing import Any
 
-# TODO: Make sure we only have one ffi instance?
 import cffi
+
+from legate.core import get_legate_runtime
+
 
 def dlopen_no_autoclose(ffi: Any, lib_path: str) -> Any:
     # Use an already-opened library handle, which cffi will convert to a
@@ -48,6 +25,7 @@ def dlopen_no_autoclose(ffi: Any, lib_path: str) -> Any:
     # ffi.cdef), but will not automatically dlclose() on collection.
     lib = CDLL(lib_path, mode=RTLD_GLOBAL)
     return ffi.dlopen(ffi.cast("void *", lib._handle))
+
 
 class UserLibrary:
     def __init__(self, name: str) -> None:
@@ -73,7 +51,6 @@ class UserLibrary:
         else:
             self.initialize(None)
 
-
     @property
     def cffi(self) -> Any:
         return self.shared_object
@@ -82,16 +59,17 @@ class UserLibrary:
         return self.name
 
     def get_shared_library(self) -> str:
-        from @py_import_path@.install_info import libpath
-        return os.path.join(libpath, f"lib@target@{self.get_library_extension()}")
+        from .install_info import libpath
+
+        return os.path.join(libpath, f"liblegateboost{self.get_library_extension()}")
 
     def get_c_header(self) -> str:
-        from @py_import_path@.install_info import header
+        from .install_info import header
 
         return header
 
     def get_registration_callback(self) -> str:
-        return "@target@_perform_registration"
+        return "legateboost_perform_registration"
 
     def initialize(self, shared_object: Any) -> None:
         self.shared_object = shared_object
@@ -108,9 +86,6 @@ class UserLibrary:
             return ".dylib"
         raise RuntimeError(f"unknown platform {os_name!r}")
 
-user_lib = UserLibrary("@target@")
+
+user_lib = UserLibrary("legateboost")
 user_context = get_legate_runtime().find_library(user_lib.get_name())
-]=])
-  string(CONFIGURE "${file_template}" file_content @ONLY)
-  file(WRITE "${fn_library}" "${file_content}")
-endfunction()
