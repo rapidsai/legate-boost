@@ -373,7 +373,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
       if (output == 0) {
         tree_feature[node_id]     = node_best_feature;
-        tree_split_value[node_id] = split_proposals.split_proposals[{node_best_bin_idx}];
+        tree_split_value[node_id] = split_proposals.split_proposals[node_best_bin_idx];
         tree_gain[node_id]        = node_best_gain;
       }
     }
@@ -746,7 +746,7 @@ struct TreeBuilder {
     // Launch a kernel where each thread computes the range of instances for a batch using binary
     // search
     const int num_batches = (BinaryTree::NodesInLevel(depth) + max_batch_size - 1) / max_batch_size;
-    auto batches          = legate::create_buffer<NodeBatch, 1>({num_batches});
+    auto batches          = legate::create_buffer<NodeBatch, 1>(num_batches);
     LaunchN(num_batches,
             stream,
             [                     =,

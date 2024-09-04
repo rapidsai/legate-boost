@@ -40,6 +40,11 @@ files:
       key: test
     includes:
       - test
+  test_python:
+    output: none
+    includes:
+      - py_version
+      - test
 channels:
   - legate
   - conda-forge

@@ -7,6 +7,8 @@
 #   This is intended for use by both CI and local development,
 #   so shouldn't rely on any CI-specific details.
 #
+#   Put CI-specific details in 'test_python_gpu.sh'.
+#
 #   Additional arguments passed to this script are passed through to 'pytest'.
 #
 

@@ -266,25 +266,25 @@ T eval_cost(NNContext* context,
     cost_array.data[idx] = (p * (g_val + 0.5 * h_val * p) / (total_rows * pred.extent[1]));
   });
 
-  auto result               = legate::create_buffer<T>({1});
+  auto result               = legate::create_buffer<T>(1);
   size_t temp_storage_bytes = 0;
   cub::DeviceReduce::Sum(nullptr,
                          temp_storage_bytes,
                          cost_array.data,
-                         result.ptr({0}),
+                         result.ptr(0),
                          cost_array.size(),
                          context->stream);
   auto temp_storage = legate::create_buffer<int8_t>({temp_storage_bytes});
-  cub::DeviceReduce::Sum(temp_storage.ptr({0}),
+  cub::DeviceReduce::Sum(temp_storage.ptr(0),
                          temp_storage_bytes,
                          cost_array.data,
-                         result.ptr({0}),
+                         result.ptr(0),
                          cost_array.size(),
                          context->stream);
-  SumAllReduce(context->legate_context, result.ptr({0}), 1, context->stream);
+  SumAllReduce(context->legate_context, result.ptr(0), 1, context->stream);
 
   T cost;
-  cudaMemcpyAsync(&cost, result.ptr({0}), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
+  cudaMemcpyAsync(&cost, result.ptr(0), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
   CHECK_CUDA(cudaStreamSynchronize(context->stream));
   if (alpha > 0.0) {
     T L2 = 0.0;
