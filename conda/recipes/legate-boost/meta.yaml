@@ -16,7 +16,7 @@
 #  '*_gpu' for systems with CUDA
 #
 # this mirrors the approach used by cunumeric / legate-core
-# (though as of 24.06, thoey do not append a '*_gpu' to the build string for GPU packages)
+# (though as of 24.06, they do not append a '*_gpu' to the build string for GPU packages)
 {% if gpu_enabled == "true" %}
   {% set gpu_enabled_bool = true %}
 {% elif gpu_enabled == "false" %}
@@ -82,15 +82,13 @@ requirements:
     {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
     - cuda-cudart-dev
-    # TODO: remove these selectors on cunumeric and legate-core
-    #       once packages with stricter CUDA detection are available
-    - cunumeric {{ legate_version }} =*_0
-    - legate-core {{ legate_version }} =*_ucx
+    - cunumeric {{ legate_version }}
+    - legate-core {{ legate_version }}
     - libcublas-dev
     {% else %}
     - cunumeric {{ legate_version }} =*_cpu
     - legate-core {{ legate_version }} =*_cpu
-    {% endif %} # if gpu_enabled
+    {% endif %}
     - openblas
     - python
     - pip
@@ -104,9 +102,7 @@ requirements:
     # cuda-version is used to constrain __cuda
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - __cuda
-    # TODO: remove this selector on cunumeric
-    #       once packages with stricter CUDA detection are available
-    - cunumeric {{ legate_version }} =*_0
+    - cunumeric {{ legate_version }}
     {% else %}
     - cunumeric {{ legate_version }} =*_cpu
     {% endif %}
