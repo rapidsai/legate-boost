@@ -7,6 +7,7 @@
 )[0] %}
 {% set py_version = environ['CONDA_PY'] %}
 {% set project_data = pyproject_data["project"] %}
+{% set project_urls = project_data["urls"] %}
 {% set cuda_version = '.'.join(environ['RAPIDS_CUDA_VERSION'].split('.')[:2]) %}
 {% set cuda_major = cuda_version.split('.')[0] %}
 
@@ -132,7 +133,11 @@ test:
     - pip show legate-boost
 
 about:
+  home: {{ project_urls["Homepage"] }}
+  dev_url: {{ project_urls["Repository"] }}
+  doc_url: {{ project_urls["Documentation"] }}
   license: {{ project_data["license"]["text"] }}
   license_family: Apache
   license_file: LICENSE
+  license_url: {{ project_urls["License"] }}
   summary: {{ project_data["description"] }}
