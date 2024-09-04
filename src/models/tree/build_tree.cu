@@ -45,31 +45,93 @@ struct NodeBatch {
   __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
 };
 
+class GradientQuantiser {
+  IntegerGPair scale;
+
+ public:
+  struct GetAbsGPair {
+    int num_outputs;
+    legate::AccessorRO<double, 3> g;
+    legate::AccessorRO<double, 3> h;
+    __device__ GPair operator()(int n) const
+    {
+      legate::Point<3> p = {n / num_outputs, 0, n % num_outputs};
+      return GPair{abs(g[p]), abs(h[p])};
+    }
+  };
+
+  // Calculate scale from upper bound on data
+  GradientQuantiser(legate::TaskContext context,
+                    legate::AccessorRO<double, 3> g,
+                    legate::AccessorRO<double, 3> h,
+                    legate::Rect<3> g_shape,
+                    cudaStream_t stream)
+  {
+    auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
+    auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
+    auto counting     = thrust::make_counting_iterator(0);
+    int num_outputs   = g_shape.hi[2] - g_shape.lo[2] + 1;
+    std::size_t n     = (g_shape.hi[0] - g_shape.lo[0] + 1) * num_outputs;
+    auto zip_gpair    = thrust::make_transform_iterator(counting, GetAbsGPair{num_outputs, g, h});
+    GPair abs_sum =
+      thrust::reduce(policy, zip_gpair, zip_gpair + n, GPair{0.0, 0.0}, thrust::plus<GPair>());
+    SumAllReduce(context, reinterpret_cast<double*>(&abs_sum), 2);
+
+    // We will quantise values between -max_int and max_int
+    // Double precision can exactly represent integers in this range
+    // So we can go back and forth between double and int64_t without overflow
+    int64_t double_max_int = 1ll << 51;
+    int64_t max_int =
+      std::min<int64_t>(double_max_int, std::numeric_limits<IntegerGPair::value_type>::max());
+    scale.grad = abs_sum.grad == 0 ? 1 : max_int / abs_sum.grad;
+    scale.hess = abs_sum.hess == 0 ? 1 : max_int / abs_sum.hess;
+  }
+
+  __device__ IntegerGPair Quantise(GPair value) const
+  {
+    IntegerGPair result;
+    result.grad = value.grad * scale.grad;
+    result.hess = value.hess * scale.hess;
+    return result;
+  }
+
+  __device__ GPair Dequantise(IntegerGPair value) const
+  {
+    GPair result;
+    result.grad = double(value.grad) / scale.grad;
+    result.hess = double(value.hess) / scale.hess;
+    return result;
+  }
+};
+
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
                    size_t n_local_samples,
                    int64_t sample_offset,
-                   legate::Buffer<double, 1> base_sums,
-                   size_t n_outputs)
+                   legate::Buffer<IntegerGPair, 2> node_sums,
+                   size_t n_outputs,
+                   GradientQuantiser quantiser)
 {
-  typedef cub::BlockReduce<double, THREADS_PER_BLOCK> BlockReduce;
-  __shared__ typename BlockReduce::TempStorage temp_storage_g;
-  __shared__ typename BlockReduce::TempStorage temp_storage_h;
+  typedef cub::BlockReduce<IntegerGPair, THREADS_PER_BLOCK> BlockReduce;
+  __shared__ typename BlockReduce::TempStorage temp_storage;
 
   int32_t output = blockIdx.y;
 
   int64_t sample_id = threadIdx.x + blockDim.x * blockIdx.x;
 
-  double G = sample_id < n_local_samples ? g[{sample_id + sample_offset, 0, output}] : 0.0;
-  double H = sample_id < n_local_samples ? h[{sample_id + sample_offset, 0, output}] : 0.0;
+  double grad = sample_id < n_local_samples ? g[{sample_id + sample_offset, 0, output}] : 0.0;
+  double hess = sample_id < n_local_samples ? h[{sample_id + sample_offset, 0, output}] : 0.0;
 
-  double blocksumG = BlockReduce(temp_storage_g).Sum(G);
-  double blocksumH = BlockReduce(temp_storage_h).Sum(H);
+  IntegerGPair blocksum = BlockReduce(temp_storage).Sum(quantiser.Quantise({grad, hess}));
 
   if (threadIdx.x == 0) {
-    atomicAdd(&base_sums[output], blocksumG);
-    atomicAdd(&base_sums[output + n_outputs], blocksumH);
+    atomicAdd(
+      reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(&node_sums[{0, output}].grad),
+      blocksum.grad);
+    atomicAdd(
+      reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(&node_sums[{0, output}].hess),
+      blocksum.hess);
   }
 }
 
@@ -83,8 +145,9 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  size_t n_outputs,
                  SparseSplitProposals<TYPE> split_proposals,
                  NodeBatch batch,
-                 Histogram histogram,
-                 legate::Buffer<double, 2> node_hessians)
+                 Histogram<IntegerGPair> histogram,
+                 legate::Buffer<IntegerGPair, 2> node_sums,
+                 GradientQuantiser quantiser)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
   // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
@@ -106,11 +169,11 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     int64_t globalSampleId           = localSampleId + sample_offset;
 
     bool computeHistogram = ComputeHistogramBin(
-      sampleNode, node_hessians, histogram.ContainsNode(BinaryTree::Parent(sampleNode)));
+      sampleNode, node_sums, histogram.ContainsNode(BinaryTree::Parent(sampleNode)));
 
     for (int32_t output = 0; output < n_outputs; output++) {
-      double G = g[{globalSampleId, 0, output}];
-      double H = h[{globalSampleId, 0, output}];
+      auto gpair_quantised =
+        quantiser.Quantise({g[{globalSampleId, 0, output}], h[{globalSampleId, 0, output}]});
       for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (computeHistogram && feature < n_features) {
@@ -119,10 +182,11 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
           // bin_idx is the first sample that is larger than x_value
           if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-            double* addPosition =
-              reinterpret_cast<double*>(&histogram[{sampleNode, output, bin_idx}]);
-            atomicAdd(addPosition, G);
-            atomicAdd(addPosition + 1, H);
+            Histogram<IntegerGPair>::atomic_add_type* addPosition =
+              reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+                &histogram[{sampleNode, output, bin_idx}]);
+            atomicAdd(addPosition, gpair_quantised.grad);
+            atomicAdd(addPosition + 1, gpair_quantised.hess);
           }
         }
       }
@@ -132,8 +196,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
 template <typename T>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
-  scan_kernel(Histogram histogram,
-              legate::Buffer<double, 2> node_hessians,
+  scan_kernel(Histogram<IntegerGPair> histogram,
+              legate::Buffer<IntegerGPair, 2> node_sums,
               int n_features,
               int n_outputs,
               const SparseSplitProposals<T> split_proposals,
@@ -147,14 +211,14 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   int j          = rank % num_nodes;
 
   // Specialize WarpScan for type int
-  typedef cub::WarpScan<GPair> WarpScan;
+  typedef cub::WarpScan<IntegerGPair> WarpScan;
 
   __shared__ typename WarpScan::TempStorage temp_storage[THREADS_PER_BLOCK / 32];
 
   int scan_node_idx = batch.node_idx_begin + j;
   int parent        = BinaryTree::Parent(scan_node_idx);
   // Exit if we didn't compute this histogram
-  if (!ComputeHistogramBin(scan_node_idx, node_hessians, histogram.ContainsNode(parent))) return;
+  if (!ComputeHistogramBin(scan_node_idx, node_sums, histogram.ContainsNode(parent))) return;
   if (i >= n_features || scan_node_idx >= batch.node_idx_end) return;
 
   int feature_idx                   = i;
@@ -163,13 +227,14 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   int num_tiles                     = (num_bins + warp.num_threads() - 1) / warp.num_threads();
 
   for (int output = 0; output < n_outputs; output++) {
-    GPair aggregate;
+    IntegerGPair aggregate;
     // Scan left side
     for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
       int bin_idx              = feature_begin + tile_idx * warp.num_threads() + warp.thread_rank();
       bool thread_participates = bin_idx < feature_end;
-      auto e = thread_participates ? histogram[{scan_node_idx, output, bin_idx}] : GPair{0, 0};
-      GPair tile_aggregate;
+      auto e =
+        thread_participates ? histogram[{scan_node_idx, output, bin_idx}] : IntegerGPair{0, 0};
+      IntegerGPair tile_aggregate;
       WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
       __syncwarp();
       if (thread_participates) { histogram[{scan_node_idx, output, bin_idx}] = e + aggregate; }
@@ -184,14 +249,14 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
 
   // The sibling did not compute a histogram
   // Do the subtraction trick using the histogram we just computed in the previous step
-  if (!ComputeHistogramBin(sibling_node_idx, node_hessians, histogram.ContainsNode(parent))) {
+  if (!ComputeHistogramBin(sibling_node_idx, node_sums, histogram.ContainsNode(parent))) {
     for (int output = 0; output < n_outputs; output++) {
       // Infer right side
       for (int bin_idx = feature_begin + warp.thread_rank(); bin_idx < feature_end;
            bin_idx += warp.num_threads()) {
-        GPair scanned_sum = histogram[{scan_node_idx, output, bin_idx}];
-        GPair parent_sum  = histogram[{BinaryTree::Parent(scan_node_idx), output, bin_idx}];
-        GPair other_sum   = parent_sum - scanned_sum;
+        auto scanned_sum = histogram[{scan_node_idx, output, bin_idx}];
+        auto parent_sum  = histogram[{BinaryTree::Parent(scan_node_idx), output, bin_idx}];
+        auto other_sum   = parent_sum - scanned_sum;
         histogram[{sibling_node_idx, output, bin_idx}] = other_sum;
       }
     }
@@ -224,19 +289,19 @@ struct GainFeaturePair {
 
 template <typename TYPE>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  perform_best_split(Histogram histogram,
+  perform_best_split(Histogram<IntegerGPair> histogram,
                      size_t n_features,
                      size_t n_outputs,
                      SparseSplitProposals<TYPE> split_proposals,
                      double eps,
                      double alpha,
                      legate::Buffer<double, 2> tree_leaf_value,
-                     legate::Buffer<double, 2> tree_gradient,
-                     legate::Buffer<double, 2> tree_hessian,
+                     legate::Buffer<IntegerGPair, 2> node_sums,
                      legate::Buffer<int32_t, 1> tree_feature,
                      legate::Buffer<double, 1> tree_split_value,
                      legate::Buffer<double, 1> tree_gain,
-                     NodeBatch batch)
+                     NodeBatch batch,
+                     GradientQuantiser quantiser)
 {
   // using one block per (level) node to have blockwise reductions
   int node_id = batch.node_idx_begin + blockIdx.x;
@@ -258,11 +323,12 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
     for (int bin_idx = feature_start + threadIdx.x; bin_idx < feature_end; bin_idx += blockDim.x) {
       double gain = 0;
       for (int output = 0; output < n_outputs; ++output) {
-        auto G          = tree_gradient[{node_id, output}];
-        auto H          = tree_hessian[{node_id, output}];
-        auto [G_L, H_L] = histogram[{node_id, output, bin_idx}];
-        auto G_R        = G - G_L;
-        auto H_R        = H - H_L;
+        auto node_sum   = node_sums[{node_id, output}];
+        auto left_sum   = histogram[{node_id, output, bin_idx}];
+        auto right_sum  = node_sum - left_sum;
+        auto [G, H]     = quantiser.Dequantise(node_sum);
+        auto [G_L, H_L] = quantiser.Dequantise(left_sum);
+        auto [G_R, H_R] = quantiser.Dequantise(right_sum);
 
         if (H_L <= 0.0 || H_R <= 0.0) {
           gain = 0;
@@ -292,18 +358,18 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
   if (node_best_gain > eps) {
     for (int output = threadIdx.x; output < n_outputs; output += blockDim.x) {
-      auto [G_L, H_L] = histogram[{node_id, output, node_best_bin_idx}];
-      auto G_R        = tree_gradient[{node_id, output}] - G_L;
-      auto H_R        = tree_hessian[{node_id, output}] - H_L;
+      auto node_sum   = node_sums[{node_id, output}];
+      auto left_sum   = histogram[{node_id, output, node_best_bin_idx}];
+      auto right_sum  = node_sum - left_sum;
+      auto [G_L, H_L] = quantiser.Dequantise(left_sum);
+      auto [G_R, H_R] = quantiser.Dequantise(right_sum);
 
       int left_child                         = BinaryTree::LeftChild(node_id);
       int right_child                        = BinaryTree::RightChild(node_id);
       tree_leaf_value[{left_child, output}]  = CalculateLeafValue(G_L, H_L, alpha);
       tree_leaf_value[{right_child, output}] = CalculateLeafValue(G_R, H_R, alpha);
-      tree_hessian[{left_child, output}]     = H_L;
-      tree_hessian[{right_child, output}]    = H_R;
-      tree_gradient[{left_child, output}]    = G_L;
-      tree_gradient[{right_child, output}]   = G_R;
+      node_sums[{left_child, output}]        = left_sum;
+      node_sums[{right_child, output}]       = right_sum;
 
       if (output == 0) {
         tree_feature[node_id]     = node_best_feature;
@@ -325,47 +391,18 @@ struct Tree {
     feature     = legate::create_buffer<int32_t, 1>(max_nodes);
     split_value = legate::create_buffer<double, 1>(max_nodes);
     gain        = legate::create_buffer<double, 1>(max_nodes);
-    hessian     = legate::create_buffer<double, 2>({max_nodes, num_outputs});
-    gradient    = legate::create_buffer<double, 2>({max_nodes, num_outputs});
+    node_sums   = legate::create_buffer<IntegerGPair, 2>({max_nodes, num_outputs});
     thrust::fill(thrust_exec_policy,
                  leaf_value.ptr({0, 0}),
                  leaf_value.ptr({0, 0}) + max_nodes * num_outputs,
                  0.0);
     thrust::fill(thrust_exec_policy, feature.ptr(0), feature.ptr(0) + max_nodes, -1);
-    thrust::fill(
-      thrust_exec_policy, hessian.ptr({0, 0}), hessian.ptr({0, 0}) + max_nodes * num_outputs, 0.0);
     thrust::fill(thrust_exec_policy, split_value.ptr(0), split_value.ptr(0) + max_nodes, 0.0);
     thrust::fill(thrust_exec_policy, gain.ptr(0), gain.ptr(0) + max_nodes, 0.0);
     thrust::fill(thrust_exec_policy,
-                 gradient.ptr({0, 0}),
-                 gradient.ptr({0, 0}) + max_nodes * num_outputs,
-                 0.0);
-  }
-
-  ~Tree()
-  {
-    leaf_value.destroy();
-    feature.destroy();
-    split_value.destroy();
-    gain.destroy();
-    hessian.destroy();
-    gradient.destroy();
-  }
-
-  void InitializeBase(legate::Buffer<double, 1> base_sums, double alpha)
-  {
-    LaunchN(num_outputs,
-            stream,
-            [            =,
-             num_outputs = this->num_outputs,
-             leaf_value  = this->leaf_value,
-             gradient    = this->gradient,
-             hessian     = this->hessian] __device__(int output) {
-              leaf_value[{0, output}] =
-                CalculateLeafValue(base_sums[output], base_sums[output + num_outputs], alpha);
-              gradient[{0, output}] = base_sums[output];
-              hessian[{0, output}]  = base_sums[output + num_outputs];
-            });
+                 node_sums.ptr({0, 0}),
+                 node_sums.ptr({0, 0}) + max_nodes * num_outputs,
+                 IntegerGPair{0, 0});
   }
 
   template <typename T, int DIM, typename ThrustPolicyT>
@@ -379,17 +416,28 @@ struct Tree {
     thrust::for_each_n(policy,
                        UnravelIter(out_shape),
                        out_shape.volume(),
-                       [=] __host__ __device__(const legate::Point<DIM>& p) { out_acc[p] = x[p]; });
+                       [=] __device__(const legate::Point<DIM>& p) { out_acc[p] = x[p]; });
   }
 
   template <typename ThrustPolicyT>
-  void WriteTreeOutput(legate::TaskContext context, const ThrustPolicyT& policy)
+  void WriteTreeOutput(legate::TaskContext context,
+                       const ThrustPolicyT& policy,
+                       GradientQuantiser quantiser)
   {
     WriteOutput(context.output(0).data(), leaf_value, policy);
     WriteOutput(context.output(1).data(), feature, policy);
     WriteOutput(context.output(2).data(), split_value, policy);
     WriteOutput(context.output(3).data(), gain, policy);
-    WriteOutput(context.output(4).data(), hessian, policy);
+
+    // Dequantise and write the hessians
+    auto hessian                        = context.output(4).data();
+    const legate::Rect<2> hessian_shape = hessian.shape<2>();
+    auto hessian_acc                    = hessian.write_accessor<double, 2>();
+    auto node_sums                      = this->node_sums;  // Dont let device lambda capture this
+    thrust::for_each_n(
+      policy, UnravelIter(hessian_shape), hessian_shape.volume(), [=] __device__(auto p) {
+        hessian_acc[p] = quantiser.Dequantise(node_sums[p]).hess;
+      });
     CHECK_CUDA_STREAM(stream);
   }
 
@@ -397,8 +445,7 @@ struct Tree {
   legate::Buffer<int32_t, 1> feature;
   legate::Buffer<double, 1> split_value;
   legate::Buffer<double, 1> gain;
-  legate::Buffer<double, 2> hessian;
-  legate::Buffer<double, 2> gradient;
+  legate::Buffer<IntegerGPair, 2> node_sums;
   const int num_outputs;
   const int max_nodes;
   cudaStream_t stream;
@@ -511,13 +558,15 @@ struct TreeBuilder {
               cudaStream_t stream,
               int32_t max_nodes,
               int32_t max_depth,
-              SparseSplitProposals<T> split_proposals)
+              SparseSplitProposals<T> split_proposals,
+              GradientQuantiser quantiser)
     : num_rows(num_rows),
       num_features(num_features),
       num_outputs(num_outputs),
       stream(stream),
       max_nodes(max_nodes),
-      split_proposals(split_proposals)
+      split_proposals(split_proposals),
+      quantiser(quantiser)
   {
     sorted_positions = legate::create_buffer<cuda::std::tuple<int32_t, int32_t>>(num_rows);
     FillPositions(sorted_positions, num_rows, stream);
@@ -531,11 +580,11 @@ struct TreeBuilder {
     const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
     int depth                             = 0;
     while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) depth++;
-    histogram      = Histogram(BinaryTree::LevelBegin(0),
-                          BinaryTree::LevelEnd(depth),
-                          num_outputs,
-                          split_proposals.histogram_size,
-                          stream);
+    histogram      = Histogram<IntegerGPair>(BinaryTree::LevelBegin(0),
+                                        BinaryTree::LevelEnd(depth),
+                                        num_outputs,
+                                        split_proposals.histogram_size,
+                                        stream);
     max_batch_size = max_histogram_nodes;
   }
 
@@ -563,7 +612,7 @@ struct TreeBuilder {
   }
 
   template <typename TYPE>
-  void ComputeHistogram(Histogram histogram,
+  void ComputeHistogram(Histogram<IntegerGPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
                         legate::AccessorRO<TYPE, 3> X,
@@ -591,12 +640,14 @@ struct TreeBuilder {
                                                      split_proposals,
                                                      batch,
                                                      histogram,
-                                                     tree.hessian);
+                                                     tree.node_sums,
+                                                     quantiser);
 
     CHECK_CUDA_STREAM(stream);
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
     SumAllReduce(context,
-                 reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
+                 reinterpret_cast<Histogram<IntegerGPair>::value_type::value_type*>(
+                   histogram.Ptr(batch.node_idx_begin)),
                  batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
                  stream);
 
@@ -606,11 +657,14 @@ struct TreeBuilder {
 
     // Scan the histograms
     scan_kernel<<<blocks_needed, THREADS_PER_BLOCK, 0, stream>>>(
-      histogram, tree.hessian, num_features, num_outputs, split_proposals, batch);
+      histogram, tree.node_sums, num_features, num_outputs, split_proposals, batch);
     CHECK_CUDA_STREAM(stream);
   }
 
-  void PerformBestSplit(Tree& tree, Histogram histogram, double alpha, NodeBatch batch)
+  void PerformBestSplit(Tree& tree,
+                        Histogram<IntegerGPair> histogram,
+                        double alpha,
+                        NodeBatch batch)
   {
     perform_best_split<<<batch.NodesInBatch(), THREADS_PER_BLOCK, 0, stream>>>(histogram,
                                                                                num_features,
@@ -619,12 +673,12 @@ struct TreeBuilder {
                                                                                eps,
                                                                                alpha,
                                                                                tree.leaf_value,
-                                                                               tree.gradient,
-                                                                               tree.hessian,
+                                                                               tree.node_sums,
                                                                                tree.feature,
                                                                                tree.split_value,
                                                                                tree.gain,
-                                                                               batch);
+                                                                               batch,
+                                                                               quantiser);
     CHECK_CUDA_STREAM(stream);
   }
   void InitialiseRoot(legate::TaskContext context,
@@ -634,37 +688,40 @@ struct TreeBuilder {
                       legate::Rect<3> g_shape,
                       double alpha)
   {
-    auto base_sums = legate::create_buffer<double, 1>(num_outputs * 2);
-
-    CHECK_CUDA(cudaMemsetAsync(base_sums.ptr(0), 0, num_outputs * 2 * sizeof(double), stream));
     const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     dim3 grid_shape     = dim3(blocks, num_outputs);
     reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
-      g, h, num_rows, g_shape.lo[0], base_sums, num_outputs);
+      g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser);
     CHECK_CUDA_STREAM(stream);
 
-    SumAllReduce(context, reinterpret_cast<double*>(base_sums.ptr(0)), num_outputs * 2, stream);
-
-    // base sums contain g-sums first, h sums second
-    tree.InitializeBase(base_sums, alpha);
-
-    base_sums.destroy();
+    SumAllReduce(
+      context, reinterpret_cast<int64_t*>(tree.node_sums.ptr({0, 0})), num_outputs * 2, stream);
+    LaunchN(num_outputs,
+            stream,
+            [            =,
+             num_outputs = this->num_outputs,
+             leaf_value  = tree.leaf_value,
+             node_sums   = tree.node_sums,
+             quantiser   = this->quantiser] __device__(int output) {
+              GPair sum               = quantiser.Dequantise(node_sums[{0, output}]);
+              leaf_value[{0, output}] = CalculateLeafValue(sum.grad, sum.hess, alpha);
+            });
     CHECK_CUDA_STREAM(stream);
   }
 
   // Create a new histogram for this batch if we need to
   // Destroy the old one
-  Histogram GetHistogram(NodeBatch batch)
+  Histogram<IntegerGPair> GetHistogram(NodeBatch batch)
   {
     if (histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) { return histogram; }
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
     histogram.Destroy();
-    histogram = Histogram(batch.node_idx_begin,
-                          batch.node_idx_end,
-                          num_outputs,
-                          split_proposals.histogram_size,
-                          stream);
+    histogram = Histogram<IntegerGPair>(batch.node_idx_begin,
+                                        batch.node_idx_end,
+                                        num_outputs,
+                                        split_proposals.histogram_size,
+                                        stream);
     return histogram;
   }
 
@@ -737,8 +794,9 @@ struct TreeBuilder {
   const int32_t num_outputs;
   const int32_t max_nodes;
   SparseSplitProposals<T> split_proposals;
-  Histogram histogram;
+  Histogram<IntegerGPair> histogram;
   int max_batch_size;
+  GradientQuantiser quantiser;
 
   cudaStream_t stream;
 };
@@ -776,9 +834,18 @@ struct build_tree_fn {
 
     SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows, stream);
+
+    GradientQuantiser quantiser(context, g_accessor, h_accessor, g_shape, stream);
+
     // Begin building the tree
-    TreeBuilder<T> builder(
-      num_rows, num_features, num_outputs, stream, tree.max_nodes, max_depth, split_proposals);
+    TreeBuilder<T> builder(num_rows,
+                           num_features,
+                           num_outputs,
+                           stream,
+                           tree.max_nodes,
+                           max_depth,
+                           split_proposals,
+                           quantiser);
 
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
@@ -797,7 +864,7 @@ struct build_tree_fn {
       if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_accessor, X_shape); }
     }
 
-    tree.WriteTreeOutput(context, thrust_exec_policy);
+    tree.WriteTreeOutput(context, thrust_exec_policy, quantiser);
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
     CHECK_CUDA_STREAM(stream);

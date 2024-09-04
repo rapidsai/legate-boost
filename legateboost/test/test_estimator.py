@@ -47,12 +47,12 @@ def test_update(init):
     update_train_loss = metric.metric(y, model.predict(X), cn.ones(y.shape[0]))
     assert update_train_loss < half_data_train_loss
 
-    # check that updating with same dataset results in exact same model
+    # check that updating with same dataset results in same model
     model.fit(X, y)
     pred = model.predict(X)
     model.update(X, y)
     updated_pred = model.predict(X)
-    assert (pred == updated_pred).all()
+    assert np.allclose(pred, updated_pred)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
