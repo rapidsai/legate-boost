@@ -150,7 +150,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
   // Sort samples
   std::vector<T> split_proposals_tmp;
   split_proposals_tmp.reserve(num_features * split_samples);
-  auto row_pointers = legate::create_buffer<int32_t, 1>({num_features + 1});
+  auto row_pointers = legate::create_buffer<int32_t, 1>(num_features + 1);
   row_pointers[0]   = 0;
   for (int j = 0; j < num_features; j++) {
     auto ptr = draft_proposals.ptr({j, 0});
