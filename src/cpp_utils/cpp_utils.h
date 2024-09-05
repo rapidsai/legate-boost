@@ -109,8 +109,8 @@ constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor&& 
   type_dispatch<float, double>(code, f, std::forward<Fnargs>(args)...);
 }
 
-template <typename T>
-void SumAllReduce(legate::TaskContext context, T* x, int count)
+template <typename T, typename OpT>
+void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
 {
   auto domain      = context.get_launch_domain();
   size_t num_ranks = domain.get_volume();
@@ -138,13 +138,21 @@ void SumAllReduce(legate::TaskContext context, T* x, int count)
   // Sum partials
   std::vector<T> partials(items_per_rank, 0.0);
   for (size_t j = 0; j < items_per_rank; j++) {
-    for (size_t i = 0; i < num_ranks; i++) { partials[j] += recvbuf[i * items_per_rank + j]; }
+    for (size_t i = 0; i < num_ranks; i++) {
+      partials[j] = op(partials[j], recvbuf[i * items_per_rank + j]);
+    }
   }
 
   result = legate::comm::coll::collAllgather(
     partials.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
   EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
   std::copy(recvbuf.begin(), recvbuf.begin() + count, x);
+}
+
+template <typename T>
+void SumAllReduce(legate::TaskContext context, T* x, int count)
+{
+  AllReduce(context, x, count, std::plus<T>());
 }
 
 /**
