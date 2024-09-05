@@ -65,8 +65,7 @@ class GradientQuantiser {
                     legate::AccessorRO<double, 3> g,
                     legate::AccessorRO<double, 3> h,
                     legate::Rect<3> g_shape,
-                    cudaStream_t stream,
-                    int int_bits)
+                    cudaStream_t stream)
   {
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
@@ -74,40 +73,27 @@ class GradientQuantiser {
     int num_outputs   = g_shape.hi[2] - g_shape.lo[2] + 1;
     std::size_t n     = (g_shape.hi[0] - g_shape.lo[0] + 1) * num_outputs;
     auto zip_gpair    = thrust::make_transform_iterator(counting, GetAbsGPair{num_outputs, g, h});
-    GPair abs_sum =
+    GPair local_abs_sum =
       thrust::reduce(policy, zip_gpair, zip_gpair + n, GPair{0.0, 0.0}, thrust::plus<GPair>());
-    SumAllReduce(context, reinterpret_cast<double*>(&abs_sum), 2);
+    // Take the max of the local sums
+    AllReduce(context, reinterpret_cast<double*>(&local_abs_sum), 2, [](double a, double b) {
+      return std::max(a, b);
+    });
 
     // We will quantise values between -max_int and max_int
     // Double precision can exactly represent integers in this range
     // So we can go back and forth between double and int64_t without overflow
-    int64_t double_max_int = 1ll << 51;
-    int64_t max_int        = std::min<int64_t>(double_max_int, 1ll << (int_bits - 1));
-    scale.grad             = abs_sum.grad == 0 ? 1 : max_int / abs_sum.grad;
-    scale.hess             = abs_sum.hess == 0 ? 1 : max_int / abs_sum.hess;
+    int64_t max_int = std::numeric_limits<int32_t>::max();
+    scale.grad      = local_abs_sum.grad == 0 ? 1 : max_int / local_abs_sum.grad;
+    scale.hess      = local_abs_sum.hess == 0 ? 1 : max_int / local_abs_sum.hess;
   }
 
-  /*
-    __device__ IntegerGPair Quantise(GPair value) const
-    {
-      IntegerGPair result;
-      result.grad = value.grad * scale.grad;
-      result.hess = value.hess * scale.hess;
-      return result;
-    }
-  */
-
-  __device__ IntegerGPair QuantiseStochasticRounding(GPair value, int64_t seed) const
+  __device__ IntegerGPair Quantise(GPair value) const
   {
-    thrust::default_random_engine eng(seed);
-    thrust::uniform_real_distribution<double> dist(0.0, 1.0);
-    auto scaled_grad                        = value.grad * scale.grad;
-    auto scaled_hess                        = value.hess * scale.hess;
-    double grad_remainder                   = scaled_grad - floor(scaled_grad);
-    double hess_remainder                   = scaled_hess - floor(scaled_hess);
-    IntegerGPair::value_type grad_quantised = floor(scaled_grad) + (dist(eng) < grad_remainder);
-    IntegerGPair::value_type hess_quantised = floor(scaled_hess) + (dist(eng) < hess_remainder);
-    return IntegerGPair{grad_quantised, hess_quantised};
+    IntegerGPair result;
+    result.grad = value.grad * scale.grad;
+    result.hess = value.hess * scale.hess;
+    return result;
   }
 
   __device__ GPair Dequantise(IntegerGPair value) const
@@ -119,26 +105,6 @@ class GradientQuantiser {
   }
 };
 
-__device__ int hash(int a)
-{
-  a = (a + 0x7ed55d16) + (a << 12);
-  a = (a ^ 0xc761c23c) ^ (a >> 19);
-  a = (a + 0x165667b1) + (a << 5);
-  a = (a + 0xd3a2646c) ^ (a << 9);
-  a = (a + 0xfd7046c5) + (a << 3);
-  a = (a ^ 0xb55a4f09) ^ (a >> 16);
-  return a;
-}
-
-__device__ int64_t hash_combine(int64_t seed) { return seed; }
-
-template <typename... Rest>
-__device__ int64_t hash_combine(int64_t seed, const int& v, Rest... rest)
-{
-  seed ^= hash(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-  return hash_combine(seed, rest...);
-}
-
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
@@ -146,8 +112,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                    int64_t sample_offset,
                    legate::Buffer<IntegerGPair, 2> node_sums,
                    size_t n_outputs,
-                   GradientQuantiser quantiser,
-                   int64_t seed)
+                   GradientQuantiser quantiser)
 {
   typedef cub::BlockReduce<IntegerGPair, THREADS_PER_BLOCK> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
@@ -159,8 +124,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
   double grad = sample_id < n_local_samples ? g[{sample_id + sample_offset, 0, output}] : 0.0;
   double hess = sample_id < n_local_samples ? h[{sample_id + sample_offset, 0, output}] : 0.0;
 
-  auto quantised = quantiser.QuantiseStochasticRounding(
-    {grad, hess}, hash_combine(seed, sample_id + sample_offset, output));
+  auto quantised        = quantiser.Quantise({grad, hess});
   IntegerGPair blocksum = BlockReduce(temp_storage).Sum(quantised);
 
   if (threadIdx.x == 0) {
@@ -185,8 +149,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                  NodeBatch batch,
                  Histogram<IntegerGPair> histogram,
                  legate::Buffer<IntegerGPair, 2> node_sums,
-                 GradientQuantiser quantiser,
-                 int64_t seed)
+                 GradientQuantiser quantiser)
 {
   // block dimensions are (THREADS_PER_BLOCK, 1, 1)
   // each thread processes ELEMENTS_PER_THREAD samples and FEATURES_PER_BLOCK features
@@ -211,9 +174,8 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
       sampleNode, node_sums, histogram.ContainsNode(BinaryTree::Parent(sampleNode)));
 
     for (int32_t output = 0; output < n_outputs; output++) {
-      auto gpair_quantised = quantiser.QuantiseStochasticRounding(
-        {g[{globalSampleId, 0, output}], h[{globalSampleId, 0, output}]},
-        hash_combine(seed, globalSampleId, output));
+      auto gpair_quantised =
+        quantiser.Quantise({g[{globalSampleId, 0, output}], h[{globalSampleId, 0, output}]});
       for (int32_t featureIdx = 0; featureIdx < FEATURES_PER_BLOCK; featureIdx++) {
         int32_t feature = featureIdx + blockIdx.y * FEATURES_PER_BLOCK;
         if (computeHistogram && feature < n_features) {
@@ -222,11 +184,13 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 
           // bin_idx is the first sample that is larger than x_value
           if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-            Histogram<IntegerGPair>::atomic_add_type* addPosition =
-              reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
-                &histogram[{sampleNode, output, bin_idx}]);
-            atomicAdd(addPosition, gpair_quantised.grad);
-            atomicAdd(addPosition + 1, gpair_quantised.hess);
+            auto* addPosition = reinterpret_cast<typename IntegerGPair::value_type*>(
+              &histogram[{sampleNode, output, bin_idx}]);
+
+            // Add as 32 bit ints - we have quantised the data such that any local machine cannot
+            // overflow We change it to 64 bits later and then allreduce between workers
+            atomicAdd(reinterpret_cast<int32_t*>(addPosition), gpair_quantised.grad);
+            atomicAdd(reinterpret_cast<int32_t*>(addPosition + 1), gpair_quantised.hess);
           }
         }
       }
@@ -659,8 +623,7 @@ struct TreeBuilder {
                         legate::Rect<3> X_shape,
                         legate::AccessorRO<double, 3> g,
                         legate::AccessorRO<double, 3> h,
-                        NodeBatch batch,
-                        int64_t seed)
+                        NodeBatch batch)
   {
     // TODO adjust kernel parameters dynamically
     constexpr size_t elements_per_thread = 8;
@@ -682,10 +645,27 @@ struct TreeBuilder {
                                                      batch,
                                                      histogram,
                                                      tree.node_sums,
-                                                     quantiser,
-                                                     seed);
+                                                     quantiser);
 
     CHECK_CUDA_STREAM(stream);
+
+    // Convert 32 bit integer sums to 64 bit integer sums (in practice all this does is move the
+    // sign bit)
+    LaunchN(batch.NodesInBatch() * split_proposals.histogram_size,
+            stream,
+            [                =,
+             split_proposals = this->split_proposals,
+             num_outputs     = this->num_outputs] __device__(int idx) mutable {
+              auto node_idx = idx / split_proposals.histogram_size + batch.node_idx_begin;
+              auto bin_idx  = idx % split_proposals.histogram_size;
+              for (int output = 0; output < num_outputs; output++) {
+                legate::Point<3> p = {node_idx, output, bin_idx};
+                auto g             = *reinterpret_cast<int32_t*>(&histogram[p].grad);
+                auto h             = *reinterpret_cast<int32_t*>(&histogram[p].hess);
+                histogram[p]       = {g, h};
+              }
+            });
+
     static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
     SumAllReduce(context,
                  reinterpret_cast<Histogram<IntegerGPair>::value_type::value_type*>(
@@ -728,13 +708,12 @@ struct TreeBuilder {
                       legate::AccessorRO<double, 3> g,
                       legate::AccessorRO<double, 3> h,
                       legate::Rect<3> g_shape,
-                      double alpha,
-                      int64_t seed)
+                      double alpha)
   {
     const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     dim3 grid_shape     = dim3(blocks, num_outputs);
     reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
-      g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser, seed);
+      g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser);
     CHECK_CUDA_STREAM(stream);
 
     SumAllReduce(
@@ -862,13 +841,12 @@ struct build_tree_fn {
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
     // Scalars
-    auto max_depth         = context.scalars().at(0).value<int>();
-    auto max_nodes         = context.scalars().at(1).value<int>();
-    auto alpha             = context.scalars().at(2).value<double>();
-    auto split_samples     = context.scalars().at(3).value<int>();
-    auto seed              = context.scalars().at(4).value<int>();
-    auto dataset_rows      = context.scalars().at(5).value<int64_t>();
-    auto quantisation_bits = context.scalars().at(6).value<int>();
+    auto max_depth     = context.scalars().at(0).value<int>();
+    auto max_nodes     = context.scalars().at(1).value<int>();
+    auto alpha         = context.scalars().at(2).value<double>();
+    auto split_samples = context.scalars().at(3).value<int>();
+    auto seed          = context.scalars().at(4).value<int>();
+    auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
     auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
@@ -879,8 +857,7 @@ struct build_tree_fn {
     SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows, stream);
 
-    GradientQuantiser quantiser(
-      context, g_accessor, h_accessor, g_shape, stream, quantisation_bits);
+    GradientQuantiser quantiser(context, g_accessor, h_accessor, g_shape, stream);
 
     // Begin building the tree
     TreeBuilder<T> builder(num_rows,
@@ -892,7 +869,7 @@ struct build_tree_fn {
                            split_proposals,
                            quantiser);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha, seed);
+    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
 
     for (int depth = 0; depth < max_depth; ++depth) {
       auto batches = builder.PrepareBatches(depth, thrust_exec_policy);
@@ -900,7 +877,7 @@ struct build_tree_fn {
         auto histogram = builder.GetHistogram(batch);
 
         builder.ComputeHistogram(
-          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch, seed);
+          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
 
         builder.PerformBestSplit(tree, histogram, alpha, batch);
       }
