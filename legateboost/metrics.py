@@ -269,7 +269,7 @@ class LogLossMetric(BaseMetric):
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
             logloss = -(y * cn.log(pred) + (self.one - y) * cn.log(self.one - pred))
-            return float(cn.dot(logloss, w) / w_sum)
+            return cn.dot(logloss, w) / w_sum
 
         # multi-class case
         assert pred.ndim == 2
