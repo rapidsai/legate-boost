@@ -76,6 +76,117 @@ pre-commit run --all-files
 The `VERSION` file at the root of the repo is the single source for `legate-boost`'s version.
 Modify that file to change the version for wheels, conda packages, the CMake project, etc.
 
+## Work with the conda packages
+
+Run the commands in this section in a container using the same base image as CI.
+
+```shell
+# NOTE: remove '--gpus' to test the CPU-only version
+docker run \
+  --rm \
+  --gpus 1 \
+  -v $(pwd):/opt/legate-boost \
+  -w /opt/legate-boost \
+  -it rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11 \
+  bash
+```
+
+### Build conda packages locally
+
+Before doing this, be sure to remove any other left-over build artifacts.
+
+```shell
+git clean -d -f -X
+```
+
+Build the packages.
+
+```shell
+CMAKE_GENERATOR=Ninja \
+CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
+rapids-conda-retry mambabuild \
+    --channel legate \
+    --channel conda-forge \
+    --channel nvidia \
+    --no-force-upload \
+    conda/recipes/legate-boost
+```
+
+### Download conda package created in CI
+
+Packages built in CI are hosted on the GitHub Artifact Store.
+
+To start, authenticate with the GitHub CLI.
+By default, this will require interactively entering a code in a browser window.
+That can be avoided by setting environment variable `GH_TOKEN`, as described in the
+GitHub docs ([link](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github)).
+
+```shell
+# authenticate with the GitHub CLI
+# (can skip this by providing GH_TOKEN environment variable)
+gh auth login
+```
+
+Next, select a CI run whose artifacts you want to test.
+The run IDs can be found in the URLs at https://github.com/rapidsai/legate-boost/actions/workflows/github-actions.yml.
+For example, given a URL like
+
+```text
+https://github.com/rapidsai/legate-boost/actions/runs/10566116913
+```
+
+The run ID is `10566116913`.
+
+```shell
+# choose a specific CI run ID
+RUN_ID=10566116913
+```
+
+It's possible to omit the run ID and just have these commands download whatever
+the latest artifact produced was.
+For details on that, see the GitHub docs ([link](https://cli.github.com/manual/gh_run_download)).
+
+Download the packages.
+This will download and unpack a single artifact which contains all of the conda packages
+built for a particular combination of CUDA version, CPU architecture, and Python version.
+
+```shell
+gh run download \
+    --dir "${RAPIDS_CONDA_BLD_OUTPUT_DIR}" \
+    --repo rapidsai/legate-boost \
+    --name "legate-boost-conda-cuda${RAPIDS_CUDA_VERSION}-amd64-py${PYTHON_VERSION}" \
+    "${RUN_ID}"
+```
+
+### Work with conda packages locally
+
+After using either of the above approaches, use the tips in this section to work
+with those local conda packages.
+
+Environment variable `RAPIDS_CONDA_BLD_OUTPUT_DIR` points to a location with the packages and
+all the necessary data to be used as a full conda channel.
+
+```shell
+# list the package contents
+cph list \
+    "$(echo ${RAPIDS_CONDA_BLD_OUTPUT_DIR}/linux-64/legate-boost-*_gpu.tar.bz2)"
+
+# check that the dependency metadata is correct
+conda search \
+    --override-channels \
+    --channel ${RAPIDS_CONDA_BLD_OUTPUT_DIR} \
+    --info \
+        legate-boost
+
+# create an environment with the package installed
+conda create \
+    --name legate-boost-test \
+    -c legate \
+    -c conda-forge \
+    -c "${RAPIDS_CONDA_BLD_OUTPUT_DIR}" \
+        legate-boost
+```
+
 ## Development principles
 
 The following general principles should be followed when developing `legate-boost`.

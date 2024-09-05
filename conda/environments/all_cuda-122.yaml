@@ -9,10 +9,9 @@ dependencies:
 - cuda-cudart-dev
 - cuda-nvcc
 - cuda-version>=12.2
-- cunumeric==24.06=*_0
+- cunumeric==24.06.*,>=24.06.01
 - hypothesis
-- legate-core=24.06=*_ucx
-- legate-core==24.06.*
+- legate-core==24.06.*,>=24.06.01
 - libcublas-dev
 - make
 - matplotlib
