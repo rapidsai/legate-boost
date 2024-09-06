@@ -179,23 +179,21 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
     // remove lane_offset bit from lane_mask for next iteration
     lane_mask &= (0x7fffffff >> lane_offset);
 
-    for (int32_t feature0 = 0; feature0 < FEATURES_PER_WARP; feature0 += WarpSize) {
-      const int32_t feature = feature0 + blockIdx.y * FEATURES_PER_WARP + lane_id;
-      if (feature < n_features) {
-        const int32_t bin_idx =
-          split_proposals.FindBin(X[{sample_offset + localSampleId, feature, 0}], feature);
-        for (int32_t output = 0; output < n_outputs; output++) {
-          // get same G/H from every thread in warp
-          auto gpair_quantised =
-            quantiser.Quantise({g[{sample_offset + localSampleId, 0, output}],
-                                h[{sample_offset + localSampleId, 0, output}]});
-          Histogram<IntegerGPair>::atomic_add_type* addPosition =
-            reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
-              &histogram[{sampleNode, output, bin_idx}]);
-          if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-            atomicAdd(addPosition, gpair_quantised.grad);
-            atomicAdd(addPosition + 1, gpair_quantised.hess);
-          }
+    auto feature_begin = blockIdx.y * FEATURES_PER_WARP;
+    auto feature_end   = min(n_features, (size_t)feature_begin + FEATURES_PER_WARP);
+    for (int32_t feature = feature_begin + lane_id; feature < feature_end; feature += WarpSize) {
+      const int32_t bin_idx =
+        split_proposals.FindBin(X[{sample_offset + localSampleId, feature, 0}], feature);
+      for (int32_t output = 0; output < n_outputs; output++) {
+        // get same G/H from every thread in warp
+        auto gpair_quantised = quantiser.Quantise({g[{sample_offset + localSampleId, 0, output}],
+                                                   h[{sample_offset + localSampleId, 0, output}]});
+        Histogram<IntegerGPair>::atomic_add_type* addPosition =
+          reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+            &histogram[{sampleNode, output, bin_idx}]);
+        if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
+          atomicAdd(addPosition, gpair_quantised.grad);
+          atomicAdd(addPosition + 1, gpair_quantised.hess);
         }
       }
     }
@@ -632,6 +630,10 @@ struct TreeBuilder {
     // warp kernel without additional caching / prefetching
     const int threads_per_block = 256;
     const size_t blocks_x = (batch.InstancesInBatch() + threads_per_block - 1) / threads_per_block;
+
+    // splitting the features to ensure better work distribution for large numbers of features
+    // while larger value also allow better caching of g & h,
+    // smaller values improve access of the split_proposals
     const int features_per_warp = 64;
     const size_t blocks_y       = (num_features + features_per_warp - 1) / features_per_warp;
     dim3 grid_shape             = dim3(blocks_x, blocks_y, 1);
