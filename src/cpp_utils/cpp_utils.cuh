@@ -96,6 +96,17 @@ void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t str
 #define DEFAULT_POLICY thrust::cuda::par
 #endif
 
+__device__ inline uint32_t ballot(bool inFlag, uint32_t mask = 0xffffffffu)
+{
+  return __ballot_sync(mask, inFlag);
+}
+
+template <typename T>
+__device__ inline T shfl(T val, int srcLane, int width = 32, uint32_t mask = 0xffffffffu)
+{
+  return __shfl_sync(mask, val, srcLane, width);
+}
+
 class ThrustAllocator : public legate::ScopedAllocator {
  public:
   using value_type = char;
