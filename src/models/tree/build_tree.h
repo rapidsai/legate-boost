@@ -143,6 +143,16 @@ class SparseSplitProposals {
   }
 #endif
 
+  __host__ __device__ int FindFeature(int bin_idx) const
+  {
+    for (int i = 0; i < num_features; i++) {
+      auto feature_row_begin = row_pointers[i];
+      auto feature_row_end   = row_pointers[i + 1];
+      if (bin_idx >= feature_row_begin && bin_idx < feature_row_end) { return i; }
+    }
+    return -1;
+  }
+
   __host__ __device__ std::tuple<int, int> FeatureRange(int feature) const
   {
     return std::make_tuple(row_pointers[feature], row_pointers[feature + 1]);

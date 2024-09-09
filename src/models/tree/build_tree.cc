@@ -320,7 +320,7 @@ struct TreeBuilder {
         if (left_sum[0].hess <= 0.0 || right_sum[0].hess <= 0.0) continue;
         tree.AddSplit(node_id,
                       best_feature,
-                      split_proposals.split_proposals[{best_bin}],
+                      split_proposals.split_proposals[best_bin],
                       left_leaf,
                       right_leaf,
                       best_gain,
