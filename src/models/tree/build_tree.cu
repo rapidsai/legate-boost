@@ -47,6 +47,7 @@ struct NodeBatch {
 
 class GradientQuantiser {
   IntegerGPair scale;
+  GPair inverse_scale;
 
  public:
   struct GetAbsGPair {
@@ -83,8 +84,10 @@ class GradientQuantiser {
     int64_t double_max_int = 1ll << 51;
     int64_t max_int =
       std::min<int64_t>(double_max_int, std::numeric_limits<IntegerGPair::value_type>::max());
-    scale.grad = abs_sum.grad == 0 ? 1 : max_int / abs_sum.grad;
-    scale.hess = abs_sum.hess == 0 ? 1 : max_int / abs_sum.hess;
+    scale.grad         = abs_sum.grad == 0 ? 1 : max_int / abs_sum.grad;
+    scale.hess         = abs_sum.hess == 0 ? 1 : max_int / abs_sum.hess;
+    inverse_scale.grad = 1.0 / scale.grad;
+    inverse_scale.hess = 1.0 / scale.hess;
   }
 
   __device__ IntegerGPair Quantise(GPair value) const
@@ -98,8 +101,8 @@ class GradientQuantiser {
   __device__ GPair Dequantise(IntegerGPair value) const
   {
     GPair result;
-    result.grad = double(value.grad) / scale.grad;
-    result.hess = double(value.hess) / scale.hess;
+    result.grad = value.grad * inverse_scale.grad;
+    result.hess = value.hess * inverse_scale.hess;
     return result;
   }
 };
