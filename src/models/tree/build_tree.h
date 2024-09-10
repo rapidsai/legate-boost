@@ -143,6 +143,16 @@ class SparseSplitProposals {
   }
 #endif
 
+#ifdef __CUDACC__
+  __host__ __device__ int FindFeature(int bin_idx) const
+  {
+    // Binary search for the feature
+    return thrust::upper_bound(
+             thrust::seq, row_pointers.ptr(0), row_pointers.ptr(num_features), bin_idx) -
+           row_pointers.ptr(0) - 1;
+  }
+#endif
+
   __host__ __device__ std::tuple<int, int> FeatureRange(int feature) const
   {
     return std::make_tuple(row_pointers[feature], row_pointers[feature + 1]);
