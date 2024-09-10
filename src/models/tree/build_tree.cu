@@ -107,7 +107,8 @@ class GradientQuantiser {
   }
 };
 
-__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+template <int BLOCK_THREADS>
+__global__ static void __launch_bounds__(BLOCK_THREADS)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
                    size_t n_local_samples,
@@ -116,7 +117,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                    size_t n_outputs,
                    GradientQuantiser quantiser)
 {
-  typedef cub::BlockReduce<IntegerGPair, THREADS_PER_BLOCK> BlockReduce;
+  typedef cub::BlockReduce<IntegerGPair, BLOCK_THREADS> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
 
   int32_t output = blockIdx.y;
@@ -139,7 +140,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 }
 
 template <typename TYPE, int TPB, int FEATURES_PER_WARP>
-__global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
+__global__ static void __launch_bounds__(TPB, 4)
   fill_histogram_warp(legate::AccessorRO<TYPE, 3> X,
                       size_t n_features,
                       int64_t sample_offset,
@@ -312,7 +313,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   // using one block per (level) node to have blockwise reductions
   int node_id = batch.node_idx_begin + blockIdx.x;
 
-  typedef cub::BlockReduce<GainFeaturePair, THREADS_PER_BLOCK> BlockReduce;
+  typedef cub::BlockReduce<GainFeaturePair, BLOCK_THREADS> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
 
   __shared__ double node_best_gain;
@@ -696,9 +697,10 @@ struct TreeBuilder {
                       legate::Rect<3> g_shape,
                       double alpha)
   {
-    const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    dim3 grid_shape     = dim3(blocks, num_outputs);
-    reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
+    const int kBlockThreads = 256;
+    const size_t blocks     = (num_rows + kBlockThreads - 1) / kBlockThreads;
+    dim3 grid_shape         = dim3(blocks, num_outputs);
+    reduce_base_sums<kBlockThreads><<<grid_shape, kBlockThreads, 0, stream>>>(
       g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser);
     CHECK_CUDA_STREAM(stream);
 
