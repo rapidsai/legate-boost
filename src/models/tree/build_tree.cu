@@ -81,8 +81,6 @@ class GradientQuantiser {
     });
 
     // We will quantise values between -max_int and max_int
-    // Double precision can exactly represent integers in this range
-    // So we can go back and forth between double and int64_t without overflow
     int64_t max_int = std::numeric_limits<int32_t>::max();
     scale.grad      = local_abs_sum.grad == 0 ? 1 : max_int / local_abs_sum.grad;
     scale.hess      = local_abs_sum.hess == 0 ? 1 : max_int / local_abs_sum.hess;
@@ -194,6 +192,8 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
           &histogram[{sampleNode, output, bin_idx}]);
 
         if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
+          // We may do the addition in 32 bits because our quantisations ensure each worker will not
+          // overflow This is later converted to 64 bits and allreduced across workers
           atomicAdd(reinterpret_cast<int32_t*>(addPosition), gpair_quantised.grad);
           atomicAdd(reinterpret_cast<int32_t*>(addPosition + 1), gpair_quantised.hess);
         }
@@ -671,7 +671,6 @@ struct TreeBuilder {
               }
             });
 
-    static_assert(sizeof(GPair) == 2 * sizeof(double), "GPair must be 2 doubles");
     SumAllReduce(context,
                  reinterpret_cast<Histogram<IntegerGPair>::value_type::value_type*>(
                    histogram.Ptr(batch.node_idx_begin)),
