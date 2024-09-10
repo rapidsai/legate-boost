@@ -671,7 +671,7 @@ struct TreeBuilder {
                         double alpha,
                         NodeBatch batch)
   {
-    const int kBlockThreads = 128;
+    const int kBlockThreads = 256;
     perform_best_split<T, kBlockThreads>
       <<<batch.NodesInBatch(), kBlockThreads, 0, stream>>>(histogram,
                                                            num_features,
