@@ -200,8 +200,8 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   }
 }
 
-template <typename T>
-__global__ static void __launch_bounds__(THREADS_PER_BLOCK)
+template <typename T, int BLOCK_THREADS>
+__global__ static void __launch_bounds__(BLOCK_THREADS)
   scan_kernel(Histogram<IntegerGPair> histogram,
               legate::Buffer<IntegerGPair, 2> node_sums,
               int n_features,
@@ -219,7 +219,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   // Specialize WarpScan for type int
   typedef cub::WarpScan<IntegerGPair> WarpScan;
 
-  __shared__ typename WarpScan::TempStorage temp_storage[THREADS_PER_BLOCK / 32];
+  __shared__ typename WarpScan::TempStorage temp_storage[BLOCK_THREADS / 32];
 
   int scan_node_idx = batch.node_idx_begin + j;
   int parent        = BinaryTree::Parent(scan_node_idx);
@@ -658,12 +658,13 @@ struct TreeBuilder {
                  batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
                  stream);
 
+    const int kScanBlockThreads  = 256;
     const size_t warps_needed    = num_features * batch.NodesInBatch();
-    const size_t warps_per_block = THREADS_PER_BLOCK / 32;
+    const size_t warps_per_block = kScanBlockThreads / 32;
     const size_t blocks_needed   = (warps_needed + warps_per_block - 1) / warps_per_block;
 
     // Scan the histograms
-    scan_kernel<<<blocks_needed, THREADS_PER_BLOCK, 0, stream>>>(
+    scan_kernel<T, kScanBlockThreads><<<blocks_needed, kScanBlockThreads, 0, stream>>>(
       histogram, tree.node_sums, num_features, num_outputs, split_proposals, batch);
     CHECK_CUDA_STREAM(stream);
   }
