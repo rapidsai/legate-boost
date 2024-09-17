@@ -207,22 +207,15 @@ __global__ static void __launch_bounds__(TPB, 4)
 __device__ IntegerGPair vectorised_load(const IntegerGPair* ptr)
 {
   static_assert(sizeof(IntegerGPair) == sizeof(int4), "size inconsistent");
-  const int4 load = *reinterpret_cast<const int4*>(ptr);
-  return *reinterpret_cast<const IntegerGPair*>(&load);
-}
-
-__device__ IntegerGPair vectorised_ldg(const IntegerGPair* ptr)
-{
-  static_assert(sizeof(IntegerGPair) == sizeof(int4), "size inconsistent");
-  const int4 load = __ldg(reinterpret_cast<const int4*>(ptr));
+  auto load = *reinterpret_cast<const int4*>(ptr);
   return *reinterpret_cast<const IntegerGPair*>(&load);
 }
 
 __device__ void vectorised_store(IntegerGPair* ptr, IntegerGPair value)
 {
   static_assert(sizeof(IntegerGPair) == sizeof(int4), "size inconsistent");
-  int4* store = reinterpret_cast<int4*>(ptr);
-  *store      = *reinterpret_cast<int4*>(&value);
+  auto store = reinterpret_cast<int4*>(ptr);
+  *store     = *reinterpret_cast<int4*>(&value);
 }
 
 template <typename T, int BLOCK_THREADS>
@@ -253,23 +246,25 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   if (!ComputeHistogramBin(scan_node_idx, node_sums, histogram.ContainsNode(parent))) return;
   if (i >= n_features || scan_node_idx >= batch.node_idx_end) return;
 
-  int feature_idx                   = i;
+  const int feature_idx             = i;
   auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature_idx);
-  int num_bins                      = feature_end - feature_begin;
-  int num_tiles                     = (num_bins + warp.num_threads() - 1) / warp.num_threads();
+  const int num_bins                = feature_end - feature_begin;
+  const int num_tiles               = (num_bins + warp.num_threads() - 1) / warp.num_threads();
 
   IntegerGPair aggregate;
   // Scan left side
   for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
-    int bin_idx              = feature_begin + tile_idx * warp.num_threads() + warp.thread_rank();
+    const int bin_idx        = feature_begin + tile_idx * warp.num_threads() + warp.thread_rank();
     bool thread_participates = bin_idx < feature_end;
     auto e = thread_participates ? vectorised_load(&histogram[{scan_node_idx, output, bin_idx}])
                                  : IntegerGPair{0, 0};
     IntegerGPair tile_aggregate;
     WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
-    __syncwarp();
-    if (thread_participates) {
-      vectorised_store(&histogram[{scan_node_idx, output, bin_idx}], e + aggregate);
+    e += aggregate;
+    // Skip write if data is 0
+    // This actually helps quite a bit at deeper tree levels where we have a lot of empty bins
+    if (thread_participates && (e.grad > 0 || e.hess > 0)) {
+      vectorised_store(&histogram[{scan_node_idx, output, bin_idx}], e);
     }
     aggregate += tile_aggregate;
   }
@@ -347,20 +342,19 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
        bin_idx += BLOCK_THREADS) {
     double gain = 0;
     for (int output = 0; output < n_outputs; ++output) {
-      auto node_sum  = vectorised_ldg(&node_sums[{node_id, output}]);
-      auto left_sum  = vectorised_ldg(&histogram[{node_id, output, bin_idx}]);
+      auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
+      auto left_sum  = vectorised_load(&histogram[{node_id, output, bin_idx}]);
       auto right_sum = node_sum - left_sum;
-      double reg     = std::max(eps, alpha);  // Regularisation term
-      auto [G, H]    = quantiser.Dequantise(node_sum);
-      gain -= (G * G) / (H + reg);
-      auto [G_L, H_L] = quantiser.Dequantise(left_sum);
-
-      gain += (G_L * G_L) / (H_L + reg);
-
       if (left_sum.hess <= 0.0 || right_sum.hess <= 0.0) {
         gain = 0;
         break;
       }
+      double reg  = std::max(eps, alpha);  // Regularisation term
+      auto [G, H] = quantiser.Dequantise(node_sum);
+      gain -= (G * G) / (H + reg);
+      auto [G_L, H_L] = quantiser.Dequantise(left_sum);
+
+      gain += (G_L * G_L) / (H_L + reg);
 
       auto [G_R, H_R] = quantiser.Dequantise(right_sum);
       gain += (G_R * G_R) / (H_R + reg);
@@ -385,8 +379,8 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   if (node_best_gain > eps) {
     int node_best_feature = split_proposals.FindFeature(node_best_bin_idx);
     for (int output = threadIdx.x; output < n_outputs; output += BLOCK_THREADS) {
-      auto node_sum  = vectorised_ldg(&node_sums[{node_id, output}]);
-      auto left_sum  = vectorised_ldg(&histogram[{node_id, output, node_best_bin_idx}]);
+      auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
+      auto left_sum  = vectorised_load(&histogram[{node_id, output, node_best_bin_idx}]);
       auto right_sum = node_sum - left_sum;
       node_sums[{BinaryTree::LeftChild(node_id), output}]  = left_sum;
       node_sums[{BinaryTree::RightChild(node_id), output}] = right_sum;
