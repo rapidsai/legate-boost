@@ -117,21 +117,23 @@ class GradientQuantiser {
   }
 };
 
-__device__ int hash(int a)
+// Hash function fmix64 from MurmurHash3
+__device__ int64_t hash(int64_t k)
 {
-  a = (a + 0x7ed55d16) + (a << 12);
-  a = (a ^ 0xc761c23c) ^ (a >> 19);
-  a = (a + 0x165667b1) + (a << 5);
-  a = (a + 0xd3a2646c) ^ (a << 9);
-  a = (a + 0xfd7046c5) + (a << 3);
-  a = (a ^ 0xb55a4f09) ^ (a >> 16);
-  return a;
+  k ^= k >> 33;
+  k *= 0xff51afd7ed558ccd;
+  k ^= k >> 33;
+  k *= 0xc4ceb9fe1a85ec53;
+  k ^= k >> 33;
+  return k;
 }
 
 __device__ int64_t hash_combine(int64_t seed) { return seed; }
 
+// Hash combine from boost
+// This function is used to combine several random seeds e.g. a 3d index
 template <typename... Rest>
-__device__ int64_t hash_combine(int64_t seed, const int& v, Rest... rest)
+__device__ int64_t hash_combine(int64_t seed, const int64_t& v, Rest... rest)
 {
   seed ^= hash(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
   return hash_combine(seed, rest...);
@@ -231,10 +233,11 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
           &histogram[{sampleNode, output, bin_idx}]);
 
         if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-          // We may do the addition in 32 bits because our quantisations ensure each worker will not
-          // overflow This is later converted to 64 bits and allreduced across workers
-          atomicAdd(reinterpret_cast<int32_t*>(addPosition), gpair_quantised.grad);
-          atomicAdd(reinterpret_cast<int32_t*>(addPosition + 1), gpair_quantised.hess);
+          Histogram<IntegerGPair>::atomic_add_type* addPosition =
+            reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+              &histogram[{sampleNode, output, bin_idx}]);
+          atomicAdd(addPosition, gpair_quantised.grad);
+          atomicAdd(addPosition + 1, gpair_quantised.hess);
         }
       }
     }
@@ -689,23 +692,6 @@ struct TreeBuilder {
                                                      seed);
 
     CHECK_CUDA_STREAM(stream);
-
-    // Convert 32 bit integer sums to 64 bit integer sums (in practice all this does is move the
-    // sign bit)
-    LaunchN(batch.NodesInBatch() * split_proposals.histogram_size,
-            stream,
-            [                =,
-             split_proposals = this->split_proposals,
-             num_outputs     = this->num_outputs] __device__(int idx) mutable {
-              auto node_idx = idx / split_proposals.histogram_size + batch.node_idx_begin;
-              auto bin_idx  = idx % split_proposals.histogram_size;
-              for (int output = 0; output < num_outputs; output++) {
-                legate::Point<3> p = {node_idx, output, bin_idx};
-                auto g             = *reinterpret_cast<int32_t*>(&histogram[p].grad);
-                auto h             = *reinterpret_cast<int32_t*>(&histogram[p].hess);
-                histogram[p]       = {g, h};
-              }
-            });
 
     SumAllReduce(context,
                  reinterpret_cast<Histogram<IntegerGPair>::value_type::value_type*>(
