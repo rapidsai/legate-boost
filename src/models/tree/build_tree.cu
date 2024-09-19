@@ -244,6 +244,106 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   }
 }
 
+template <typename T, int kBlockThreads, int kItemsPerThread>
+__global__ static void __launch_bounds__(kBlockThreads) fill_histogram_shared()
+{
+}
+
+// Manage the launch parameters for histogram kernel
+template <typename T,
+          std::int32_t kBlockThreads   = 1024,
+          std::int32_t kItemsPerThread = 8,
+          auto Shared                  = fill_histogram_shared<T, kBlockThreads, kItemsPerThread>>
+struct HistogramKernel {
+  using SharedMemoryBinType        = GPairBase<int32_t>;
+  const std::int32_t kItemsPerTile = kBlockThreads * kItemsPerThread;
+  decltype(Shared) shared_kernel{fill_histogram_shared<T, kBlockThreads, kItemsPerThread>};
+  legate::Buffer<int> feature_groups;
+  int max_shared_memory;
+  int num_groups;
+  int maximum_blocks_for_occupancy;
+  HistogramKernel(const SparseSplitProposals<T> split_proposals, cudaStream_t stream)
+  {
+    int device;
+    CHECK_CUDA(cudaGetDevice(&device));
+    // Get the maximum shared memory per block
+    CHECK_CUDA(
+      cudaDeviceGetAttribute(&max_shared_memory, cudaDevAttrMaxSharedMemoryPerBlockOptin, device));
+    CHECK_CUDA(cudaFuncSetAttribute(
+      shared_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, max_shared_memory));
+
+    std::int32_t n_mps = 0;
+    CHECK_CUDA(cudaDeviceGetAttribute(&n_mps, cudaDevAttrMultiProcessorCount, device));
+
+    std::int32_t n_blocks_per_mp = 0;
+    CHECK_CUDA(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &n_blocks_per_mp, shared_kernel, kBlockThreads, max_shared_memory));
+
+    this->maximum_blocks_for_occupancy = n_blocks_per_mp * n_mps;
+    FindFeatureGroups(split_proposals, stream);
+  }
+
+  void FindFeatureGroups(const SparseSplitProposals<T> split_proposals, cudaStream_t stream)
+  {
+    int max_shared_bins = max_shared_memory / sizeof(SharedMemoryBinType);
+
+    // Find feature groups
+    // This is a bin packing problem
+    // We want to pack as many features as possible into a group
+    std::vector<int> split_proposal_row_pointers(split_proposals.num_features + 1);
+    CHECK_CUDA(cudaMemcpyAsync(split_proposal_row_pointers.data(),
+                               split_proposals.row_pointers.ptr(0),
+                               (split_proposals.num_features + 1) * sizeof(int),
+                               cudaMemcpyDeviceToHost,
+                               stream));
+    CHECK_CUDA(cudaStreamSynchronize(stream));
+    std::vector<int> feature_groups({0});
+    int current_bins_in_group = 0;
+    for (int i = 0; i < split_proposals.num_features; i++) {
+      int bins_in_feature = split_proposal_row_pointers[i + 1] - split_proposal_row_pointers[i];
+      EXPECT(bins_in_feature <= max_shared_bins, "TODO: Deal with this edge case");
+      if (current_bins_in_group + bins_in_feature > max_shared_bins) {
+        feature_groups.push_back(i);
+        current_bins_in_group = 0;
+      }
+      current_bins_in_group += bins_in_feature;
+    }
+    feature_groups.push_back(split_proposals.num_features);
+    num_groups = feature_groups.size() - 1;
+    EXPECT(feature_groups.size() > 1, "TODO: Deal with this edge case");
+    EXPECT(num_groups * max_shared_bins >= split_proposals.histogram_size,
+           "Too few feature groups");
+    this->feature_groups = legate::create_buffer<int>(num_groups + 1);
+    CHECK_CUDA(cudaMemcpyAsync(this->feature_groups.ptr(0),
+                               feature_groups.data(),
+                               (num_groups + 1) * sizeof(int),
+                               cudaMemcpyHostToDevice,
+                               stream));
+  }
+
+  void BuildHistogram(legate::AccessorRO<T, 3> X,
+                      int64_t sample_offset,
+                      legate::AccessorRO<double, 3> g,
+                      legate::AccessorRO<double, 3> h,
+                      size_t n_outputs,
+                      SparseSplitProposals<T> split_proposals,
+                      NodeBatch batch,
+                      Histogram<IntegerGPair> histogram,
+                      legate::Buffer<IntegerGPair, 2> node_sums,
+                      GradientQuantiser quantiser,
+                      int64_t seed,
+                      cudaStream_t stream)
+  {
+    int average_features_per_group         = split_proposals.num_features / num_groups;
+    std::size_t average_elements_per_group = batch.InstancesInBatch() * average_features_per_group;
+    auto min_blocks  = (average_elements_per_group + kItemsPerTile - 1) / kItemsPerTile;
+    auto x_grid_size = std::min(uint64_t(maximum_blocks_for_occupancy), min_blocks);
+
+    // Launch the kernel
+    shared_kernel<<<dim3(x_grid_size, n_outputs), kBlockThreads, max_shared_memory, stream>>>();
+  }
+};
+
 template <typename T>
 __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   scan_kernel(Histogram<IntegerGPair> histogram,
@@ -611,7 +711,8 @@ struct TreeBuilder {
       stream(stream),
       max_nodes(max_nodes),
       split_proposals(split_proposals),
-      quantiser(quantiser)
+      quantiser(quantiser),
+      histogram_kernel(split_proposals, stream)
   {
     sorted_positions = legate::create_buffer<cuda::std::tuple<int32_t, int32_t>>(num_rows);
     FillPositions(sorted_positions, num_rows, stream);
@@ -667,6 +768,20 @@ struct TreeBuilder {
                         NodeBatch batch,
                         int64_t seed)
   {
+    /*
+        histogram_kernel.BuildHistogram(X,
+                                                         X_shape.lo[0],
+                                                         g,
+                                                         h,
+                                                         num_outputs,
+                                                         split_proposals,
+                                                         batch,
+                                                         histogram,
+                                                         tree.node_sums,
+                                                         quantiser,
+                                                         seed, stream);
+    */
+
     // warp kernel without additional caching / prefetching
     const int threads_per_block = 256;
     const size_t blocks_x = (batch.InstancesInBatch() + threads_per_block - 1) / threads_per_block;
@@ -848,6 +963,7 @@ struct TreeBuilder {
   Histogram<IntegerGPair> histogram;
   int max_batch_size;
   GradientQuantiser quantiser;
+  HistogramKernel<T> histogram_kernel;
 
   cudaStream_t stream;
 };
