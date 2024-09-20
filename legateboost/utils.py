@@ -319,6 +319,8 @@ def lbfgs(
     s: List[cn.ndarray] = []
     y: List[cn.ndarray] = []
     norm = 0.0
+    # allow only one restart so the algorithm doesn't get stuck
+    has_restarted = False
     for k in range(max_iter):
         r = __vlbfgs_recursion(g, s, y)
         lr, eval, new_g = __line_search(count_f, eval, g, x, r, args=args)
@@ -328,10 +330,13 @@ def lbfgs(
         y.append(new_g - g)
         g = new_g
         if lr < 1e-10:
+            if has_restarted:
+                break
             if verbose:
                 print("L-BFGS: lr too small, restarting iteration.")
             s = []
             y = []
+            has_restarted = True
         if verbose and k % verbose == 0:
             print(
                 "L-BFGS:\tk={}\tfeval:{:8.5}\tnorm:{:8.5f}".format(k, float(eval), norm)
