@@ -264,7 +264,6 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   scan_kernel(Histogram<IntegerGPair> histogram,
               legate::Buffer<IntegerGPair, 2> node_sums,
               int n_features,
-              int n_outputs,
               const SparseSplitProposals<T> split_proposals,
               NodeBatch batch)
 
@@ -725,7 +724,7 @@ struct TreeBuilder {
     // Scan the histograms
     dim3 scan_grid = dim3(blocks_needed, num_outputs);
     scan_kernel<T, kScanBlockThreads><<<scan_grid, kScanBlockThreads, 0, stream>>>(
-      histogram, tree.node_sums, num_features, num_outputs, split_proposals, batch);
+      histogram, tree.node_sums, num_features, split_proposals, batch);
     CHECK_CUDA_STREAM(stream);
   }
 
@@ -763,7 +762,7 @@ struct TreeBuilder {
     const size_t blocks     = (num_rows + kBlockThreads - 1) / kBlockThreads;
     dim3 grid_shape         = dim3(blocks, num_outputs);
     reduce_base_sums<kBlockThreads><<<grid_shape, kBlockThreads, 0, stream>>>(
-      g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser);
+      g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser, seed);
     CHECK_CUDA_STREAM(stream);
 
     SumAllReduce(
