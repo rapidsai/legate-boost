@@ -21,7 +21,7 @@ legate \
     --fbmem 28000 \
     --sysmem 28000 \
     --module pytest \
-    legateboost/test/[!_]**.py \
+    legateboost/test \
     -sv \
     --durations=0 \
     -k 'not sklearn' \

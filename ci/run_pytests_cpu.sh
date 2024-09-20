@@ -17,7 +17,7 @@ set -e -E -u -o pipefail
 legate \
     --sysmem 28000 \
     --module pytest \
-    legateboost/test/[!_]**.py \
+    legateboost/test/ \
     -sv \
     --durations=0 \
     "${@}"
