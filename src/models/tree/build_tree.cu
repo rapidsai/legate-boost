@@ -245,8 +245,57 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
 }
 
 template <typename T, int kBlockThreads, int kItemsPerThread>
-__global__ static void __launch_bounds__(kBlockThreads) fill_histogram_shared()
+__global__ static void __launch_bounds__(kBlockThreads)
+  fill_histogram_shared(legate::AccessorRO<T, 3> X,
+                        int64_t sample_offset,
+                        legate::AccessorRO<double, 3> g,
+                        legate::AccessorRO<double, 3> h,
+                        size_t n_outputs,
+                        SparseSplitProposals<T> split_proposals,
+                        NodeBatch batch,
+                        Histogram<IntegerGPair> histogram,
+                        legate::Buffer<IntegerGPair, 2> node_sums,
+                        GradientQuantiser quantiser,
+                        legate::Buffer<int> feature_groups,
+                        int64_t seed)
 {
+  int output = blockIdx.z;
+  extern __shared__ char smem[];
+  const int feature_begin  = feature_groups[blockIdx.y];
+  const int feature_end    = feature_groups[blockIdx.y + 1];
+  const int feature_stride = feature_end - feature_begin;
+
+  // Grid stride loop across 1st grid dimension
+  // Second dimension is feature groups
+  // Third dimension is output
+  for (std::size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+       idx < batch.InstancesInBatch() * feature_stride;
+       idx += gridDim.x * blockDim.x) {
+    std::size_t row_index                = idx / feature_stride;
+    int feature                          = feature_begin + idx % feature_stride;
+    auto [sample_node, local_sample_idx] = (row_index < batch.InstancesInBatch())
+                                             ? batch.instances_begin[row_index]
+                                             : cuda::std::make_tuple(-1, -1);
+    const bool computeHistogram =
+      local_sample_idx < batch.InstancesInBatch() &&
+      ComputeHistogramBin(
+        sample_node, node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node)));
+    auto x      = X[{sample_offset + local_sample_idx, feature, 0}];
+    int bin_idx = split_proposals.FindBin(x, feature);
+
+    legate::Point<3> p = {sample_offset + local_sample_idx, 0, output};
+    auto gpair_quantised =
+      quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
+    auto* addPosition = reinterpret_cast<typename IntegerGPair::value_type*>(
+      &histogram[{sample_node, output, bin_idx}]);
+
+    if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
+      auto addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+        &histogram[{sample_node, output, bin_idx}]);
+      atomicAdd(addPosition, gpair_quantised.grad);
+      atomicAdd(addPosition + 1, gpair_quantised.hess);
+    }
+  }
 }
 
 // Manage the launch parameters for histogram kernel
@@ -340,7 +389,21 @@ struct HistogramKernel {
     auto x_grid_size = std::min(uint64_t(maximum_blocks_for_occupancy), min_blocks);
 
     // Launch the kernel
-    shared_kernel<<<dim3(x_grid_size, n_outputs), kBlockThreads, max_shared_memory, stream>>>();
+    shared_kernel<<<dim3(x_grid_size, num_groups, n_outputs),
+                    kBlockThreads,
+                    max_shared_memory,
+                    stream>>>(X,
+                              sample_offset,
+                              g,
+                              h,
+                              n_outputs,
+                              split_proposals,
+                              batch,
+                              histogram,
+                              node_sums,
+                              quantiser,
+                              feature_groups,
+                              seed);
   }
 };
 
@@ -524,8 +587,6 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
     }
   }
 }
-
-namespace {
 
 struct Tree {
   template <typename THRUST_POLICY>
@@ -768,8 +829,34 @@ struct TreeBuilder {
                         NodeBatch batch,
                         int64_t seed)
   {
+    histogram_kernel.BuildHistogram(X,
+                                    X_shape.lo[0],
+                                    g,
+                                    h,
+                                    num_outputs,
+                                    split_proposals,
+                                    batch,
+                                    histogram,
+                                    tree.node_sums,
+                                    quantiser,
+                                    seed,
+                                    stream);
+
     /*
-        histogram_kernel.BuildHistogram(X,
+        // warp kernel without additional caching / prefetching
+        const int threads_per_block = 256;
+        const size_t blocks_x = (batch.InstancesInBatch() + threads_per_block - 1) /
+       threads_per_block;
+
+        // splitting the features to ensure better work distribution for large numbers of features
+        // while larger value also allow better caching of g & h,
+        // smaller values improve access of the split_proposals
+        const int features_per_warp = 64;
+        const size_t blocks_y       = (num_features + features_per_warp - 1) / features_per_warp;
+        dim3 grid_shape             = dim3(blocks_x, blocks_y, 1);
+        fill_histogram_warp<TYPE, threads_per_block, features_per_warp>
+          <<<grid_shape, threads_per_block, 0, stream>>>(X,
+                                                         num_features,
                                                          X_shape.lo[0],
                                                          g,
                                                          h,
@@ -779,34 +866,10 @@ struct TreeBuilder {
                                                          histogram,
                                                          tree.node_sums,
                                                          quantiser,
-                                                         seed, stream);
-    */
+                                                         seed);
 
-    // warp kernel without additional caching / prefetching
-    const int threads_per_block = 256;
-    const size_t blocks_x = (batch.InstancesInBatch() + threads_per_block - 1) / threads_per_block;
-
-    // splitting the features to ensure better work distribution for large numbers of features
-    // while larger value also allow better caching of g & h,
-    // smaller values improve access of the split_proposals
-    const int features_per_warp = 64;
-    const size_t blocks_y       = (num_features + features_per_warp - 1) / features_per_warp;
-    dim3 grid_shape             = dim3(blocks_x, blocks_y, 1);
-    fill_histogram_warp<TYPE, threads_per_block, features_per_warp>
-      <<<grid_shape, threads_per_block, 0, stream>>>(X,
-                                                     num_features,
-                                                     X_shape.lo[0],
-                                                     g,
-                                                     h,
-                                                     num_outputs,
-                                                     split_proposals,
-                                                     batch,
-                                                     histogram,
-                                                     tree.node_sums,
-                                                     quantiser,
-                                                     seed);
-
-    CHECK_CUDA_STREAM(stream);
+        CHECK_CUDA_STREAM(stream);
+        */
 
     SumAllReduce(context,
                  reinterpret_cast<Histogram<IntegerGPair>::value_type::value_type*>(
@@ -1037,8 +1100,6 @@ struct build_tree_fn {
     CHECK_CUDA_STREAM(stream);
   }
 };
-
-}  // namespace
 
 /*static*/ void BuildTreeTask::gpu_variant(legate::TaskContext context)
 {
