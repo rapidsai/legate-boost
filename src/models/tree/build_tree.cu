@@ -139,7 +139,8 @@ __device__ int64_t hash_combine(int64_t seed, const int64_t& v, Rest... rest)
   return hash_combine(seed, rest...);
 }
 
-__global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
+template <int BLOCK_THREADS>
+__global__ static void __launch_bounds__(BLOCK_THREADS)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
                    legate::AccessorRO<double, 3> h,
                    size_t n_local_samples,
@@ -149,7 +150,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
                    GradientQuantiser quantiser,
                    int64_t seed)
 {
-  typedef cub::BlockReduce<IntegerGPair, THREADS_PER_BLOCK> BlockReduce;
+  typedef cub::BlockReduce<IntegerGPair, BLOCK_THREADS> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
 
   int32_t output = blockIdx.y;
@@ -175,7 +176,7 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
 }
 
 template <typename TYPE, int TPB, int FEATURES_PER_WARP>
-__global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
+__global__ static void __launch_bounds__(TPB, 4)
   fill_histogram_warp(legate::AccessorRO<TYPE, 3> X,
                       size_t n_features,
                       int64_t sample_offset,
@@ -244,12 +245,25 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
   }
 }
 
-template <typename T>
-__global__ static void __launch_bounds__(THREADS_PER_BLOCK)
+__device__ IntegerGPair vectorised_load(const IntegerGPair* ptr)
+{
+  static_assert(sizeof(IntegerGPair) == sizeof(int4), "size inconsistent");
+  auto load = *reinterpret_cast<const int4*>(ptr);
+  return *reinterpret_cast<const IntegerGPair*>(&load);
+}
+
+__device__ void vectorised_store(IntegerGPair* ptr, IntegerGPair value)
+{
+  static_assert(sizeof(IntegerGPair) == sizeof(int4), "size inconsistent");
+  auto store = reinterpret_cast<int4*>(ptr);
+  *store     = *reinterpret_cast<int4*>(&value);
+}
+
+template <typename T, int BLOCK_THREADS>
+__global__ static void __launch_bounds__(BLOCK_THREADS)
   scan_kernel(Histogram<IntegerGPair> histogram,
               legate::Buffer<IntegerGPair, 2> node_sums,
               int n_features,
-              int n_outputs,
               const SparseSplitProposals<T> split_proposals,
               NodeBatch batch)
 
@@ -259,11 +273,12 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   auto num_nodes = batch.NodesInBatch();
   int i          = rank / num_nodes;
   int j          = rank % num_nodes;
+  int output     = blockIdx.y;
 
   // Specialize WarpScan for type int
   typedef cub::WarpScan<IntegerGPair> WarpScan;
 
-  __shared__ typename WarpScan::TempStorage temp_storage[THREADS_PER_BLOCK / 32];
+  __shared__ typename WarpScan::TempStorage temp_storage[BLOCK_THREADS / 32];
 
   int scan_node_idx = batch.node_idx_begin + j;
   int parent        = BinaryTree::Parent(scan_node_idx);
@@ -271,25 +286,27 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   if (!ComputeHistogramBin(scan_node_idx, node_sums, histogram.ContainsNode(parent))) return;
   if (i >= n_features || scan_node_idx >= batch.node_idx_end) return;
 
-  int feature_idx                   = i;
+  const int feature_idx             = i;
   auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature_idx);
-  int num_bins                      = feature_end - feature_begin;
-  int num_tiles                     = (num_bins + warp.num_threads() - 1) / warp.num_threads();
+  const int num_bins                = feature_end - feature_begin;
+  const int num_tiles               = (num_bins + warp.num_threads() - 1) / warp.num_threads();
 
-  for (int output = 0; output < n_outputs; output++) {
-    IntegerGPair aggregate;
-    // Scan left side
-    for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
-      int bin_idx              = feature_begin + tile_idx * warp.num_threads() + warp.thread_rank();
-      bool thread_participates = bin_idx < feature_end;
-      auto e =
-        thread_participates ? histogram[{scan_node_idx, output, bin_idx}] : IntegerGPair{0, 0};
-      IntegerGPair tile_aggregate;
-      WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
-      __syncwarp();
-      if (thread_participates) { histogram[{scan_node_idx, output, bin_idx}] = e + aggregate; }
-      aggregate += tile_aggregate;
+  IntegerGPair aggregate;
+  // Scan left side
+  for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
+    const int bin_idx        = feature_begin + tile_idx * warp.num_threads() + warp.thread_rank();
+    bool thread_participates = bin_idx < feature_end;
+    auto e = thread_participates ? vectorised_load(&histogram[{scan_node_idx, output, bin_idx}])
+                                 : IntegerGPair{0, 0};
+    IntegerGPair tile_aggregate;
+    WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
+    e += aggregate;
+    // Skip write if data is 0
+    // This actually helps quite a bit at deeper tree levels where we have a lot of empty bins
+    if (thread_participates && (e.grad > 0 || e.hess > 0)) {
+      vectorised_store(&histogram[{scan_node_idx, output, bin_idx}], e);
     }
+    aggregate += tile_aggregate;
   }
 
   // This node has no sibling we are finished
@@ -300,15 +317,14 @@ __global__ static void __launch_bounds__(THREADS_PER_BLOCK)
   // The sibling did not compute a histogram
   // Do the subtraction trick using the histogram we just computed in the previous step
   if (!ComputeHistogramBin(sibling_node_idx, node_sums, histogram.ContainsNode(parent))) {
-    for (int output = 0; output < n_outputs; output++) {
-      // Infer right side
-      for (int bin_idx = feature_begin + warp.thread_rank(); bin_idx < feature_end;
-           bin_idx += warp.num_threads()) {
-        auto scanned_sum = histogram[{scan_node_idx, output, bin_idx}];
-        auto parent_sum  = histogram[{BinaryTree::Parent(scan_node_idx), output, bin_idx}];
-        auto other_sum   = parent_sum - scanned_sum;
-        histogram[{sibling_node_idx, output, bin_idx}] = other_sum;
-      }
+    // Infer right side
+    for (int bin_idx = feature_begin + warp.thread_rank(); bin_idx < feature_end;
+         bin_idx += warp.num_threads()) {
+      auto scanned_sum = vectorised_load(&histogram[{scan_node_idx, output, bin_idx}]);
+      auto parent_sum =
+        vectorised_load(&histogram[{BinaryTree::Parent(scan_node_idx), output, bin_idx}]);
+      auto other_sum = parent_sum - scanned_sum;
+      vectorised_store(&histogram[{sibling_node_idx, output, bin_idx}], other_sum);
     }
   }
 }
@@ -353,7 +369,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   // using one block per (level) node to have blockwise reductions
   int node_id = batch.node_idx_begin + blockIdx.x;
 
-  typedef cub::BlockReduce<GainFeaturePair, THREADS_PER_BLOCK> BlockReduce;
+  typedef cub::BlockReduce<GainFeaturePair, BLOCK_THREADS> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
 
   __shared__ double node_best_gain;
@@ -366,8 +382,8 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
        bin_idx += BLOCK_THREADS) {
     double gain = 0;
     for (int output = 0; output < n_outputs; ++output) {
-      auto node_sum  = node_sums[{node_id, output}];
-      auto left_sum  = histogram[{node_id, output, bin_idx}];
+      auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
+      auto left_sum  = vectorised_load(&histogram[{node_id, output, bin_idx}]);
       auto right_sum = node_sum - left_sum;
       if (left_sum.hess <= 0.0 || right_sum.hess <= 0.0) {
         gain = 0;
@@ -379,6 +395,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
       auto [G_L, H_L] = quantiser.Dequantise(left_sum);
 
       gain += (G_L * G_L) / (H_L + reg);
+
       auto [G_R, H_R] = quantiser.Dequantise(right_sum);
       gain += (G_R * G_R) / (H_R + reg);
     }
@@ -402,8 +419,8 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   if (node_best_gain > eps) {
     int node_best_feature = split_proposals.FindFeature(node_best_bin_idx);
     for (int output = threadIdx.x; output < n_outputs; output += BLOCK_THREADS) {
-      auto node_sum  = node_sums[{node_id, output}];
-      auto left_sum  = histogram[{node_id, output, node_best_bin_idx}];
+      auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
+      auto left_sum  = vectorised_load(&histogram[{node_id, output, node_best_bin_idx}]);
       auto right_sum = node_sum - left_sum;
       node_sums[{BinaryTree::LeftChild(node_id), output}]  = left_sum;
       node_sums[{BinaryTree::RightChild(node_id), output}] = right_sum;
@@ -699,13 +716,15 @@ struct TreeBuilder {
                  batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
                  stream);
 
+    const int kScanBlockThreads  = 256;
     const size_t warps_needed    = num_features * batch.NodesInBatch();
-    const size_t warps_per_block = THREADS_PER_BLOCK / 32;
+    const size_t warps_per_block = kScanBlockThreads / 32;
     const size_t blocks_needed   = (warps_needed + warps_per_block - 1) / warps_per_block;
 
     // Scan the histograms
-    scan_kernel<<<blocks_needed, THREADS_PER_BLOCK, 0, stream>>>(
-      histogram, tree.node_sums, num_features, num_outputs, split_proposals, batch);
+    dim3 scan_grid = dim3(blocks_needed, num_outputs);
+    scan_kernel<T, kScanBlockThreads><<<scan_grid, kScanBlockThreads, 0, stream>>>(
+      histogram, tree.node_sums, num_features, split_proposals, batch);
     CHECK_CUDA_STREAM(stream);
   }
 
@@ -739,9 +758,10 @@ struct TreeBuilder {
                       double alpha,
                       int64_t seed)
   {
-    const size_t blocks = (num_rows + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    dim3 grid_shape     = dim3(blocks, num_outputs);
-    reduce_base_sums<<<grid_shape, THREADS_PER_BLOCK, 0, stream>>>(
+    const int kBlockThreads = 256;
+    const size_t blocks     = (num_rows + kBlockThreads - 1) / kBlockThreads;
+    dim3 grid_shape         = dim3(blocks, num_outputs);
+    reduce_base_sums<kBlockThreads><<<grid_shape, kBlockThreads, 0, stream>>>(
       g, h, num_rows, g_shape.lo[0], tree.node_sums, num_outputs, quantiser, seed);
     CHECK_CUDA_STREAM(stream);
 

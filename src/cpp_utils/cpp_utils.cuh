@@ -24,9 +24,6 @@
 
 namespace legateboost {
 
-#define THREADS_PER_BLOCK 128
-#define MIN_CTAS_PER_SM 4
-
 __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
 {
   if (error != ncclSuccess) {
@@ -49,9 +46,8 @@ __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
     check_nccl(result, __FILE__, __LINE__); \
   } while (false)
 
-template <typename L>
-__global__ void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  LaunchNKernel(size_t size, L lambda)
+template <typename L, int BLOCK_THREADS>
+__global__ void __launch_bounds__(BLOCK_THREADS) LaunchNKernel(size_t size, L lambda)
 {
   for (auto i = blockDim.x * blockIdx.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
     lambda(i);
@@ -62,9 +58,10 @@ template <int ITEMS_PER_THREAD = 8, typename L>
 inline void LaunchN(size_t n, cudaStream_t stream, L lambda)
 {
   if (n == 0) { return; }
-  const int GRID_SIZE = static_cast<int>((n + ITEMS_PER_THREAD * THREADS_PER_BLOCK - 1) /
-                                         (ITEMS_PER_THREAD * THREADS_PER_BLOCK));
-  LaunchNKernel<<<GRID_SIZE, THREADS_PER_BLOCK, 0, stream>>>(n, lambda);
+  const int kBlockThreads = 256;
+  const int GRID_SIZE     = static_cast<int>((n + ITEMS_PER_THREAD * kBlockThreads - 1) /
+                                         (ITEMS_PER_THREAD * kBlockThreads));
+  LaunchNKernel<L, kBlockThreads><<<GRID_SIZE, kBlockThreads, 0, stream>>>(n, lambda);
 }
 
 template <typename T>
