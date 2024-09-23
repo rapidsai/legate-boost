@@ -268,18 +268,20 @@ __global__ static void __launch_bounds__(kBlockThreads)
   // Grid stride loop across 1st grid dimension
   // Second dimension is feature groups
   // Third dimension is output
-  for (std::size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  for (std::size_t idx = blockIdx.x * kBlockThreads + threadIdx.x;
        idx < batch.InstancesInBatch() * feature_stride;
-       idx += gridDim.x * blockDim.x) {
+       idx += gridDim.x * kBlockThreads) {
     std::size_t row_index                = idx / feature_stride;
     int feature                          = feature_begin + idx % feature_stride;
     auto [sample_node, local_sample_idx] = (row_index < batch.InstancesInBatch())
                                              ? batch.instances_begin[row_index]
                                              : cuda::std::make_tuple(-1, -1);
     const bool computeHistogram =
-      local_sample_idx < batch.InstancesInBatch() &&
+      row_index < batch.InstancesInBatch() &&
       ComputeHistogramBin(
         sample_node, node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node)));
+    if (!computeHistogram) continue;
+
     auto x      = X[{sample_offset + local_sample_idx, feature, 0}];
     int bin_idx = split_proposals.FindBin(x, feature);
 
@@ -301,7 +303,7 @@ __global__ static void __launch_bounds__(kBlockThreads)
 // Manage the launch parameters for histogram kernel
 template <typename T,
           std::int32_t kBlockThreads   = 1024,
-          std::int32_t kItemsPerThread = 8,
+          std::int32_t kItemsPerThread = 1,
           auto Shared                  = fill_histogram_shared<T, kBlockThreads, kItemsPerThread>>
 struct HistogramKernel {
   using SharedMemoryBinType        = GPairBase<int32_t>;
@@ -387,7 +389,6 @@ struct HistogramKernel {
     std::size_t average_elements_per_group = batch.InstancesInBatch() * average_features_per_group;
     auto min_blocks  = (average_elements_per_group + kItemsPerTile - 1) / kItemsPerTile;
     auto x_grid_size = std::min(uint64_t(maximum_blocks_for_occupancy), min_blocks);
-
     // Launch the kernel
     shared_kernel<<<dim3(x_grid_size, num_groups, n_outputs),
                     kBlockThreads,
@@ -868,8 +869,8 @@ struct TreeBuilder {
                                                          quantiser,
                                                          seed);
 
-        CHECK_CUDA_STREAM(stream);
         */
+    CHECK_CUDA_STREAM(stream);
 
     SumAllReduce(context,
                  reinterpret_cast<Histogram<IntegerGPair>::value_type::value_type*>(
