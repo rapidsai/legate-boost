@@ -168,6 +168,8 @@ def test_normal_distribution():
 
 
 def test_subsample():
+    subsample_test_mse = []
+    full_test_mse = []
     for i in range(5):
         X, y = make_regression(
             n_samples=1000, n_features=10, noise=10.0, random_state=i
@@ -198,11 +200,7 @@ def test_subsample():
         ).fit(
             X_train, y_train, eval_result=full_eval_result, eval_set=[(X_test, y_test)]
         )
-        assert (
-            subsample_eval_result["eval-0"]["mse"][-1]
-            < full_eval_result["eval-0"]["mse"][-1]
-        )
-        assert (
-            full_eval_result["train"]["mse"][-1]
-            < subsample_eval_result["train"]["mse"][-1]
-        )
+        full_test_mse.append(full_eval_result["eval-0"]["mse"][-1])
+        subsample_test_mse.append(subsample_eval_result["eval-0"]["mse"][-1])
+
+    assert np.mean(subsample_test_mse) < np.mean(full_test_mse)

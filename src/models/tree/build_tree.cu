@@ -76,10 +76,15 @@ class GradientQuantiser {
     auto zip_gpair    = thrust::make_transform_iterator(counting, GetAbsGPair{num_outputs, g, h});
     GPair local_abs_sum =
       thrust::reduce(policy, zip_gpair, zip_gpair + n, GPair{0.0, 0.0}, thrust::plus<GPair>());
+
+    auto local_abs_sum_device = legate::create_buffer<GPair, 1>(1);
+    CHECK_CUDA(cudaMemcpyAsync(
+      local_abs_sum_device.ptr(0), &local_abs_sum, sizeof(GPair), cudaMemcpyHostToDevice, stream));
     // Take the max of the local sums
-    AllReduce(context, reinterpret_cast<double*>(&local_abs_sum), 2, [](double a, double b) {
-      return std::max(a, b);
-    });
+    AllReduce(context, reinterpret_cast<double*>(local_abs_sum_device.ptr(0)), 2, ncclMax, stream);
+    CHECK_CUDA(cudaMemcpyAsync(
+      &local_abs_sum, local_abs_sum_device.ptr(0), sizeof(GPair), cudaMemcpyDeviceToHost, stream));
+    CHECK_CUDA(cudaStreamSynchronize(stream));
 
     // We will quantise values between -max_int and max_int
     int64_t max_int    = std::numeric_limits<int32_t>::max();
