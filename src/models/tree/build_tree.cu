@@ -245,6 +245,104 @@ __global__ static void __launch_bounds__(TPB, MIN_CTAS_PER_SM)
 }
 
 template <typename T, int kBlockThreads, int kItemsPerThread>
+struct HistogramAgent {
+  const legate::AccessorRO<T, 3> X;
+  const int64_t sample_offset;
+  const legate::AccessorRO<double, 3> g;
+  const legate::AccessorRO<double, 3> h;
+  const size_t n_outputs;
+  const SparseSplitProposals<T> split_proposals;
+  const NodeBatch batch;
+  Histogram<IntegerGPair> histogram;
+  const legate::Buffer<IntegerGPair, 2> node_sums;
+  const GradientQuantiser quantiser;
+  const int64_t seed;
+  const int output;
+  int feature_begin;
+  int feature_end;
+  int feature_stride;
+
+  __device__ HistogramAgent(legate::AccessorRO<T, 3> X,
+                            int64_t sample_offset,
+                            legate::AccessorRO<double, 3> g,
+                            legate::AccessorRO<double, 3> h,
+                            size_t n_outputs,
+                            SparseSplitProposals<T> split_proposals,
+                            NodeBatch batch,
+                            Histogram<IntegerGPair> histogram,
+                            legate::Buffer<IntegerGPair, 2> node_sums,
+                            GradientQuantiser quantiser,
+                            legate::Buffer<int> feature_groups,
+                            int64_t seed)
+    : X(X),
+      sample_offset(sample_offset),
+      g(g),
+      h(h),
+      n_outputs(n_outputs),
+      split_proposals(split_proposals),
+      batch(batch),
+      histogram(histogram),
+      node_sums(node_sums),
+      quantiser(quantiser),
+      seed(seed),
+      output(blockIdx.z)
+  {
+    feature_begin  = feature_groups[blockIdx.y];
+    feature_end    = feature_groups[blockIdx.y + 1];
+    feature_stride = feature_end - feature_begin;
+  }
+
+  __device__ void ProcessPartialTileGlobal(std::size_t offset)
+  {
+    for (std::size_t idx = offset + threadIdx.x; idx < offset + kBlockThreads * kItemsPerThread;
+         idx += kBlockThreads) {
+      std::size_t row_index                = idx / feature_stride;
+      int feature                          = feature_begin + idx % feature_stride;
+      auto [sample_node, local_sample_idx] = (row_index < batch.InstancesInBatch())
+                                               ? batch.instances_begin[row_index]
+                                               : cuda::std::make_tuple(-1, -1);
+
+      const bool computeHistogram =
+        row_index < batch.InstancesInBatch() &&
+        ComputeHistogramBin(
+          sample_node, node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node)));
+      if (!computeHistogram) return;
+
+      auto x      = X[{sample_offset + local_sample_idx, feature, 0}];
+      int bin_idx = split_proposals.FindBin(x, feature);
+
+      legate::Point<3> p = {sample_offset + local_sample_idx, 0, output};
+      auto gpair_quantised =
+        quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
+      auto* addPosition = reinterpret_cast<typename IntegerGPair::value_type*>(
+        &histogram[{sample_node, output, bin_idx}]);
+
+      if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
+        auto addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+          &histogram[{sample_node, output, bin_idx}]);
+        atomicAdd(addPosition, gpair_quantised.grad);
+        atomicAdd(addPosition + 1, gpair_quantised.hess);
+      }
+    }
+  }
+
+  __device__ void BuildHistogram()
+  {
+    // Loop across 1st grid dimension
+    // Second dimension is feature groups
+    // Third dimension is output
+    std::size_t n_elements      = batch.InstancesInBatch() * feature_stride;
+    constexpr int kItemsPerTile = kBlockThreads * kItemsPerThread;
+    std::size_t offset          = blockIdx.x * kItemsPerTile;
+    while (offset + kItemsPerTile <= n_elements) {
+      ProcessPartialTileGlobal(offset);
+      offset += kItemsPerTile * gridDim.x;
+    }
+    ProcessPartialTileGlobal(offset);
+  }
+};
+
+template <typename T, int kBlockThreads, int kItemsPerThread>
 __global__ static void __launch_bounds__(kBlockThreads)
   fill_histogram_shared(legate::AccessorRO<T, 3> X,
                         int64_t sample_offset,
@@ -259,45 +357,20 @@ __global__ static void __launch_bounds__(kBlockThreads)
                         legate::Buffer<int> feature_groups,
                         int64_t seed)
 {
-  int output = blockIdx.z;
-  extern __shared__ char smem[];
-  const int feature_begin  = feature_groups[blockIdx.y];
-  const int feature_end    = feature_groups[blockIdx.y + 1];
-  const int feature_stride = feature_end - feature_begin;
+  HistogramAgent<T, kBlockThreads, kItemsPerThread> agent(X,
+                                                          sample_offset,
+                                                          g,
+                                                          h,
+                                                          n_outputs,
+                                                          split_proposals,
+                                                          batch,
+                                                          histogram,
+                                                          node_sums,
+                                                          quantiser,
+                                                          feature_groups,
+                                                          seed);
 
-  // Grid stride loop across 1st grid dimension
-  // Second dimension is feature groups
-  // Third dimension is output
-  for (std::size_t idx = blockIdx.x * kBlockThreads + threadIdx.x;
-       idx < batch.InstancesInBatch() * feature_stride;
-       idx += gridDim.x * kBlockThreads) {
-    std::size_t row_index                = idx / feature_stride;
-    int feature                          = feature_begin + idx % feature_stride;
-    auto [sample_node, local_sample_idx] = (row_index < batch.InstancesInBatch())
-                                             ? batch.instances_begin[row_index]
-                                             : cuda::std::make_tuple(-1, -1);
-    const bool computeHistogram =
-      row_index < batch.InstancesInBatch() &&
-      ComputeHistogramBin(
-        sample_node, node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node)));
-    if (!computeHistogram) continue;
-
-    auto x      = X[{sample_offset + local_sample_idx, feature, 0}];
-    int bin_idx = split_proposals.FindBin(x, feature);
-
-    legate::Point<3> p = {sample_offset + local_sample_idx, 0, output};
-    auto gpair_quantised =
-      quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
-    auto* addPosition = reinterpret_cast<typename IntegerGPair::value_type*>(
-      &histogram[{sample_node, output, bin_idx}]);
-
-    if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
-      auto addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
-        &histogram[{sample_node, output, bin_idx}]);
-      atomicAdd(addPosition, gpair_quantised.grad);
-      atomicAdd(addPosition + 1, gpair_quantised.hess);
-    }
-  }
+  agent.BuildHistogram();
 }
 
 // Manage the launch parameters for histogram kernel
