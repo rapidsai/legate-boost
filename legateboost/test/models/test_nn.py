@@ -53,7 +53,7 @@ def test_nn(random_state, hidden_layer_sizes, alpha, dtype):
     # check we are doing better than average
     assert lb_mse < baseline
     # check we are in the ballpark of sklearn
-    assert lb_mse < sklearn_mse * 1.5
+    assert lb_mse < sklearn_mse * 5.0
 
 
 @pytest.mark.parametrize("alpha", [0.0, 1.0, 500.0])

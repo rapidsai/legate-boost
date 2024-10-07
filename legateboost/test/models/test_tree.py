@@ -71,4 +71,4 @@ def test_alpha():
         random_state=0,
     )
     model.fit(X, y)
-    assert model.predict(X)[0] == y.sum() / (y.size + alpha)
+    assert np.isclose(model.predict(X)[0], y.sum() / (y.size + alpha))
