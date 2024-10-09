@@ -104,6 +104,7 @@ Build the packages.
 ```shell
 CMAKE_GENERATOR=Ninja \
 CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
+LEGATEBOOST_PACKAGE_VERSION=$(ci/generate-version) \
 rapids-conda-retry mambabuild \
     --channel legate \
     --channel conda-forge \
@@ -186,6 +187,14 @@ conda create \
     -c "${RAPIDS_CONDA_BLD_OUTPUT_DIR}" \
         legate-boost
 ```
+
+## Releasing
+
+To prepare a new release:
+
+1. update the `VERSION` file on the `main` branch to the desired version, with no leading `v` (e.g. `24.09.00`)
+2. push a git tag like `v24.09.00` ... a release will be built automatically once that tag is pushed
+3. update the `VERSION` file again, with the expected version of the next release (e.g. `24.10.00`)
 
 ## Development principles
 

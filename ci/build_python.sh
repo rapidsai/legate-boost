@@ -6,6 +6,7 @@ rapids-print-env
 
 CMAKE_GENERATOR=Ninja \
 CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
+LEGATEBOOST_PACKAGE_VERSION=$(ci/generate-version) \
 rapids-conda-retry mambabuild \
     --channel legate \
     --channel conda-forge \
