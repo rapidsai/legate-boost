@@ -11,6 +11,10 @@ repos:
       rev: v0.10.0.1
       hooks:
         - id: shellcheck
+    - repo: https://github.com/PyCQA/isort
+      rev: 5.13.2
+      hooks:
+            - id: isort
     - repo: https://github.com/psf/black
       rev: '24.10.0'
       hooks:
@@ -35,4 +39,4 @@ repos:
         - id: rapids-dependency-file-generator
           args: ["--clean"]
 default_language_version:
-  python: python3
+    python: python3
