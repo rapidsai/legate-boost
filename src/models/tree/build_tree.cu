@@ -304,49 +304,6 @@ struct HistogramAgent {
     }
   };
 
-  // Store a subset of the split proposals in shared memory
-  struct SharedSplitProposals {
-    const int begin_feature;
-    const int begin_bin_idx;
-    T* split_proposals_shared;
-    int* row_pointers_shared;
-    __device__ SharedSplitProposals(const SparseSplitProposals<T>& split_proposals,
-                                    int begin_feature,
-                                    int end_feature,
-                                    char* shared_memory)
-      : begin_feature(begin_feature), begin_bin_idx(split_proposals.row_pointers[begin_feature])
-    {
-      row_pointers_shared = reinterpret_cast<int*>(shared_memory);
-      split_proposals_shared =
-        reinterpret_cast<T*>(row_pointers_shared + (end_feature - begin_feature) + 1);
-      // Align
-      uintptr_t addr = (uintptr_t)split_proposals_shared;
-      if (addr % sizeof(T) != 0) addr += sizeof(T) - addr % sizeof(T);
-      split_proposals_shared = reinterpret_cast<T*>(addr);
-
-      for (int i = threadIdx.x; i < (end_feature - begin_feature) + 1; i += blockDim.x) {
-        row_pointers_shared[i] = split_proposals.row_pointers[begin_feature + i] - begin_bin_idx;
-      }
-      int end_bin_idx = split_proposals.row_pointers[end_feature];
-      for (int i = threadIdx.x; i < (end_bin_idx - begin_bin_idx); i += blockDim.x) {
-        split_proposals_shared[i] = split_proposals.split_proposals[begin_bin_idx + i];
-      }
-      __syncthreads();
-    }
-    __device__ int FindBin(T x, int feature) const
-    {
-      auto feature_row_begin = row_pointers_shared[feature - begin_feature];
-      auto feature_row_end   = row_pointers_shared[feature - begin_feature + 1];
-      auto ptr               = thrust::lower_bound(thrust::seq,
-                                     split_proposals_shared + feature_row_begin,
-                                     split_proposals_shared + feature_row_end,
-                                     x);
-      if (ptr == split_proposals_shared + feature_row_end)
-        return SparseSplitProposals<T>::NOT_FOUND;
-      return (ptr - split_proposals_shared) + begin_bin_idx;
-    }
-  };
-
   const legate::AccessorRO<T, 3> X;
   const int64_t sample_offset;
   const legate::AccessorRO<double, 3> g;
@@ -363,7 +320,6 @@ struct HistogramAgent {
   int feature_end;
   int feature_stride;
   SharedMemoryHistogram shared_histogram;
-  SharedSplitProposals shared_split_proposals;
 
   __device__ HistogramAgent(legate::AccessorRO<T, 3> X,
                             int64_t sample_offset,
@@ -377,8 +333,7 @@ struct HistogramAgent {
                             GradientQuantiser quantiser,
                             legate::Buffer<int> feature_groups,
                             int64_t seed,
-                            SharedMemoryHistogramType* shared_memory,
-                            char* shared_memory2)
+                            SharedMemoryHistogramType* shared_memory)
     : X(X),
       sample_offset(sample_offset),
       g(g),
@@ -393,9 +348,7 @@ struct HistogramAgent {
       output(blockIdx.z),
       shared_histogram(shared_memory,
                        split_proposals.row_pointers[feature_groups[blockIdx.y]],
-                       split_proposals.row_pointers[feature_groups[blockIdx.y + 1]]),
-      shared_split_proposals(
-        split_proposals, feature_groups[blockIdx.y], feature_groups[blockIdx.y + 1], shared_memory2)
+                       split_proposals.row_pointers[feature_groups[blockIdx.y + 1]])
   {
     feature_begin  = feature_groups[blockIdx.y];
     feature_end    = feature_groups[blockIdx.y + 1];
@@ -539,9 +492,6 @@ __global__ static void __launch_bounds__(kBlockThreads)
                         int64_t seed)
 {
   extern __shared__ SharedMemoryHistogramType shared_memory[];
-  SharedMemoryHistogramType* shared_memory1 =
-    reinterpret_cast<SharedMemoryHistogramType*>(shared_memory);
-  char* shared_memory2 = reinterpret_cast<char*>(shared_memory1) + 16 * 1024;
   HistogramAgent<T, kBlockThreads, kItemsPerThread> agent(X,
                                                           sample_offset,
                                                           g,
@@ -554,8 +504,7 @@ __global__ static void __launch_bounds__(kBlockThreads)
                                                           quantiser,
                                                           feature_groups,
                                                           seed,
-                                                          shared_memory,
-                                                          shared_memory2);
+                                                          shared_memory);
   agent.BuildHistogram();
 }
 
@@ -575,10 +524,7 @@ struct HistogramKernel {
   {
     int device;
     CHECK_CUDA(cudaGetDevice(&device));
-    // Get the maximum shared memory per block
-    // CHECK_CUDA(
-    // cudaDeviceGetAttribute(&max_shared_memory, cudaDevAttrMaxSharedMemoryPerBlockOptin, device));
-
+    // Fix at 32KB for now
     max_shared_memory = 32 * 1024;
 
     CHECK_CUDA(cudaFuncSetAttribute(
