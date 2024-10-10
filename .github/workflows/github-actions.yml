@@ -11,6 +11,8 @@ on:
       - "main"
 
 env:
+  # CUDA architectures to build for
+  CUDAARCHS: "all-major"
   # where conda-build puts files it creates
   RAPIDS_CONDA_BLD_OUTPUT_DIR: /tmp/conda-bld-output
   # where jobs that download conda packages store the local channel
