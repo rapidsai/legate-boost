@@ -193,7 +193,7 @@ conda create \
 
 ## Releasing
 
-To prepare a new release:
+NOTE: some steps in this section require direct write access to the repo (including its `main` branch).
 
 1. Open a pull request updating the `VERSION` file on the `main` branch to the desired version, with no leading `v`
 
@@ -211,20 +211,21 @@ git tag -a v24.09.00 -m 'v24.09.00'
 git push upstream 'v24.09.00'
 ```
 
-4. Open another pull request updating the `VERSION` file again, with the expected version of the next release
-
-```shell
-echo "24.12.00" > ./VERSION
-```
-
-5. Merge that pull request
-6. Push a git tag like `v24.12.00dev`
+4. Update the `VERSION` file again, to the base version for the anticipated next release. Push this directly to `main`, with a commit that includes `[skip ci]` in the message so new packages will not be built from it.
 
 ```shell
 git checkout main
-git pull upstream main --tags
-git tag -a v24.12.00.dev -m 'v24.12.00.dev'
-git push upstream 'v24.12.00.dev'
+git pull upstream main
+echo "24.12.00" > ./VERSION
+git commit -m "start v24.12 development [skip ci]"
+git push upstream main
+```
+
+5. Tag that commit with a dev version
+
+```shell
+git tag -a v24.12.00dev -m "v24.12.00dev"
+git push upstream v24.12.00dev
 ```
 
 From that point forward, all packages produced by CI from the `main` branch will have versions like `v24.12.00.dev{n}`,
@@ -232,7 +233,7 @@ where `{n}` is "number of new commits since the one tagged `v24.12.00.dev`".
 
 ### Hotfixes
 
-Imagine that `v24.09.00` has been published, and at some later point a critical bug is found, which we want to package and release as `v24.09.01`.
+Imagine that `v24.09.00` has been published, and at some later point a critical bug is found, which you want to package and release as `v24.09.01`.
 
 Do the following.
 
@@ -247,7 +248,7 @@ git pull upstream main --tags
 git checkout v24.09.00
 git checkout -b release/24.09
 echo 'v24.09.01' > ./VERSION
-git commit -m 'start v24.09.01'
+git commit -m 'start v24.09.01 [skip ci]'
 git push upstream release/24.09
 
 # tag the first commit on the new branch as the beginning of the 24.09.01 series
@@ -267,19 +268,27 @@ git push upstream v24.09.01
 
 With that hotfix release complete, merge the fixes into `main`.
 
-1. create a new branch with the commits from the release branch
+1. create a new branch, cut from `main`
 
 ```shell
-git checkout release/v24.09
-git pull upstream release/v24.09
+git checkout main
+git pull upstream main
+git checkout -b forward-merge-24.09-hotfixes
 ```
 
-1. Open a pull request to merge `release/v24.09` into `main`
-2. Merge it **without squashing**
-3.
+2. On that branch, use `git cherry-pick` to bring over the hotfix changes.
 
-4. Leave that `release/v24.09` branch in place for as long as you want to be able to hotfix that release.
+```shell
+git cherry-pick release/v24.09
+```
 
+NOTE: The use of `cherry-pick` here is important because it re-writes the commit IDs. That avoids the situation where e.g. the
+`v24.09.01` hotfix tag points to commits on the `main` branch during `v24.12` development (which could lead to those packages
+incorrectly getting `v24.09.01dev{n}` versions).
+
+3. Open a pull request to merge that branch into `main`.
+4. Perform a non-squash merge of that pull request.
+5. Add a branch protection to prevent deletion of the `release/v24.09` branch, so you can return to it in the future if another hotfix is required.
 
 ## Development principles
 
