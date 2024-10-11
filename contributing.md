@@ -74,7 +74,7 @@ pre-commit run --all-files
 ## Change the project version
 
 The project's version is determined by git tags.
-To see how to change the version, read ["Releasing"](#releasing).
+To see how to change the version, read "Releasing" below.
 
 The `VERSION` file checked into source control is intended for use by local builds during development, and
 so should be kept up to date with those git tags.
