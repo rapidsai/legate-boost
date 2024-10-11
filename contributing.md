@@ -73,8 +73,11 @@ pre-commit run --all-files
 
 ## Change the project version
 
-The `VERSION` file at the root of the repo is the single source for `legate-boost`'s version.
-Modify that file to change the version for wheels, conda packages, the CMake project, etc.
+The project's version is determined by git tags.
+To see how to change the version, read ["Releasing](#releasing).
+
+The `VERSION` file checked into source control is intended for use by local builds during development, and
+so should be kept up to date with those git tags.
 
 ## Work with the conda packages
 
@@ -104,7 +107,7 @@ Build the packages.
 ```shell
 CMAKE_GENERATOR=Ninja \
 CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
-LEGATEBOOST_PACKAGE_VERSION=$(ci/generate-version) \
+LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
 rapids-conda-retry mambabuild \
     --channel legate \
     --channel conda-forge \
@@ -192,9 +195,91 @@ conda create \
 
 To prepare a new release:
 
-1. update the `VERSION` file on the `main` branch to the desired version, with no leading `v` (e.g. `24.09.00`)
-2. push a git tag like `v24.09.00` ... a release will be built automatically once that tag is pushed
-3. update the `VERSION` file again, with the expected version of the next release (e.g. `24.10.00`)
+1. Open a pull request updating the `VERSION` file on the `main` branch to the desired version, with no leading `v`
+
+```shell
+echo "24.09.00" > ./VERSION
+```
+
+2. Merge that pull request
+3. Push a git tag like `v24.09.00` ... that tag push will trigger a new release
+
+```shell
+git checkout main
+git pull upstream main
+git tag -a v24.09.00 -m 'v24.09.00'
+git push upstream 'v24.09.00'
+```
+
+4. Open another pull request updating the `VERSION` file again, with the expected version of the next release
+
+```shell
+echo "24.12.00" > ./VERSION
+```
+
+5. Merge that pull request
+6. Push a git tag like `v24.12.00dev`
+
+```shell
+git checkout main
+git pull upstream main --tags
+git tag -a v24.12.00.dev -m 'v24.12.00.dev'
+git push upstream 'v24.12.00.dev'
+```
+
+From that point forward, all packages produced by CI from the `main` branch will have versions like `v24.12.00.dev{n}`,
+where `{n}` is "number of new commits since the one tagged `v24.12.00.dev`".
+
+### Hotfixes
+
+Imagine that `v24.09.00` has been published, and at some later point a critical bug is found, which we want to package and release as `v24.09.01`.
+
+Do the following.
+
+1. Create a release branch, cut from the tag corresponding to the release you want to fix.
+
+```shell
+# get all the tags locally
+git checkout main
+git pull upstream main --tags
+
+# create the new branch
+git checkout v24.09.00
+git checkout -b release/24.09
+echo 'v24.09.01' > ./VERSION
+git commit -m 'start v24.09.01'
+git push upstream release/24.09
+
+# tag the first commit on the new branch as the beginning of the 24.09.01 series
+git tag -a v24.09.01dev -m 'v24.09.01dev'
+git push upstream v24.09.01dev
+```
+
+2. Open pull requests targeting that branch and merge them into that branch.
+3. When you feel the branch is ready to release, push a new tag.
+
+```shell
+git checkout release/v24.09
+git pull upstream release/v24.09 --tags
+git tag -a v24.09.01 -m 'v24.09.01'
+git push upstream v24.09.01
+```
+
+With that hotfix release complete, merge the fixes into `main`.
+
+1. create a new branch with the commits from the release branch
+
+```shell
+git checkout release/v24.09
+git pull upstream release/v24.09
+```
+
+1. Open a pull request to merge `release/v24.09` into `main`
+2. Merge it **without squashing**
+3.
+
+4. Leave that `release/v24.09` branch in place for as long as you want to be able to hotfix that release.
+
 
 ## Development principles
 

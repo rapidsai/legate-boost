@@ -4,9 +4,11 @@ set -e -E -u -o pipefail
 
 rapids-print-env
 
+rapids-generate-version > ./VERSION
+
 CMAKE_GENERATOR=Ninja \
 CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
-LEGATEBOOST_PACKAGE_VERSION=$(ci/generate-version) \
+LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
 rapids-conda-retry mambabuild \
     --channel legate \
     --channel conda-forge \
