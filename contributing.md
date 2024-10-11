@@ -74,7 +74,7 @@ pre-commit run --all-files
 ## Change the project version
 
 The project's version is determined by git tags.
-To see how to change the version, read ["Releasing](#releasing).
+To see how to change the version, read ["Releasing"](#releasing).
 
 The `VERSION` file checked into source control is intended for use by local builds during development, and
 so should be kept up to date with those git tags.
@@ -195,7 +195,9 @@ conda create \
 
 NOTE: some steps in this section require direct write access to the repo (including its `main` branch).
 
-1. Open a pull request updating the `VERSION` file on the `main` branch to the desired version, with no leading `v`
+### Create a stable release
+
+1. Create a pull request updating the `VERSION` file on the `main` branch to the desired version, with no leading `v`
 
 ```shell
 echo "24.09.00" > ./VERSION
