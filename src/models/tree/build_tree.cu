@@ -708,7 +708,7 @@ struct TreeBuilder {
     // splitting the features to ensure better work distribution for large numbers of features
     // while larger value also allow better caching of g & h,
     // smaller values improve access of the split_proposals
-    const int features_per_warp = 16;
+    const int features_per_warp = 32;
     const size_t blocks_y       = (num_features + features_per_warp - 1) / features_per_warp;
     dim3 grid_shape             = dim3(blocks_x, blocks_y, 1);
     fill_histogram_warp<TYPE, threads_per_block, features_per_warp>
