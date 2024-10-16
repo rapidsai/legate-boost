@@ -22,6 +22,7 @@
 #include <numeric>
 
 #include <cuda/std/tuple>
+#include <cuda/functional>
 #include <thrust/execution_policy.h>
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
@@ -683,11 +684,35 @@ struct TreeBuilder {
       });
     CHECK_CUDA_STREAM(stream);
 
-    thrust::sort(
-      policy,
-      sorted_positions.ptr(0),
-      sorted_positions.ptr(num_rows),
-      [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
+    auto decomposer = cuda::proclaim_return_type<cuda::std::tuple<int32_t&>>(
+      [] __device__(auto& a) { return cuda::std::tuple<int32_t&>{cuda::std::get<0>(a)}; });
+    auto sorted_out           = legate::create_buffer<cuda::std::tuple<int32_t, int32_t>>(num_rows);
+    size_t temp_storage_bytes = 0;
+    cub::DeviceRadixSort::SortKeys(nullptr,
+                                   temp_storage_bytes,
+                                   sorted_positions.ptr(0),
+                                   sorted_out.ptr(0),
+                                   num_rows,
+                                   decomposer,
+                                   0,
+                                   32,
+                                   stream);
+    auto temp_storage = legate::create_buffer<char, 1>(temp_storage_bytes);
+    cub::DeviceRadixSort::SortKeys(temp_storage.ptr(0),
+                                   temp_storage_bytes,
+                                   sorted_positions.ptr(0),
+                                   sorted_out.ptr(0),
+                                   num_rows,
+                                   decomposer,
+                                   0,
+                                   32,
+                                   stream);
+
+    CHECK_CUDA(cudaMemcpyAsync(sorted_positions.ptr(0),
+                               sorted_out.ptr(0),
+                               num_rows * sizeof(cuda::std::tuple<int32_t, int32_t>),
+                               cudaMemcpyDeviceToDevice,
+                               stream));
   }
 
   template <typename TYPE>
