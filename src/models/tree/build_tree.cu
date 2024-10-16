@@ -22,6 +22,7 @@
 #include <numeric>
 
 #include <cuda/std/tuple>
+#include <cuda/functional>
 #include <thrust/execution_policy.h>
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/iterator/discard_iterator.h>
@@ -936,10 +937,7 @@ struct TreeBuilder {
   }
 
   template <typename TYPE, typename ThrustPolicyT>
-  void UpdatePositions(Tree& tree,
-                       legate::AccessorRO<TYPE, 3> X,
-                       legate::Rect<3> X_shape,
-                       ThrustPolicyT policy)
+  void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 3> X, legate::Rect<3> X_shape)
   {
     auto tree_split_value_ptr = tree.split_value.ptr(0);
     auto tree_feature_ptr     = tree.feature.ptr(0);
@@ -959,11 +957,36 @@ struct TreeBuilder {
         sorted_positions[idx] = cuda::std::make_tuple(pos, row);
       });
     CHECK_CUDA_STREAM(stream);
-    thrust::sort(
-      policy,
-      sorted_positions.ptr(0),
-      sorted_positions.ptr(num_rows),
-      [] __device__(auto a, auto b) { return cuda::std::get<0>(a) < cuda::std::get<0>(b); });
+
+    auto decomposer = cuda::proclaim_return_type<cuda::std::tuple<int32_t&>>(
+      [] __device__(auto& a) { return cuda::std::tuple<int32_t&>{cuda::std::get<0>(a)}; });
+    auto sorted_out           = legate::create_buffer<cuda::std::tuple<int32_t, int32_t>>(num_rows);
+    size_t temp_storage_bytes = 0;
+    cub::DeviceRadixSort::SortKeys(nullptr,
+                                   temp_storage_bytes,
+                                   sorted_positions.ptr(0),
+                                   sorted_out.ptr(0),
+                                   num_rows,
+                                   decomposer,
+                                   0,
+                                   32,
+                                   stream);
+    auto temp_storage = legate::create_buffer<char, 1>(temp_storage_bytes);
+    cub::DeviceRadixSort::SortKeys(temp_storage.ptr(0),
+                                   temp_storage_bytes,
+                                   sorted_positions.ptr(0),
+                                   sorted_out.ptr(0),
+                                   num_rows,
+                                   decomposer,
+                                   0,
+                                   32,
+                                   stream);
+
+    CHECK_CUDA(cudaMemcpyAsync(sorted_positions.ptr(0),
+                               sorted_out.ptr(0),
+                               num_rows * sizeof(cuda::std::tuple<int32_t, int32_t>),
+                               cudaMemcpyDeviceToDevice,
+                               stream));
   }
 
   template <typename TYPE>
@@ -1217,9 +1240,7 @@ struct build_tree_fn {
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
-      if (depth < max_depth - 1) {
-        builder.UpdatePositions(tree, X_accessor, X_shape, thrust_exec_policy);
-      }
+      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_accessor, X_shape); }
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy, quantiser);
