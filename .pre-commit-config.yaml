@@ -1,10 +1,11 @@
 repos:
     - repo: https://github.com/pre-commit/pre-commit-hooks
-      rev: v4.6.0
+      rev: v5.0.0
       hooks:
         -   id: trailing-whitespace
         -   id: end-of-file-fixer
         -   id: check-yaml
+            exclude: '^conda/recipes/.*meta\.yaml$'
         -   id: check-added-large-files
     - repo: https://github.com/shellcheck-py/shellcheck-py
       rev: v0.10.0.1
@@ -15,25 +16,27 @@ repos:
       hooks:
             - id: isort
     - repo: https://github.com/psf/black
-      rev: '24.4.2'
+      rev: '24.10.0'
       hooks:
             - id: black
     - repo: https://github.com/PyCQA/flake8
-      rev: '7.1.0'
+      rev: '7.1.1'
       hooks:
             - id: flake8
     - repo: https://github.com/PyCQA/docformatter
-      rev: 'v1.7.5'
+      # commit from https://github.com/PyCQA/docformatter/pull/287
+      # TODO: switch to a proper release once that change is released
+      rev: '06907d0267368b49b9180eed423fae5697c1e909'
       hooks:
             - id: docformatter
     - repo: https://github.com/pre-commit/mirrors-clang-format
-      rev: 'v18.1.8'  # Use the sha / tag you want to point at
+      rev: 'v19.1.1'  # Use the sha / tag you want to point at
       hooks:
         - id: clang-format
           files: \.(cu|cuh|h|cc|inl)$
           types_or: []
     - repo: https://github.com/rapidsai/dependency-file-generator
-      rev: v1.14.0
+      rev: v1.15.1
       hooks:
         - id: rapids-dependency-file-generator
           args: ["--clean"]

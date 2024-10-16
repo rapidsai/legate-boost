@@ -6,8 +6,7 @@ from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cunumeric as cn
 import legateboost as lb
-
-from .utils import non_increasing, sanity_check_models
+from legateboost.testing.utils import non_increasing, sanity_check_models
 
 
 def test_init():
@@ -48,12 +47,12 @@ def test_update(init):
     update_train_loss = metric.metric(y, model.predict(X), cn.ones(y.shape[0]))
     assert update_train_loss < half_data_train_loss
 
-    # check that updating with same dataset results in exact same model
+    # check that updating with same dataset results in same model
     model.fit(X, y)
     pred = model.predict(X)
     model.update(X, y)
     updated_pred = model.predict(X)
-    assert (pred == updated_pred).all()
+    assert np.allclose(pred, updated_pred)
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
@@ -169,6 +168,8 @@ def test_normal_distribution():
 
 
 def test_subsample():
+    subsample_test_mse = []
+    full_test_mse = []
     for i in range(5):
         X, y = make_regression(
             n_samples=1000, n_features=10, noise=10.0, random_state=i
@@ -199,11 +200,7 @@ def test_subsample():
         ).fit(
             X_train, y_train, eval_result=full_eval_result, eval_set=[(X_test, y_test)]
         )
-        assert (
-            subsample_eval_result["eval-0"]["mse"][-1]
-            < full_eval_result["eval-0"]["mse"][-1]
-        )
-        assert (
-            full_eval_result["train"]["mse"][-1]
-            < subsample_eval_result["train"]["mse"][-1]
-        )
+        full_test_mse.append(full_eval_result["eval-0"]["mse"][-1])
+        subsample_test_mse.append(subsample_eval_result["eval-0"]["mse"][-1])
+
+    assert np.mean(subsample_test_mse) < np.mean(full_test_mse)

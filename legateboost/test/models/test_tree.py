@@ -3,14 +3,7 @@ import pytest
 
 import cunumeric as cn
 import legateboost as lb
-
-from ..utils import non_increasing
-from .utils import check_determinism
-
-
-@pytest.mark.parametrize("max_depth", [0, 8])
-def test_determinism(max_depth):
-    check_determinism(lb.models.Tree(max_depth=max_depth))
+from legateboost.testing.utils import non_increasing
 
 
 def test_basic():
@@ -50,6 +43,22 @@ def test_improving_with_depth(num_outputs):
     assert metrics[-1] < metrics[0]
 
 
+def test_max_depth():
+    # we should be able to run deep trees with OOM
+    max_depth = 20
+    X = cn.random.random((2, 1))
+    y = cn.array([500.0, 500.0])
+    model = lb.LBRegressor(
+        init=None,
+        base_models=(lb.models.Tree(max_depth=max_depth),),
+        learning_rate=1.0,
+        n_estimators=1,
+        random_state=0,
+    )
+
+    model.fit(X, y)
+
+
 def test_alpha():
     X = cn.random.random((2, 1))
     y = cn.array([500.0, 500.0])
@@ -62,4 +71,4 @@ def test_alpha():
         random_state=0,
     )
     model.fit(X, y)
-    assert model.predict(X)[0] == y.sum() / (y.size + alpha)
+    assert np.isclose(model.predict(X)[0], y.sum() / (y.size + alpha))

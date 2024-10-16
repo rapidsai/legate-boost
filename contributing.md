@@ -5,10 +5,10 @@
 Use `conda` to create a development environment that includes them.
 
 ```shell
-# CUDA 11.8
+# CUDA 12.2
 conda env create \
     --name legate-boost-dev \
-    -f ./conda/environments/all_cuda-118.yaml
+    -f ./conda/environments/all_cuda-122.yaml
 
 source activate legate-boost-dev
 ```
@@ -17,7 +17,7 @@ The easiest way to develop is to compile the shared library separately, then bui
 and install an editable wheel that uses it.
 
 ```shell
-./build.sh --editable
+./build.sh legate-boost --editable
 ```
 
 ## Running tests
@@ -25,23 +25,20 @@ and install an editable wheel that uses it.
 CPU:
 
 ```shell
-legate \
-    --sysmem 28000 \
-    --module pytest \
-    legateboost/test
+ci/run_pytests_cpu.sh
 ```
 
 GPU:
 
 ```shell
-legate \
-    --gpus 1 \
-    --fbmem 28000 \
-    --sysmem 28000 \
-    --module pytest \
-    legateboost/test/test_estimator.py \
-    -k 'not sklearn'
+ci/run_pytests_gpu.sh
 ```
+
+## Add new tests
+
+Test cases should go in `legateboost/test`.
+
+Utility code re-used by multiple tests should be added in `legateboost/testing`.
 
 ## Change default CUDA architectures
 
@@ -76,8 +73,224 @@ pre-commit run --all-files
 
 ## Change the project version
 
-The `VERSION` file at the root of the repo is the single source for `legate-boost`'s version.
-Modify that file to change the version for wheels, conda packages, the CMake project, etc.
+The project's version is determined by git tags.
+To see how to change the version, read "Releasing" below.
+
+The `VERSION` file checked into source control is intended for use by local builds during development, and
+so should be kept up to date with those git tags.
+
+## Work with the conda packages
+
+Run the commands in this section in a container using the same base image as CI.
+
+```shell
+# NOTE: remove '--gpus' to test the CPU-only version
+docker run \
+  --rm \
+  --gpus 1 \
+  -v $(pwd):/opt/legate-boost \
+  -w /opt/legate-boost \
+  -it rapidsai/ci-conda:cuda12.5.1-ubuntu22.04-py3.11 \
+  bash
+```
+
+### Build conda packages locally
+
+Before doing this, be sure to remove any other left-over build artifacts.
+
+```shell
+git clean -d -f -X
+```
+
+Build the packages.
+
+```shell
+CMAKE_GENERATOR=Ninja \
+CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
+LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
+rapids-conda-retry mambabuild \
+    --channel legate \
+    --channel conda-forge \
+    --channel nvidia \
+    --no-force-upload \
+    conda/recipes/legate-boost
+```
+
+### Download conda package created in CI
+
+Packages built in CI are hosted on the GitHub Artifact Store.
+
+To start, authenticate with the GitHub CLI.
+By default, this will require interactively entering a code in a browser window.
+That can be avoided by setting environment variable `GH_TOKEN`, as described in the
+GitHub docs ([link](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github)).
+
+```shell
+# authenticate with the GitHub CLI
+# (can skip this by providing GH_TOKEN environment variable)
+gh auth login
+```
+
+Next, select a CI run whose artifacts you want to test.
+The run IDs can be found in the URLs at https://github.com/rapidsai/legate-boost/actions/workflows/github-actions.yml.
+For example, given a URL like
+
+```text
+https://github.com/rapidsai/legate-boost/actions/runs/10566116913
+```
+
+The run ID is `10566116913`.
+
+```shell
+# choose a specific CI run ID
+RUN_ID=10566116913
+```
+
+It's possible to omit the run ID and just have these commands download whatever
+the latest artifact produced was.
+For details on that, see the GitHub docs ([link](https://cli.github.com/manual/gh_run_download)).
+
+Download the packages.
+This will download and unpack a single artifact which contains all of the conda packages
+built for a particular combination of CUDA version, CPU architecture, and Python version.
+
+```shell
+gh run download \
+    --dir "${RAPIDS_CONDA_BLD_OUTPUT_DIR}" \
+    --repo rapidsai/legate-boost \
+    --name "legate-boost-conda-cuda${RAPIDS_CUDA_VERSION}-amd64-py${PYTHON_VERSION}" \
+    "${RUN_ID}"
+```
+
+### Work with conda packages locally
+
+After using either of the above approaches, use the tips in this section to work
+with those local conda packages.
+
+Environment variable `RAPIDS_CONDA_BLD_OUTPUT_DIR` points to a location with the packages and
+all the necessary data to be used as a full conda channel.
+
+```shell
+# list the package contents
+cph list \
+    "$(echo ${RAPIDS_CONDA_BLD_OUTPUT_DIR}/linux-64/legate-boost-*_gpu.tar.bz2)"
+
+# check that the dependency metadata is correct
+conda search \
+    --override-channels \
+    --channel ${RAPIDS_CONDA_BLD_OUTPUT_DIR} \
+    --info \
+        legate-boost
+
+# create an environment with the package installed
+conda create \
+    --name legate-boost-test \
+    -c legate \
+    -c conda-forge \
+    -c "${RAPIDS_CONDA_BLD_OUTPUT_DIR}" \
+        legate-boost
+```
+
+## Releasing
+
+NOTE: some steps in this section require direct write access to the repo (including its `main` branch).
+
+### Create a stable release
+
+1. Create a pull request updating the `VERSION` file on the `main` branch to the desired version, with no leading `v`
+
+```shell
+echo "24.09.00" > ./VERSION
+```
+
+2. Merge that pull request
+3. Push a git tag like `v24.09.00` ... that tag push will trigger a new release
+
+```shell
+git checkout main
+git pull upstream main
+git tag -a v24.09.00 -m 'v24.09.00'
+git push upstream 'v24.09.00'
+```
+
+4. Update the `VERSION` file again, to the base version for the anticipated next release. Push this directly to `main`, with a commit that includes `[skip ci]` in the message so new packages will not be built from it.
+
+```shell
+git checkout main
+git pull upstream main
+echo "24.12.00" > ./VERSION
+git commit -m "start v24.12 development [skip ci]"
+git push upstream main
+```
+
+5. Tag that commit with a dev version
+
+```shell
+git tag -a v24.12.00dev -m "v24.12.00dev"
+git push upstream v24.12.00dev
+```
+
+From that point forward, all packages produced by CI from the `main` branch will have versions like `v24.12.00.dev{n}`,
+where `{n}` is "number of new commits since the one tagged `v24.12.00.dev`".
+
+### Hotfixes
+
+Imagine that `v24.09.00` has been published, and at some later point a critical bug is found, which you want to package and release as `v24.09.01`.
+
+Do the following.
+
+1. Create a release branch, cut from the tag corresponding to the release you want to fix.
+
+```shell
+# get all the tags locally
+git checkout main
+git pull upstream main --tags
+
+# create the new branch
+git checkout v24.09.00
+git checkout -b release/24.09
+echo 'v24.09.01' > ./VERSION
+git commit -m 'start v24.09.01 [skip ci]'
+git push upstream release/24.09
+
+# tag the first commit on the new branch as the beginning of the 24.09.01 series
+git tag -a v24.09.01dev -m 'v24.09.01dev'
+git push upstream v24.09.01dev
+```
+
+2. Open pull requests targeting that branch and merge them into that branch.
+3. When you feel the branch is ready to release, push a new tag.
+
+```shell
+git checkout release/v24.09
+git pull upstream release/v24.09 --tags
+git tag -a v24.09.01 -m 'v24.09.01'
+git push upstream v24.09.01
+```
+
+With that hotfix release complete, merge the fixes into `main`.
+
+1. create a new branch, cut from `main`
+
+```shell
+git checkout main
+git pull upstream main
+git checkout -b forward-merge-24.09-hotfixes
+```
+
+2. On that branch, use `git cherry-pick` to bring over the hotfix changes.
+
+```shell
+git cherry-pick release/v24.09
+```
+
+NOTE: The use of `cherry-pick` here is important because it re-writes the commit IDs. That avoids the situation where e.g. the
+`v24.09.01` hotfix tag points to commits on the `main` branch during `v24.12` development (which could lead to those packages
+incorrectly getting `v24.09.01dev{n}` versions).
+
+3. Open a pull request to merge that branch into `main`.
+4. Perform a non-squash merge of that pull request.
+5. Add a branch protection to prevent deletion of the `release/v24.09` branch, so you can return to it in the future if another hotfix is required.
 
 ## Development principles
 
@@ -92,8 +305,9 @@ The following general principles should be followed when developing `legate-boos
 - Avoid optimisation where possible in favour of clear implementation
 - Favour cunumeric implementations where appropriate. e.g. elementwise or matrix operations
 - Use mypy type annotations if at all possible. The typing can be checked by running the following command under the project root:
-```
-mypy ./legateboost --config-file ./pyproject.toml --exclude=legateboost/test --exclude=install_info
+
+```shell
+ci/run_mypy.sh
 ```
 
 ### Performance

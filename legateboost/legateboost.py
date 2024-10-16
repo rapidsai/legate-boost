@@ -17,7 +17,7 @@ from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
 from .shapley import global_shapley_attributions, local_shapley_attributions
-from .utils import PickleCunumericMixin, preround
+from .utils import PickleCunumericMixin
 
 if TYPE_CHECKING:
     from .callbacks import TrainingCallback
@@ -200,7 +200,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             g *= mask[:, None]
             h *= mask[:, None]
 
-        return preround(g), preround(h)
+        return g, h
 
     def _partial_fit(
         self,

@@ -43,10 +43,10 @@ void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, std::string file, i
 #define EXPECT_AXIS_ALIGNED(axis, shape_a, shape_b) \
   (expect_axis_aligned<axis>(shape_a, shape_b, __FILE__, __LINE__))
 
-template <typename ShapeT>
-void expect_is_broadcast(const ShapeT& shape, std::string file, int line)
+template <int DIM>
+void expect_is_broadcast(const legate::Rect<DIM>& shape, std::string file, int line)
 {
-  for (int i = 0; i < sizeof(shape.lo.x) / sizeof(shape.lo[0]); i++) {
+  for (int i = 0; i < DIM; i++) {
     std::stringstream ss;
     ss << "Expected a broadcast store. Got shape: " << shape << ".";
     expect(shape.lo[i] == 0, ss.str(), file, line);
@@ -109,8 +109,8 @@ constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor&& 
   type_dispatch<float, double>(code, f, std::forward<Fnargs>(args)...);
 }
 
-template <typename T>
-void SumAllReduce(legate::TaskContext context, T* x, int count)
+template <typename T, typename OpT>
+void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
 {
   auto domain      = context.get_launch_domain();
   size_t num_ranks = domain.get_volume();
@@ -138,13 +138,21 @@ void SumAllReduce(legate::TaskContext context, T* x, int count)
   // Sum partials
   std::vector<T> partials(items_per_rank, 0.0);
   for (size_t j = 0; j < items_per_rank; j++) {
-    for (size_t i = 0; i < num_ranks; i++) { partials[j] += recvbuf[i * items_per_rank + j]; }
+    for (size_t i = 0; i < num_ranks; i++) {
+      partials[j] = op(partials[j], recvbuf[i * items_per_rank + j]);
+    }
   }
 
   result = legate::comm::coll::collAllgather(
     partials.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
   EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
   std::copy(recvbuf.begin(), recvbuf.begin() + count, x);
+}
+
+template <typename T>
+void SumAllReduce(legate::TaskContext context, T* x, int count)
+{
+  AllReduce(context, x, count, std::plus<T>());
 }
 
 /**
@@ -263,7 +271,9 @@ class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
     auto const& in = context.input(0);
     legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, thrust::host);
   }
+#ifdef LEGATEBOOST_USE_CUDA
   static void gpu_variant(legate::TaskContext context);
+#endif
 };
 
 }  // namespace legateboost

@@ -24,9 +24,6 @@
 
 namespace legateboost {
 
-#define THREADS_PER_BLOCK 128
-#define MIN_CTAS_PER_SM 4
-
 __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
 {
   if (error != ncclSuccess) {
@@ -49,9 +46,8 @@ __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
     check_nccl(result, __FILE__, __LINE__); \
   } while (false)
 
-template <typename L>
-__global__ void __launch_bounds__(THREADS_PER_BLOCK, MIN_CTAS_PER_SM)
-  LaunchNKernel(size_t size, L lambda)
+template <typename L, int BLOCK_THREADS>
+__global__ void __launch_bounds__(BLOCK_THREADS) LaunchNKernel(size_t size, L lambda)
 {
   for (auto i = blockDim.x * blockIdx.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
     lambda(i);
@@ -62,13 +58,14 @@ template <int ITEMS_PER_THREAD = 8, typename L>
 inline void LaunchN(size_t n, cudaStream_t stream, L lambda)
 {
   if (n == 0) { return; }
-  const int GRID_SIZE = static_cast<int>((n + ITEMS_PER_THREAD * THREADS_PER_BLOCK - 1) /
-                                         (ITEMS_PER_THREAD * THREADS_PER_BLOCK));
-  LaunchNKernel<<<GRID_SIZE, THREADS_PER_BLOCK, 0, stream>>>(n, lambda);
+  const int kBlockThreads = 256;
+  const int GRID_SIZE     = static_cast<int>((n + ITEMS_PER_THREAD * kBlockThreads - 1) /
+                                         (ITEMS_PER_THREAD * kBlockThreads));
+  LaunchNKernel<L, kBlockThreads><<<GRID_SIZE, kBlockThreads, 0, stream>>>(n, lambda);
 }
 
 template <typename T>
-void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t stream)
+void AllReduce(legate::TaskContext context, T* x, int count, ncclRedOp_t op, cudaStream_t stream)
 {
   auto domain      = context.get_launch_domain();
   size_t num_ranks = domain.get_volume();
@@ -80,9 +77,13 @@ void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t str
 
   if (num_ranks > 1) {
     if (std::is_same<T, float>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclFloat, ncclSum, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(x, x, count, ncclFloat, op, *nccl_comm, stream));
     } else if (std::is_same<T, double>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclDouble, ncclSum, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(x, x, count, ncclDouble, op, *nccl_comm, stream));
+    } else if (std::is_same<T, int64_t>::value) {
+      CHECK_NCCL(ncclAllReduce(x, x, count, ncclInt64, op, *nccl_comm, stream));
+    } else if (std::is_same<T, int32_t>::value) {
+      CHECK_NCCL(ncclAllReduce(x, x, count, ncclInt, op, *nccl_comm, stream));
     } else {
       EXPECT(false, "Unsupported type for all reduce.");
     }
@@ -90,29 +91,28 @@ void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t str
   }
 }
 
-#if __CUDA_ARCH__ < 600
-__device__ inline double atomicAdd(double* address, double val)
+template <typename T>
+void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t stream)
 {
-  unsigned long long int* address_as_ull = (unsigned long long int*)address;
-  unsigned long long int old             = *address_as_ull, assumed;
-
-  do {
-    assumed = old;
-    old =
-      atomicCAS(address_as_ull, assumed, __double_as_longlong(val + __longlong_as_double(assumed)));
-
-    // Note: uses integer comparison to avoid hang in case of NaN (since NaN != NaN)
-  } while (assumed != old);
-
-  return __longlong_as_double(old);
+  AllReduce(context, x, count, ncclSum, stream);
 }
-#endif
 
 #if THRUST_VERSION >= 101600
 #define DEFAULT_POLICY thrust::cuda::par_nosync
 #else
 #define DEFAULT_POLICY thrust::cuda::par
 #endif
+
+__device__ inline uint32_t ballot(bool inFlag, uint32_t mask = 0xffffffffu)
+{
+  return __ballot_sync(mask, inFlag);
+}
+
+template <typename T>
+__device__ inline T shfl(T val, int srcLane, int width = 32, uint32_t mask = 0xffffffffu)
+{
+  return __shfl_sync(mask, val, srcLane, width);
+}
 
 class ThrustAllocator : public legate::ScopedAllocator {
  public:
