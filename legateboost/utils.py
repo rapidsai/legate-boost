@@ -25,7 +25,11 @@ class PickleCunumericMixin:
     def __setstate__(self, state: dict[str, Any]) -> None:
         def replace(data: Any) -> None:
             if isinstance(data, (dict, list)):
-                for k, v in data.items() if isinstance(data, dict) else enumerate(data):
+                # Note: mypy 1.12.0 required iter() around data.items() to pass
+                items = (
+                    iter(data.items()) if isinstance(data, dict) else enumerate(data)
+                )
+                for k, v in items:
                     if isinstance(v, np.ndarray):
                         data[k] = cn.asarray(v)
                     replace(v)
