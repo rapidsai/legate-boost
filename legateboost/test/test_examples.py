@@ -60,7 +60,7 @@ def test_notebooks(path):
 
 def test_benchmark(benchmark_dir):
     subprocess.run(
-        "legate --cpus 2 scaling.py --nrows 100 --ncols 5 --niter 2",
+        "legate --cpus 2 legateboost_scaling.py --nrows 100 --ncols 5 --niter 2",
         shell=True,
         check=True,
         cwd=benchmark_dir,

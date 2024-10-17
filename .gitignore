@@ -21,7 +21,7 @@ __pycache__/
 examples/notebook/*.py
 legion_prof
 benchmark
-benchmark/!*.py
+!benchmark/*.py
 *.so
 *.tar.bz2
 *.tar.gz
