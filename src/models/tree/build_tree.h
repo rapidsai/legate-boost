@@ -134,8 +134,8 @@ class SparseSplitProposals {
 #else
   int FindBin(T x, int feature) const
   {
-    auto feature_row_begin = row_pointers[feature];
-    auto feature_row_end   = row_pointers[feature + 1];
+    auto feature_row_begin = legate::coord_t{row_pointers[feature]};
+    auto feature_row_end   = legate::coord_t{row_pointers[feature + 1]};
     auto ptr               = std::lower_bound(
       split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
     if (ptr == split_proposals.ptr(feature_row_end)) return NOT_FOUND;

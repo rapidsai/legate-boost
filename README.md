@@ -75,7 +75,7 @@ model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max
 
 ## Installation
 
-If you already have `cunumeric` and `legate-core` installed, run the following:
+If you already have `cunumeric` and `legate` installed, run the following:
 
 ```shell
 pip install \

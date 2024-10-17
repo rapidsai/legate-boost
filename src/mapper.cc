@@ -21,8 +21,6 @@ namespace legateboost {
 
 LegateboostMapper::LegateboostMapper() {}
 
-void LegateboostMapper::set_machine(const legate::mapping::MachineQueryInterface* /*machine*/) {}
-
 legate::mapping::TaskTarget LegateboostMapper::task_target(
   const legate::mapping::Task& /*task*/, const std::vector<legate::mapping::TaskTarget>& options)
 {

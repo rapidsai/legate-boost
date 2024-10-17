@@ -2,6 +2,7 @@
 # To make changes, edit ../../dependencies.yaml and run `rapids-dependency-file-generator`.
 channels:
 - legate
+- legate/label/experimental
 - conda-forge
 - nvidia
 dependencies:
@@ -9,9 +10,9 @@ dependencies:
 - cuda-cudart-dev
 - cuda-nvcc
 - cuda-version>=12.2
-- cunumeric==24.06.*,>=24.06.01
+- cunumeric==24.09.*,>=0.0.0.dev0
 - hypothesis
-- legate-core==24.06.*,>=24.06.01
+- legate==24.09.*,>=0.0.0.dev0
 - libcublas-dev
 - make
 - matplotlib

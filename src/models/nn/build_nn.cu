@@ -24,9 +24,8 @@ void SyncCPU(legate::TaskContext context)
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
   float tmp;
-  auto result = legate::comm::coll::collAllgather(
+  legate::comm::coll::collAllgather(
     &tmp, gather_result.data(), 1, legate::comm::coll::CollDataType::CollFloat, comm_ptr);
-  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
 }
 
 // Store handles to legate and cublas
@@ -42,9 +41,8 @@ class NNContext {
   template <typename T>
   NNContext(legate::TaskContext context,
             const std::vector<Matrix<T>>& coefficients,
-            const std::vector<Matrix<T>>& bias,
-            cudaStream_t stream)
-    : stream(stream), legate_context(context)
+            const std::vector<Matrix<T>>& bias)
+    : stream(context.get_task_stream()), legate_context(context)
   {
     CUBLAS_ERROR(cublasCreate(&handle));
     // Without syncronising, cublas creation can hang
@@ -154,10 +152,9 @@ void print(Matrix<T>& A, int64_t n)
 }
 
 template <typename T>
-Matrix<T> multiply(Matrix<T>& A, T scalar)
+Matrix<T> multiply(Matrix<T>& A, T scalar, cudaStream_t stream)
 {
   auto result = Matrix<T>::Create(A.extent);
-  auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
   auto out    = result.data;
   auto in     = A.data;
   LaunchN(A.size(), stream, [=] __device__(int64_t idx) { out[idx] = in[idx] * scalar; });
@@ -165,11 +162,10 @@ Matrix<T> multiply(Matrix<T>& A, T scalar)
 }
 
 template <typename T>
-Matrix<T> subtract(const Matrix<T>& A, const Matrix<T>& B)
+Matrix<T> subtract(const Matrix<T>& A, const Matrix<T>& B, cudaStream_t stream)
 {
   EXPECT(A.extent == B.extent, "Matrix dimensions must match");
   auto result     = Matrix<T>::Create(A.extent);
-  auto stream     = legate::cuda::StreamPool::get_stream_pool().get_stream();
   auto in         = A.data;
   auto out        = result.data;
   auto other_data = B.data;
@@ -178,9 +174,8 @@ Matrix<T> subtract(const Matrix<T>& A, const Matrix<T>& B)
 }
 
 template <typename T, typename T2>
-void fill(Matrix<T>& A, T2 val)
+void fill(Matrix<T>& A, T2 val, cudaStream_t stream)
 {
-  auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
   LaunchN(A.size(), stream, [=] __device__(int64_t idx) { A.data[idx] = val; });
 }
 
@@ -312,11 +307,11 @@ Matrix<T> eval_cost_prime(NNContext* context, Matrix<T>& pred, Matrix<double>& g
 }
 
 template <typename T>
-void bias_grad(NNContext* context, Matrix<T>& delta, Matrix<T>& bias_grad)
+void bias_grad(NNContext* nn_context, Matrix<T>& delta, Matrix<T>& bias_grad)
 {
   auto ones = Matrix<T>::Create({1, delta.extent[0]});
-  fill(ones, 1.0);
-  dot<false, false>(context, ones, delta, bias_grad);
+  fill(ones, 1.0, nn_context->stream);
+  dot<false, false>(nn_context, ones, delta, bias_grad);
 }
 
 template <typename T>
@@ -344,7 +339,7 @@ Matrix<T> backward(NNContext* nn_context,
                    double alpha)
 {
   auto grads = Matrix<T>::Create({nn_context->num_parameters, 1});
-  fill(grads, 0.0);
+  fill(grads, 0.0, nn_context->stream);
   auto [coefficient_grads, bias_grads] = nn_context->Unpack(grads);
   forward(nn_context, coefficients, bias, activations);
 
@@ -424,7 +419,7 @@ std::tuple<T, T> line_search(NNContext* nn_context,
   T t   = -c * vector_dot(nn_context, grad, direction);
   EXPECT(t >= 0, "Search direction is not a descent direction");
   auto coeff_proposal_storage = Matrix<T>::Create({nn_context->num_parameters, 1});
-  fill(coeff_proposal_storage, 0.0);
+  fill(coeff_proposal_storage, 0.0, nn_context->stream);
   auto [coefficient_proposals, bias_proposals] = nn_context->Unpack(coeff_proposal_storage);
   update_coefficients(
     nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, lr);
@@ -467,7 +462,7 @@ class LBfgs {
     Chen, Weizhu, Zhenghao Wang, and Jingren Zhou. "Large-scale L-BFGS using MapReduce." Advances in
     neural information processing systems 27 (2014).
     */
-    if (s.size() == 0) { return multiply(grad, T(-1.0)); }
+    if (s.size() == 0) { return multiply(grad, T(-1.0), context->stream); }
     // Form a matrix
     auto b             = Matrix<T>::Create({int64_t(s.size() + y.size() + 1), grad.size()});
     std::size_t offset = 0;
@@ -542,7 +537,7 @@ class LBfgs {
                   << std::endl;
       s.clear();
       y.clear();
-      return multiply(grad, T(-1.0));
+      return multiply(grad, T(-1.0), context->stream);
     }
     return direction;
   }
@@ -559,6 +554,8 @@ struct build_nn_fn {
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
+    auto stream = context.get_task_stream();
+
     auto total_rows  = context.scalar(0).value<int64_t>();
     double gtol      = context.scalar(1).value<double>();
     int32_t verbose  = context.scalar(2).value<int32_t>();
@@ -574,8 +571,7 @@ struct build_nn_fn {
       bias.push_back(Matrix<T>::From1dOutputStore(context.output(i + 1).data()));
     }
 
-    NNContext nn_context(
-      context, coefficients, bias, legate::cuda::StreamPool::get_stream_pool().get_stream());
+    NNContext nn_context(context, coefficients, bias);
 
     auto X           = Matrix<T>::Project3dStore(X_store, 2);
     Matrix<double> g = Matrix<double>::Project3dStore(g_store, 1);
@@ -617,7 +613,7 @@ struct build_nn_fn {
       auto new_grad =
         backward(&nn_context, coefficients, bias, activations, deltas, g, h, total_rows, alpha);
 
-      lbfgs.Add(multiply(direction, lr), subtract(new_grad, grad));
+      lbfgs.Add(multiply(direction, lr, stream), subtract(new_grad, grad, stream));
       grad      = new_grad;
       grad_norm = vector_norm(&nn_context, grad);
     }
