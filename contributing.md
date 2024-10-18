@@ -73,8 +73,11 @@ pre-commit run --all-files
 
 ## Change the project version
 
-The `VERSION` file at the root of the repo is the single source for `legate-boost`'s version.
-Modify that file to change the version for wheels, conda packages, the CMake project, etc.
+The project's version is determined by git tags.
+To see how to change the version, read "Releasing" below.
+
+The `VERSION` file checked into source control is intended for use by local builds during development, and
+so should be kept up to date with those git tags.
 
 ## Work with the conda packages
 
@@ -104,6 +107,7 @@ Build the packages.
 ```shell
 CMAKE_GENERATOR=Ninja \
 CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
+LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
 rapids-conda-retry mambabuild \
     --channel legate \
     --channel conda-forge \
@@ -186,6 +190,107 @@ conda create \
     -c "${RAPIDS_CONDA_BLD_OUTPUT_DIR}" \
         legate-boost
 ```
+
+## Releasing
+
+NOTE: some steps in this section require direct write access to the repo (including its `main` branch).
+
+### Create a stable release
+
+1. Create a pull request updating the `VERSION` file on the `main` branch to the desired version, with no leading `v`
+
+```shell
+echo "24.09.00" > ./VERSION
+```
+
+2. Merge that pull request
+3. Push a git tag like `v24.09.00` ... that tag push will trigger a new release
+
+```shell
+git checkout main
+git pull upstream main
+git tag -a v24.09.00 -m 'v24.09.00'
+git push upstream 'v24.09.00'
+```
+
+4. Update the `VERSION` file again, to the base version for the anticipated next release. Push this directly to `main`, with a commit that includes `[skip ci]` in the message so new packages will not be built from it.
+
+```shell
+git checkout main
+git pull upstream main
+echo "24.12.00" > ./VERSION
+git commit -m "start v24.12 development [skip ci]"
+git push upstream main
+```
+
+5. Tag that commit with a dev version
+
+```shell
+git tag -a v24.12.00dev -m "v24.12.00dev"
+git push upstream v24.12.00dev
+```
+
+From that point forward, all packages produced by CI from the `main` branch will have versions like `v24.12.00.dev{n}`,
+where `{n}` is "number of new commits since the one tagged `v24.12.00.dev`".
+
+### Hotfixes
+
+Imagine that `v24.09.00` has been published, and at some later point a critical bug is found, which you want to package and release as `v24.09.01`.
+
+Do the following.
+
+1. Create a release branch, cut from the tag corresponding to the release you want to fix.
+
+```shell
+# get all the tags locally
+git checkout main
+git pull upstream main --tags
+
+# create the new branch
+git checkout v24.09.00
+git checkout -b release/24.09
+echo 'v24.09.01' > ./VERSION
+git commit -m 'start v24.09.01 [skip ci]'
+git push upstream release/24.09
+
+# tag the first commit on the new branch as the beginning of the 24.09.01 series
+git tag -a v24.09.01dev -m 'v24.09.01dev'
+git push upstream v24.09.01dev
+```
+
+2. Open pull requests targeting that branch and merge them into that branch.
+3. When you feel the branch is ready to release, push a new tag.
+
+```shell
+git checkout release/v24.09
+git pull upstream release/v24.09 --tags
+git tag -a v24.09.01 -m 'v24.09.01'
+git push upstream v24.09.01
+```
+
+With that hotfix release complete, merge the fixes into `main`.
+
+1. create a new branch, cut from `main`
+
+```shell
+git checkout main
+git pull upstream main
+git checkout -b forward-merge-24.09-hotfixes
+```
+
+2. On that branch, use `git cherry-pick` to bring over the hotfix changes.
+
+```shell
+git cherry-pick release/v24.09
+```
+
+NOTE: The use of `cherry-pick` here is important because it re-writes the commit IDs. That avoids the situation where e.g. the
+`v24.09.01` hotfix tag points to commits on the `main` branch during `v24.12` development (which could lead to those packages
+incorrectly getting `v24.09.01dev{n}` versions).
+
+3. Open a pull request to merge that branch into `main`.
+4. Perform a non-squash merge of that pull request.
+5. Add a branch protection to prevent deletion of the `release/v24.09` branch, so you can return to it in the future if another hotfix is required.
 
 ## Development principles
 
