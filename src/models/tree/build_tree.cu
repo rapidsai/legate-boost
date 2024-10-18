@@ -659,11 +659,8 @@ struct TreeBuilder {
     max_batch_size = max_histogram_nodes;
   }
 
-  template <typename TYPE, typename ThrustPolicyT>
-  void UpdatePositions(Tree& tree,
-                       legate::AccessorRO<TYPE, 3> X,
-                       legate::Rect<3> X_shape,
-                       ThrustPolicyT& policy)
+  template <typename TYPE>
+  void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 3> X, legate::Rect<3> X_shape)
   {
     auto tree_split_value_ptr = tree.split_value.ptr(0);
     auto tree_feature_ptr     = tree.feature.ptr(0);
@@ -969,9 +966,7 @@ struct build_tree_fn {
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
-      if (depth < max_depth - 1) {
-        builder.UpdatePositions(tree, X_accessor, X_shape, thrust_exec_policy);
-      }
+      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_accessor, X_shape); }
     }
 
     tree.WriteTreeOutput(context, thrust_exec_policy, quantiser);
