@@ -27,8 +27,14 @@ Legion::Logger log_legateboost(library_name);
 
 void registration_callback()
 {
-  auto context = legate::Runtime::get_runtime()->create_library(
-    library_name, legate::ResourceConfig{}, std::make_unique<LegateboostMapper>());
+  auto options = legate::VariantOptions{}.with_has_allocations(true);
+  auto context =
+    legate::Runtime::get_runtime()->create_library(library_name,
+                                                   legate::ResourceConfig{},
+                                                   std::make_unique<LegateboostMapper>(),
+                                                   {{legate::VariantCode::CPU, options},
+                                                    {legate::VariantCode::GPU, options},
+                                                    {legate::VariantCode::OMP, options}});
 
   Registry::get_registrar().register_all_tasks(context);
 }

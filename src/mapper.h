@@ -37,6 +37,8 @@ class LegateboostMapper : public legate::mapping::Mapper {
     const legate::mapping::Task& task,
     const std::vector<legate::mapping::StoreTarget>& options) override;
   virtual legate::Scalar tunable_value(legate::TunableID tunable_id) override;
+  std::optional<std::size_t> allocation_pool_size(
+    const legate::mapping::Task& task, legate::mapping::StoreTarget memory_kind) override;
 };
 
 }  // namespace legateboost

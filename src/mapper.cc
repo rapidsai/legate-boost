@@ -51,4 +51,11 @@ std::vector<legate::mapping::StoreMapping> LegateboostMapper::store_mappings(
   return mappings;
 }
 
+std::optional<std::size_t> LegateboostMapper::allocation_pool_size(
+  const legate::mapping::Task& task, legate::mapping::StoreTarget memory_kind)
+{
+  if (memory_kind == legate::mapping::StoreTarget::ZCMEM) { return 0; }
+  return std::nullopt;
+}
+
 }  // namespace legateboost
