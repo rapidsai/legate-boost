@@ -5,17 +5,10 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # run on pushes to certain branches (or PRs targeting those branches)
+  # run on pushes to certain branches
   push:
     branches:
-      - "main"
       - "pull-request/[0-9]+"
-      - "release/v[0-9][0-9].[0-9][0-9].[0-9][0-9]"
-    # run on pushes of new release tags
-    tags:
-      - v[0-9][0-9].[0-9][0-9].[0-9][0-9]
-  # run by clicking buttons in the GitHub Actions UI
-  workflow_dispatch:
 
 env:
   # CUDA architectures to build for
