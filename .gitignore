@@ -17,11 +17,13 @@ legate_prof*
 *.o
 *.pyc
 __pycache__/
+.pytest_cache/
 .hypothesis
 examples/notebook/*.py
 legion_prof
 benchmark
 benchmark/!*.py
+.ruff_cache/
 *.so
 *.tar.bz2
 *.tar.gz
