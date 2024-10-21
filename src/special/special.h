@@ -16,9 +16,9 @@
 
 #include <cstdint>                              // for int32_t
 #include <type_traits>                          // for is_same_v
-#include <legate/core/task/task_context.h>      // for TaskContext
-#include <legate/core/task/exception.h>         // for TaskException
-#include <legate/core/data/physical_array.h>    // for PhysicalArray
+#include <legate/task/task_context.h>           // for TaskContext
+#include <legate/task/exception.h>              // for TaskException
+#include <legate/data/physical_array.h>         // for PhysicalArray
 #include "legateboost.h"                        // for ERF
 #include "legate_library.h"                     // for Task
 #include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator

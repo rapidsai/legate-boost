@@ -30,7 +30,7 @@ legate_dir = Path(lg_install_info.libpath).parent.as_posix()
 cuda_arch = os.getenv("CUDAARCHS", "native")
 
 cmake_flags = [
-    f"-Dlegate_core_ROOT:STRING={legate_dir}",
+    f"-Dlegate_ROOT:STRING={legate_dir}",
     f"-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}",
 ]
 

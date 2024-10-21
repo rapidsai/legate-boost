@@ -18,8 +18,7 @@
 
 #include "legate.h"
 #include "cpp_utils.h"
-#include "core/cuda/cuda.h"
-#include "core/cuda/stream_pool.h"
+#include "legate/cuda/cuda.h"
 #include <nccl.h>
 
 namespace legateboost {
@@ -132,7 +131,7 @@ template <typename F, int OpCode>
 void UnaryOpTask<F, OpCode>::gpu_variant(legate::TaskContext context)
 {
   auto const& in          = context.input(0);
-  auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
+  auto stream             = context.get_task_stream();
   auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
   auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
   legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, thrust_exec_policy);

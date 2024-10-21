@@ -17,7 +17,7 @@
 #include "legateboost.h"
 #include "../../cpp_utils/cpp_utils.h"
 #include "../../cpp_utils/cpp_utils.cuh"
-#include "core/comm/coll.h"
+#include "legate/comm/coll.h"
 #include "build_tree.h"
 #include <numeric>
 
@@ -902,7 +902,7 @@ struct build_tree_fn {
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
-    auto stream             = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    auto stream             = context.get_task_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
 

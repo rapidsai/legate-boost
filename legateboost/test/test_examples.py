@@ -59,9 +59,15 @@ def test_notebooks(path):
 
 
 def test_benchmark(benchmark_dir):
+    # Current legate 24.09.dev has issues with overriding legate config
+    # from the legate call.  So have to unset `LEGATE_CONFIG`.
+    env = os.environ.copy()
+    del env["LEGATE_CONFIG"]
+
     subprocess.run(
         "legate --cpus 2 scaling.py --nrows 100 --ncols 5 --niter 2",
         shell=True,
         check=True,
         cwd=benchmark_dir,
+        env=env,
     )

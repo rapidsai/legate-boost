@@ -10,7 +10,6 @@ docs/source/_static/examples/
 _skbuild
 *.pyc
 *.egg-info
-legateboost/library.py
 legateboost/install_info.py
 legate_prof*
 .mypy_cache/

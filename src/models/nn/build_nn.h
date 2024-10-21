@@ -17,7 +17,6 @@
 #include "../../cpp_utils/cpp_utils.h"
 #include "legate_library.h"
 #include "legateboost.h"
-#include "core/cuda/stream_pool.h"
 
 namespace legateboost {
 
