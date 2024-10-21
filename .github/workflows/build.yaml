@@ -1,15 +1,14 @@
-name: legate-boost build/test
+name: build
 
 concurrency:
   group: ci-on-${{ github.event_name }}-from-${{ github.ref_name }}
   cancel-in-progress: true
 
 on:
-  # run on pushes to certain branches (or PRs targeting those branches)
+  # run on pushes to certain branches
   push:
     branches:
       - "main"
-      - "pull-request/[0-9]+"
       - "release/v[0-9][0-9].[0-9][0-9].[0-9][0-9]"
     # run on pushes of new release tags
     tags:
@@ -27,32 +26,50 @@ env:
 
 jobs:
 
-  # group together all jobs that must pass for a PR to be merged
-  # (for use by branch protections)
-  pr-builder:
-    # skip on builds from merges to main
-    if: github.ref != 'refs/heads/main'
-    needs:
-      - pre-commit
-      - conda-python-build
-      - conda-python-tests-cpu
-      - conda-python-tests-gpu
-      - docs-build
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10
-
-  pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: pre-commit/action@v3.0.1
+  build-packages:
+    uses: ./.github/actions/conda-python-build.yaml
+    with:
+      build_type: branch
+    secrets: inherit
 
   conda-python-build:
-    needs:
-      - pre-commit
-    uses: ./.github/workflows/conda-python-build.yaml
-    with:
-      script: "ci/build_python.sh"
-    secrets: inherit
+    strategy:
+      fail-fast: false
+      # available legate-core and cunumeric packages:
+      #
+      #   * https://anaconda.org/legate/legate-core
+      #   * https://anaconda.org/legate/cunumeric
+      #
+      # Valid set of RAPIDS ci-conda image tags:
+      #
+      #   * https://hub.docker.com/r/rapidsai/ci-conda/tags
+      matrix:
+        ARCH:
+          - "amd64"
+        CUDA_VER:
+          - "12.5.1"
+        PY_VER:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+    runs-on: linux-${{ matrix.ARCH }}-cpu4
+    container:
+      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # the notebooks and PNG files stored in git LFS aren't necessary for package-building
+          lfs: false
+      - name: build
+        run: |
+          ci/build_python.sh
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          path: ${{ env.RAPIDS_CONDA_BLD_OUTPUT_DIR }}
+          if-no-files-found: error
 
   conda-python-tests-cpu:
     needs:
