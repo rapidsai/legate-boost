@@ -30,7 +30,6 @@ class LegateboostMapper : public legate::mapping::Mapper {
 
   // Legate mapping functions
  public:
-  virtual void set_machine(const legate::mapping::MachineQueryInterface* machine) override;
   virtual legate::mapping::TaskTarget task_target(
     const legate::mapping::Task& task,
     const std::vector<legate::mapping::TaskTarget>& options) override;

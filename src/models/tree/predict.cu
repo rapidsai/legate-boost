@@ -15,7 +15,7 @@
  */
 #include "legate_library.h"
 #include "legateboost.h"
-#include "core/utilities/dispatch.h"
+#include "legate/utilities/dispatch.h"
 #include "../../cpp_utils/cpp_utils.cuh"
 #include "../../cpp_utils/cpp_utils.h"
 #include "predict.h"
@@ -67,7 +67,7 @@ struct predict_fn {
       }
     };
 
-    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    auto stream = context.get_task_stream();
     LaunchN(X_shape.hi[0] - X_shape.lo[0] + 1, stream, prediction_lambda);
 
     CHECK_CUDA_STREAM(stream);
