@@ -14,10 +14,13 @@
 
 set -e -E -u -o pipefail
 
+# Go into test folder to not not import source package
+cd legateboost/test
+
 legate \
     --sysmem 28000 \
     --module pytest \
-    legateboost/test/ \
+    . \
     -sv \
     --durations=0 \
     "${@}"

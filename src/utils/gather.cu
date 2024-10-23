@@ -39,7 +39,7 @@ struct gather_fn {
     EXPECT_AXIS_ALIGNED(1, X_shape, split_proposals_shape);
     auto n_features = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
 
-    auto stream = legate::cuda::StreamPool::get_stream_pool().get_stream();
+    auto stream = context.get_task_stream();
 
     // we can retrieve sample ids via argument(host) or legate_store(device)
     const int64_t* sample_row_ptr;

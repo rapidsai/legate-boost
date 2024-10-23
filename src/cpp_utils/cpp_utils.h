@@ -16,8 +16,8 @@
 
 #pragma once
 #include "legate_library.h"
-#include <core/type/type_info.h>
-#include "core/comm/coll.h"
+#include <legate/type/type_info.h>
+#include "legate/comm/coll.h"
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/execution_policy.h>  // for host
@@ -131,9 +131,8 @@ void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
   std::vector<T> data(items_per_rank * num_ranks);
   std::copy(x, x + count, data.begin());
   std::vector<T> recvbuf(items_per_rank * num_ranks);
-  auto result =
-    legate::comm::coll::collAlltoall(data.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
-  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
+
+  legate::comm::coll::collAlltoall(data.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
 
   // Sum partials
   std::vector<T> partials(items_per_rank, 0.0);
@@ -143,9 +142,8 @@ void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
     }
   }
 
-  result = legate::comm::coll::collAllgather(
+  legate::comm::coll::collAllgather(
     partials.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
-  EXPECT(result == legate::comm::coll::CollSuccess, "CPU communicator failed.");
   std::copy(recvbuf.begin(), recvbuf.begin() + count, x);
 }
 
