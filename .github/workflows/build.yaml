@@ -1,0 +1,32 @@
+name: build
+
+concurrency:
+  group: ci-on-${{ github.event_name }}-from-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  # run on pushes to certain branches
+  push:
+    branches:
+      - "main"
+      - "release/v[0-9][0-9].[0-9][0-9].[0-9][0-9]"
+    # run on pushes of new release tags
+    tags:
+      - v[0-9][0-9].[0-9][0-9].[0-9][0-9]
+  # run by clicking buttons in the GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  conda-python-build:
+    uses: ./.github/workflows/conda-python-build.yaml
+    with:
+      script: "ci/build_python.sh"
+    secrets: inherit
+  docs-build:
+    needs:
+      - conda-python-build
+    uses: ./.github/workflows/docs-build.yaml
+    with:
+      script: "ci/build_docs.sh"
+      deploy: true
+    secrets: inherit

@@ -1,0 +1,62 @@
+name: conda-python-build
+
+concurrency:
+  group: conda-python-build-on-${{ github.event_name }}-from-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  # run only when called by other workflows
+  workflow_call:
+    inputs:
+      script:
+        required: true
+        type: string
+        description: "relative path to a script that builds conda packages"
+
+env:
+  # CUDA architectures to build for
+  CUDAARCHS: "all-major"
+  # where conda-build puts files it creates
+  RAPIDS_CONDA_BLD_OUTPUT_DIR: /tmp/conda-bld-output
+  # where jobs that download conda packages store the local channel
+  RAPIDS_LOCAL_CONDA_CHANNEL: /tmp/local-conda-packages
+
+jobs:
+
+  build:
+    strategy:
+      fail-fast: false
+      # available legate and cunumeric packages:
+      #
+      #   * https://anaconda.org/legate/legate
+      #   * https://anaconda.org/legate/cunumeric
+      #
+      # Valid set of RAPIDS ci-conda image tags:
+      #
+      #   * https://hub.docker.com/r/rapidsai/ci-conda/tags
+      matrix:
+        ARCH:
+          - "amd64"
+        CUDA_VER:
+          - "12.5.1"
+        PY_VER:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+    runs-on: linux-${{ matrix.ARCH }}-cpu4
+    container:
+      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # the notebooks and PNG files stored in git LFS aren't necessary for package-building
+          lfs: false
+      - name: build
+        run: "${{ inputs.script }}"
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          path: ${{ env.RAPIDS_CONDA_BLD_OUTPUT_DIR }}
+          if-no-files-found: error
