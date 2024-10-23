@@ -10,4 +10,4 @@ source ./ci/test_python_common.sh
 
 # run the GPU tests
 rapids-logger "Running tests"
-./ci/run_pytests_cpu.sh
+./ci/run_pytests_gpu.sh
