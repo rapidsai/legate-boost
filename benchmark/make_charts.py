@@ -34,16 +34,24 @@ if args.log:
     plt.ylim(top=10**4.5)
 sns.lineplot(x="n_processors", y="time", data=df, hue="Model type")
 scaling = "Strong" if (df["nrows"][0] == df["nrows"]).all() else "Weak"
-scaling = "Weak"
-nrows_per_proc = df["nrows"][0] / df["n_processors"][0]
-plt.title(
-    scaling
-    + " scaling "
-    + human_format(nrows_per_proc)
-    + " rows per processor, "
-    + human_format(df["ncols"][0])
-    + " columns"
-)
+
+if scaling == "Strong":
+    plt.title(
+        "Strong scaling "
+        + human_format(df["nrows"][0])
+        + " rows, "
+        + human_format(df["ncols"][0])
+        + " columns"
+    )
+else:
+    nrows_per_proc = df["nrows"][0] / df["n_processors"][0]
+    plt.title(
+        "Weak scaling "
+        + human_format(nrows_per_proc)
+        + " rows per processor, "
+        + human_format(df["ncols"][0])
+        + " columns"
+    )
 plt.xscale("log", base=2)
 plt.xlabel("Number of Processors")
 plt.ylabel("Time (s)")

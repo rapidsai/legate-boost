@@ -21,8 +21,7 @@ def train_model(X, y, model_type, args, dry_run=False):
         verbose=True,
     ).fit(X, y, eval_result=eval_result)
     train_logloss = eval_result["train"]["log_loss"][-1]
-    # force legate to realise result
-    x = model.predict(X[0:2])[0]  # noqa
+    get_legate_runtime().issue_execution_fence(block=True)
     del model
     return train_logloss
 
@@ -33,6 +32,7 @@ def create_dataset(args):
     rows = args.nrows if args.strong_scaling else args.nrows * n_processors
     X = gen.normal(size=(rows, args.ncols), dtype=cn.float32)
     y = gen.integers(0, args.nclasses, size=X.shape[0], dtype=cn.int32)
+    get_legate_runtime().issue_execution_fence(block=True)
     return X, y
 
 
