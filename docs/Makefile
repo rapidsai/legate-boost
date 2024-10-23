@@ -24,8 +24,8 @@ html: Makefile
 	@mkdir -p "$(SOURCEDIR)/_static/examples"
 	@find "$(SOURCEDIR)/examples" -type f \( -name '*.png' -o -name '*.gif' \) -exec cp '{}' "$(SOURCEDIR)/_static/examples" \;
 	@# ensure image links in the example READMEs point to the static-files directory in the site source
-	@find "$(SOURCEDIR)/examples" -type f -name '*.md' -exec sed -i -e 's|img src="|img src="/_static/examples/|g' '{}' \;
-	@sed -i -E 's|img src="examples/[A-Za-z_\-]+/|img src="/_static/examples/|g' "$(SOURCEDIR)/README.md"
+	@find "$(SOURCEDIR)/examples" -type f -name '*.md' -exec sed -i -e 's|img src="|img src="../../_static/examples/|g' '{}' \;
+	@sed -i -E 's|img src="examples/[A-Za-z_\-]+/|img src="_static/examples/|g' "$(SOURCEDIR)/README.md"
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 # Catch-all target: route all unknown targets to Sphinx using the new

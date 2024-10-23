@@ -52,6 +52,9 @@ Documentation = "https://rapidsai.github.io/legate-boost"
 Repository = "https://github.com/rapidsai/legate-boost"
 License = "https://github.com/rapidsai/legate-boost/blob/main/LICENSE"
 
+[tool.scikit-build.build]
+verbose = true
+
 [tool.setuptools.dynamic]
 version = {file = "legateboost/VERSION"}
 
