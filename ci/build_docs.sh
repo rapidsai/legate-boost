@@ -8,8 +8,6 @@ set -e -E -u -o pipefail
 
 rapids-print-env
 
-conda config --set channel_priority strict
-
 rapids-dependency-file-generator \
   --output conda \
   --file-key py_docs \
@@ -36,7 +34,7 @@ rapids-mamba-retry install \
   --channel legate \
   --channel legate/label/experimental \
   --channel conda-forge \
-  "legate-boost"
+  "legate-boost=*=*_cpu*"
 
 rapids-print-env
 
