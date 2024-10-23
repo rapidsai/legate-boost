@@ -6,8 +6,6 @@ set -e -E -u -o pipefail
 # shellcheck disable=SC1091
 . /opt/conda/etc/profile.d/conda.sh
 
-LEGATEBOOST_VERSION=$(rapids-version)
-
 rapids-print-env
 
 rapids-dependency-file-generator \
@@ -31,11 +29,12 @@ rapids-print-env
 # Install legate-boost conda package built in the previous CI job
 rapids-mamba-retry install \
   --name docs-env \
+  --override-channels \
   --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
   --channel legate \
   --channel legate/label/experimental \
   --channel conda-forge \
-  "legate-boost=${LEGATEBOOST_VERSION}"
+  "legate-boost=*=*_cpu*"
 
 rapids-print-env
 
