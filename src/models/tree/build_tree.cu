@@ -180,77 +180,11 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   }
 }
 
-template <typename TYPE, int TPB, int FEATURES_PER_WARP>
-__global__ static void __launch_bounds__(TPB, 4)
-  fill_histogram_warp(legate::AccessorRO<TYPE, 3> X,
-                      size_t n_features,
-                      int64_t sample_offset,
-                      legate::AccessorRO<double, 3> g,
-                      legate::AccessorRO<double, 3> h,
-                      size_t n_outputs,
-                      SparseSplitProposals<TYPE> split_proposals,
-                      NodeBatch batch,
-                      Histogram<IntegerGPair> histogram,
-                      legate::Buffer<IntegerGPair, 2> node_sums,
-                      GradientQuantiser quantiser,
-                      int64_t seed)
-{
-  constexpr int32_t WarpSize = 32;
-  const int32_t warp_id      = threadIdx.x / WarpSize;
-  const int32_t lane_id      = threadIdx.x % WarpSize;
-
-  const int32_t localIdx = blockIdx.x * TPB + warp_id * WarpSize + lane_id;
-
-  // prefetch sampleNode information for all 32 ids
-  auto [sampleNode_lane, localSampleId_lane] = (localIdx < batch.InstancesInBatch())
-                                                 ? batch.instances_begin[localIdx]
-                                                 : cuda::std::make_tuple(-1, -1);
-  const bool computeHistogram =
-    localIdx < batch.InstancesInBatch() &&
-    ComputeHistogramBin(
-      sampleNode_lane, node_sums, histogram.ContainsNode(BinaryTree::Parent(sampleNode_lane)));
-
-  // mask contains all sample bits of the next 32 ids that need to be bin'ed
-  auto lane_mask = ballot(computeHistogram);
-
-  // reverse to use __clz instead of __ffs
-  lane_mask = __brev(lane_mask);
-
-  while (lane_mask) {
-    // look for next lane_offset / sample to process within warp-batch
-    const uint32_t lane_offset  = __clz(lane_mask);
-    const int32_t sampleNode    = shfl(sampleNode_lane, lane_offset);
-    const int32_t localSampleId = shfl(localSampleId_lane, lane_offset);
-
-    // remove lane_offset bit from lane_mask for next iteration
-    lane_mask &= (0x7fffffff >> lane_offset);
-
-    auto feature_begin = blockIdx.y * FEATURES_PER_WARP;
-    auto feature_end   = min(n_features, (size_t)feature_begin + FEATURES_PER_WARP);
-    for (int32_t feature = feature_begin + lane_id; feature < feature_end; feature += WarpSize) {
-      const int32_t bin_idx =
-        split_proposals.FindBin(X[{sample_offset + localSampleId, feature, 0}], feature);
-      for (int32_t output = 0; output < n_outputs; output++) {
-        // get same G/H from every thread in warp
-        legate::Point<3> p = {sample_offset + localSampleId, feature, output};
-        auto gpair_quantised =
-          quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
-        auto* addPosition = reinterpret_cast<typename IntegerGPair::value_type*>(
-          &histogram[{sampleNode, output, bin_idx}]);
-
-        if (bin_idx != SparseSplitProposals<TYPE>::NOT_FOUND) {
-          Histogram<IntegerGPair>::atomic_add_type* addPosition =
-            reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
-              &histogram[{sampleNode, output, bin_idx}]);
-          atomicAdd(addPosition, gpair_quantised.grad);
-          atomicAdd(addPosition + 1, gpair_quantised.hess);
-        }
-      }
-    }
-  }
-}
-
 using SharedMemoryHistogramType = GPairBase<int32_t>;
+// NOTE: changes to the below should be reflected in the python Tree learner constructor and its
+// documentation
+const int kMaxSharedBins = 2048;  // 16KB shared memory. More is not helpful and creates more cache
+                                  // misses for binary search in split_proposals.
 
 template <typename T,
           int kBlockThreads,
@@ -320,6 +254,7 @@ struct HistogramAgent {
   int feature_end;
   int feature_stride;
   SharedMemoryHistogram shared_histogram;
+  static const int kImpureTile = -1;
 
   __device__ HistogramAgent(legate::AccessorRO<T, 3> X,
                             int64_t sample_offset,
@@ -391,6 +326,12 @@ struct HistogramAgent {
 
   __device__ void ProcessTileShared(std::size_t offset, int node_id)
   {
+    // If this whole tile has a node that we don't need to compute
+    // Early exit
+    if (!ComputeHistogramBin(
+          node_id, node_sums, histogram.ContainsNode(BinaryTree::Parent(node_id))))
+      return;
+
     shared_histogram.LazyInit(node_id, histogram, output);
 
     int sample_node[kItemsPerThread];
@@ -413,17 +354,16 @@ struct HistogramAgent {
     int bin_idx[kItemsPerThread];
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      // bin_idx[i] = shared_split_proposals.FindBin(x[i], feature[i]);
       bin_idx[i] = split_proposals.FindBin(x[i], feature[i]);
     }
     IntegerGPair gpair[kItemsPerThread];
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
       legate::Point<3> p = {sample_offset + local_sample_idx[i], 0, output};
-      gpair[i]           = bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND
-                             ? quantiser.QuantiseStochasticRounding({__ldg(&g[p]), __ldg(&h[p])},
-                                                          hash_combine(seed, p[0], p[2]))
-                             : IntegerGPair{0, 0};
+      gpair[i] =
+        bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND
+          ? quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]))
+          : IntegerGPair{0, 0};
     }
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
@@ -440,7 +380,7 @@ struct HistogramAgent {
     int end_ridx                    = (offset + kItemsPerTile - 1) / feature_stride;
     auto [begin_node, begin_sample] = batch.instances_begin[begin_ridx];
     auto [end_node, end_sample]     = batch.instances_begin[end_ridx];
-    return begin_node == end_node ? begin_node : -1;
+    return begin_node == end_node ? begin_node : kImpureTile;
   }
 
   __device__ void BuildHistogram()
@@ -451,16 +391,13 @@ struct HistogramAgent {
     std::size_t n_elements = batch.InstancesInBatch() * feature_stride;
     std::size_t offset     = blockIdx.x * kItemsPerTile;
     while (offset + kItemsPerTile <= n_elements) {
-      // If all threads here have the same node we use shared memory
-      int node_id = this->GetTileNode(offset);
+      int tile_node_id = this->GetTileNode(offset);
 
-      if (node_id != -1) {
-        if (ComputeHistogramBin(
-              node_id, node_sums, histogram.ContainsNode(BinaryTree::Parent(node_id)))) {
-          ProcessTileShared(offset, node_id);
-        }
-      } else {
+      // If all threads here have the same node we can use shared memory
+      if (tile_node_id == kImpureTile) {
         ProcessPartialTileGlobal(offset, offset + kItemsPerTile);
+      } else {
+        ProcessTileShared(offset, tile_node_id);
       }
       offset += kItemsPerTile * gridDim.x;
     }
@@ -486,7 +423,7 @@ __global__ static void __launch_bounds__(kBlockThreads)
                         legate::Buffer<int> feature_groups,
                         int64_t seed)
 {
-  extern __shared__ SharedMemoryHistogramType shared_memory[];
+  __shared__ SharedMemoryHistogramType shared_memory[kMaxSharedBins];
   HistogramAgent<T, kBlockThreads, kItemsPerThread> agent(X,
                                                           sample_offset,
                                                           g,
@@ -504,42 +441,30 @@ __global__ static void __launch_bounds__(kBlockThreads)
 }
 
 // Manage the launch parameters for histogram kernel
-template <typename T,
-          std::int32_t kBlockThreads   = 1024,
-          std::int32_t kItemsPerThread = 4,
-          auto Shared                  = fill_histogram_shared<T, kBlockThreads, kItemsPerThread>>
+template <typename T, std::int32_t kBlockThreads = 1024, std::int32_t kItemsPerThread = 4>
 struct HistogramKernel {
   const std::int32_t kItemsPerTile = kBlockThreads * kItemsPerThread;
-  decltype(Shared) shared_kernel{fill_histogram_shared<T, kBlockThreads, kItemsPerThread>};
   legate::Buffer<int> feature_groups;
-  int max_shared_memory;
   int num_groups;
   int maximum_blocks_for_occupancy;
   HistogramKernel(const SparseSplitProposals<T> split_proposals, cudaStream_t stream)
   {
     int device;
     CHECK_CUDA(cudaGetDevice(&device));
-    // Fix at 16KB for now
-    max_shared_memory = 16 * 1024;
-
-    CHECK_CUDA(cudaFuncSetAttribute(
-      shared_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, max_shared_memory));
-
     std::int32_t n_mps = 0;
     CHECK_CUDA(cudaDeviceGetAttribute(&n_mps, cudaDevAttrMultiProcessorCount, device));
-
     std::int32_t n_blocks_per_mp = 0;
     CHECK_CUDA(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &n_blocks_per_mp, shared_kernel, kBlockThreads, max_shared_memory));
-
+      &n_blocks_per_mp,
+      fill_histogram_shared<T, kBlockThreads, kItemsPerThread>,
+      kBlockThreads,
+      0));
     this->maximum_blocks_for_occupancy = n_blocks_per_mp * n_mps;
     FindFeatureGroups(split_proposals, stream);
   }
 
   void FindFeatureGroups(const SparseSplitProposals<T> split_proposals, cudaStream_t stream)
   {
-    int max_shared_bins = (max_shared_memory / 2) / sizeof(SharedMemoryHistogramType);
-
     // Find feature groups
     // This is a bin packing problem
     // We want to pack as many features as possible into a group
@@ -554,8 +479,8 @@ struct HistogramKernel {
     int current_bins_in_group = 0;
     for (int i = 0; i < split_proposals.num_features; i++) {
       int bins_in_feature = split_proposal_row_pointers[i + 1] - split_proposal_row_pointers[i];
-      EXPECT(bins_in_feature <= max_shared_bins, "TODO: Deal with this edge case");
-      if (current_bins_in_group + bins_in_feature > max_shared_bins) {
+      EXPECT(bins_in_feature <= kMaxSharedBins, "Too many bins in a feature");
+      if (current_bins_in_group + bins_in_feature > kMaxSharedBins) {
         feature_groups.push_back(i);
         current_bins_in_group = 0;
       }
@@ -563,9 +488,7 @@ struct HistogramKernel {
     }
     feature_groups.push_back(split_proposals.num_features);
     num_groups = feature_groups.size() - 1;
-    EXPECT(feature_groups.size() > 1, "TODO: Deal with this edge case");
-    EXPECT(num_groups * max_shared_bins >= split_proposals.histogram_size,
-           "Too few feature groups");
+    EXPECT(num_groups * kMaxSharedBins >= split_proposals.histogram_size, "Too few feature groups");
     this->feature_groups = legate::create_buffer<int>(num_groups + 1);
     CHECK_CUDA(cudaMemcpyAsync(this->feature_groups.ptr(0),
                                feature_groups.data(),
@@ -592,21 +515,19 @@ struct HistogramKernel {
     auto min_blocks  = (average_elements_per_group + kItemsPerTile - 1) / kItemsPerTile;
     auto x_grid_size = std::min(uint64_t(maximum_blocks_for_occupancy), min_blocks);
     // Launch the kernel
-    shared_kernel<<<dim3(x_grid_size, num_groups, n_outputs),
-                    kBlockThreads,
-                    max_shared_memory,
-                    stream>>>(X,
-                              sample_offset,
-                              g,
-                              h,
-                              n_outputs,
-                              split_proposals,
-                              batch,
-                              histogram,
-                              node_sums,
-                              quantiser,
-                              feature_groups,
-                              seed);
+    fill_histogram_shared<T, kBlockThreads, kItemsPerThread>
+      <<<dim3(x_grid_size, num_groups, n_outputs), kBlockThreads, 0, stream>>>(X,
+                                                                               sample_offset,
+                                                                               g,
+                                                                               h,
+                                                                               n_outputs,
+                                                                               split_proposals,
+                                                                               batch,
+                                                                               histogram,
+                                                                               node_sums,
+                                                                               quantiser,
+                                                                               feature_groups,
+                                                                               seed);
   }
 };
 
@@ -1057,46 +978,18 @@ struct TreeBuilder {
                         int64_t seed,
                         int depth)
   {
-    if (true) {
-      histogram_kernel.BuildHistogram(X,
-                                      X_shape.lo[0],
-                                      g,
-                                      h,
-                                      num_outputs,
-                                      split_proposals,
-                                      batch,
-                                      histogram,
-                                      tree.node_sums,
-                                      quantiser,
-                                      seed,
-                                      stream);
-    } else {
-      // warp kernel without additional caching / prefetching
-      const int threads_per_block = 256;
-      const size_t blocks_x =
-        (batch.InstancesInBatch() + threads_per_block - 1) / threads_per_block;
-      // splitting the features to ensure better work distribution for large numbers of features
-      // while larger value also allow better caching of g & h,
-      // smaller values improve access of the split_proposals
-      const int features_per_warp = 16;
-      const size_t blocks_y       = (num_features + features_per_warp - 1) / features_per_warp;
-      dim3 grid_shape             = dim3(blocks_x, blocks_y, 1);
-      auto kernel                 = fill_histogram_warp<TYPE, threads_per_block, features_per_warp>;
-      fill_histogram_warp<TYPE, threads_per_block, features_per_warp>
-        <<<grid_shape, threads_per_block, 0, stream>>>(X,
-                                                       num_features,
-                                                       X_shape.lo[0],
-                                                       g,
-                                                       h,
-                                                       num_outputs,
-                                                       split_proposals,
-                                                       batch,
-                                                       histogram,
-                                                       tree.node_sums,
-                                                       quantiser,
-                                                       seed);
-    }
-
+    histogram_kernel.BuildHistogram(X,
+                                    X_shape.lo[0],
+                                    g,
+                                    h,
+                                    num_outputs,
+                                    split_proposals,
+                                    batch,
+                                    histogram,
+                                    tree.node_sums,
+                                    quantiser,
+                                    seed,
+                                    stream);
     CHECK_CUDA_STREAM(stream);
 
     SumAllReduce(context,
