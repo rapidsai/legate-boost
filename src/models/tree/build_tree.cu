@@ -570,6 +570,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   int scan_node_idx = batch.node_idx_begin + j;
   int parent        = BinaryTree::Parent(scan_node_idx);
   // Exit if we didn't compute this histogram
+  if (node_sums[{scan_node_idx, output}].hess <= 0.0) return;
   if (!ComputeHistogramBin(scan_node_idx, node_sums, histogram.ContainsNode(parent))) return;
   if (i >= n_features || scan_node_idx >= batch.node_idx_end) return;
 
@@ -655,6 +656,8 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
 {
   // using one block per (level) node to have blockwise reductions
   int node_id = batch.node_idx_begin + blockIdx.x;
+  // Early exit if this node has no samples
+  if (vectorised_load(&node_sums[{node_id, 0}]).hess <= 0) return;
 
   typedef cub::BlockReduce<GainFeaturePair, BLOCK_THREADS> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
@@ -936,7 +939,7 @@ struct TreeBuilder {
     max_batch_size = max_histogram_nodes;
   }
 
-  template <typename TYPE, typename ThrustPolicyT>
+  template <typename TYPE>
   void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 3> X, legate::Rect<3> X_shape)
   {
     auto tree_split_value_ptr = tree.split_value.ptr(0);
@@ -1038,7 +1041,7 @@ struct TreeBuilder {
                         double alpha,
                         NodeBatch batch)
   {
-    const int kBlockThreads = 256;
+    const int kBlockThreads = 512;
     perform_best_split<T, kBlockThreads>
       <<<batch.NodesInBatch(), kBlockThreads, 0, stream>>>(histogram,
                                                            num_features,
@@ -1140,7 +1143,8 @@ struct TreeBuilder {
                                                sorted_positions_ptr + num_rows,
                                                cuda::std::tuple(batch_end - 1, 0),
                                                comp);
-              batches_ptr[batch_idx] = {batch_begin, batch_end, lower, upper};
+              batches_ptr[batch_idx] = {
+                cuda::std::get<0>(*lower), cuda::std::get<0>(*(upper - 1)) + 1, lower, upper};
             });
 
     std::vector<NodeBatch> result(num_batches);
