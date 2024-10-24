@@ -22,7 +22,7 @@ def test_basic():
 @pytest.mark.parametrize("num_outputs", [1, 5])
 def test_improving_with_depth(num_outputs):
     rs = cn.random.RandomState(0)
-    X = rs.random((100, 10))
+    X = rs.random((10000, 100))
     g = rs.normal(size=(X.shape[0], num_outputs))
     h = rs.random(g.shape) + 0.1
     X, g, h = cn.array(X), cn.array(g), cn.array(h)
