@@ -19,11 +19,11 @@ cuda_compiler:
 cuda11_compiler:
   - nvcc
 
-# match the legate-core / cunumeric pattern of publishing
+# match the legate / cunumeric pattern of publishing
 # CPU-only and GPU-only packages for every variant
 gpu_enabled:
   - true
   - false
 
 legate_version:
-  - =24.06.*,>=24.06.01
+  - "=24.09.*,>=0.0.0.dev0"

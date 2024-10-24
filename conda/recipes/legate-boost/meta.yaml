@@ -13,7 +13,7 @@
 #  '*_cpu' for CPU-only
 #  '*_gpu' for systems with CUDA
 #
-# this mirrors the approach used by cunumeric / legate-core
+# this mirrors the approach used by cunumeric / legate
 # (though as of 24.06, they do not append a '*_gpu' to the build string for GPU packages)
 {% if gpu_enabled == "true" %}
   {% set gpu_enabled_bool = true %}
@@ -80,12 +80,12 @@ requirements:
     {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
     - cuda-cudart-dev
-    - cunumeric {{ legate_version }}
-    - legate-core {{ legate_version }}
+    - cunumeric {{ legate_version }} =*_gpu
+    - legate {{ legate_version }} =*_gpu
     - libcublas-dev
     {% else %}
     - cunumeric {{ legate_version }} =*_cpu
-    - legate-core {{ legate_version }} =*_cpu
+    - legate {{ legate_version }} =*_cpu
     {% endif %}
     - openblas
     - python
@@ -100,17 +100,17 @@ requirements:
     # cuda-version is used to constrain __cuda
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - __cuda
-    - cunumeric {{ legate_version }}
+    - cunumeric {{ legate_version }} =*_gpu
     {% else %}
     - cunumeric {{ legate_version }} =*_cpu
     {% endif %}
-    # Relying on run_exports from legate-core to pin an appropriate range of versions and
+    # Relying on run_exports from legate to pin an appropriate range of versions and
     # GPU vs. CPU selector.
     #
-    # legate-core uses {{ pin_subpackage(name, min_pin="x.x.x", max_pin="x.x.x") }}, which means
-    # that if legate-boost builds against, say, legate-core=24.06.0 and then a legate-core=24.06.1 is
+    # legate uses {{ pin_subpackage(name, min_pin="x.x.x", max_pin="x.x.x") }}, which means
+    # that if legate-boost builds against, say, legate=24.06.0 and then a legate=24.06.1 is
     # released, a new legate-boost would be required.
-    - legate-core
+    - legate
     - numpy
     - scikit-learn
     - typing-extensions>=4.0

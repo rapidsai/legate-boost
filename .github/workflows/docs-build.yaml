@@ -1,0 +1,80 @@
+name: docs-build
+
+concurrency:
+  group: docs-build-on-${{ github.event_name }}-from-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  # run only when called by other workflows
+  workflow_call:
+    inputs:
+      deploy:
+        required: true
+        type: boolean
+        default: false
+        description: "set to true to publish docs"
+      script:
+        required: true
+        type: string
+        description: "relative path to a script that builds conda packages"
+
+env:
+  # where jobs that download conda packages store the local channel
+  RAPIDS_LOCAL_CONDA_CHANNEL: /tmp/local-conda-packages
+
+jobs:
+
+  build:
+    runs-on: linux-amd64-cpu4
+    strategy:
+      matrix:
+        include:
+          - ARCH: amd64
+            CUDA_VER: "12.5.1"
+            PY_VER: "3.12"
+    container:
+      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+    steps:
+      - name: install git-lfs
+        run: |
+          conda install --yes \
+            -c conda-forge \
+              git-lfs
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: download conda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - name: build docs
+        run: "${{ inputs.script }}"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build/html
+
+  deploy:
+    needs:
+      - build
+    if: inputs.deploy
+
+    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

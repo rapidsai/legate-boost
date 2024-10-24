@@ -5,17 +5,10 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # run on pushes to certain branches (or PRs targeting those branches)
+  # run on pushes to certain branches
   push:
     branches:
-      - "main"
       - "pull-request/[0-9]+"
-      - "release/v[0-9][0-9].[0-9][0-9].[0-9][0-9]"
-    # run on pushes of new release tags
-    tags:
-      - v[0-9][0-9].[0-9][0-9].[0-9][0-9]
-  # run by clicking buttons in the GitHub Actions UI
-  workflow_dispatch:
 
 env:
   # CUDA architectures to build for
@@ -49,43 +42,10 @@ jobs:
   conda-python-build:
     needs:
       - pre-commit
-    strategy:
-      fail-fast: false
-      # available legate-core and cunumeric packages:
-      #
-      #   * https://anaconda.org/legate/legate-core
-      #   * https://anaconda.org/legate/cunumeric
-      #
-      # Valid set of RAPIDS ci-conda image tags:
-      #
-      #   * https://hub.docker.com/r/rapidsai/ci-conda/tags
-      matrix:
-        ARCH:
-          - "amd64"
-        CUDA_VER:
-          - "12.5.1"
-        PY_VER:
-          - "3.10"
-          - "3.11"
-          - "3.12"
-    runs-on: linux-${{ matrix.ARCH }}-cpu4
-    container:
-      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          # the notebooks and PNG files stored in git LFS aren't necessary for package-building
-          lfs: false
-      - name: build
-        run: |
-          ci/build_python.sh
-      - name: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
-          path: ${{ env.RAPIDS_CONDA_BLD_OUTPUT_DIR }}
-          if-no-files-found: error
+    uses: ./.github/workflows/conda-python-build.yaml
+    with:
+      script: "ci/build_python.sh"
+    secrets: inherit
 
   conda-python-tests-cpu:
     needs:
@@ -129,7 +89,7 @@ jobs:
       - conda-python-build
     strategy:
       fail-fast: false
-      # As of the last time this was updated, legate-core / cunumeric packages were published for only:
+      # As of the last time this was updated, legate / cunumeric packages were published for only:
       #
       #  * architectures: amd64 only
       #  * CUDA: >=12.2
@@ -171,63 +131,8 @@ jobs:
   docs-build:
     needs:
       - conda-python-build
-    runs-on: linux-amd64-cpu4
-    strategy:
-      matrix:
-        include:
-          - ARCH: amd64
-            CUDA_VER: "12.5.1"
-            PY_VER: "3.12"
-    container:
-      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
-    steps:
-      - name: install git-lfs
-        run: |
-          conda install --yes \
-            -c conda-forge \
-              git-lfs
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          lfs: true
-      - name: download conda packages
-        uses: actions/download-artifact@v4
-        with:
-          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
-          path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.run_id }}
-      - name: build docs
-        run: |
-          ci/build_docs.sh
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/build/html
-
-  deploy:
-    needs:
-      - conda-python-build
-      - conda-python-tests-cpu
-      - conda-python-tests-gpu
-      - docs-build
-
-    # only main branch uploads docs
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
-    permissions:
-      pages: write      # to deploy to Pages
-      id-token: write   # to verify the deployment originates from an appropriate source
-
-    # Deploy to the github-pages environment
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    # Specify runner + deployment step
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+    uses: ./.github/workflows/docs-build.yaml
+    with:
+      script: "ci/build_docs.sh"
+      deploy: false
+    secrets: inherit
