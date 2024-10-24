@@ -396,7 +396,6 @@ struct HistogramAgent {
     int sample_node[kItemsPerThread];
     int local_sample_idx[kItemsPerThread];
     int feature[kItemsPerThread];
-    bool computeHistogram[kItemsPerThread];
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
       auto idx           = offset + i * kBlockThreads + threadIdx.x;
@@ -405,17 +404,10 @@ struct HistogramAgent {
       cuda::std::tie(sample_node[i], local_sample_idx[i]) = batch.instances_begin[row_index];
     }
 
-#pragma unroll
-    for (int i = 0; i < kItemsPerThread; i++) {
-      computeHistogram[i] = ComputeHistogramBin(
-        sample_node[i], node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node[i])));
-    }
-
     T x[kItemsPerThread];
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      x[i] =
-        computeHistogram[i] ? __ldg(&X[{sample_offset + local_sample_idx[i], feature[i], 0}]) : 0;
+      x[i] = __ldg(&X[{sample_offset + local_sample_idx[i], feature[i], 0}]);
     }
 
     int bin_idx[kItemsPerThread];
@@ -428,14 +420,14 @@ struct HistogramAgent {
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
       legate::Point<3> p = {sample_offset + local_sample_idx[i], 0, output};
-      gpair[i]           = computeHistogram[i] && bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND
+      gpair[i]           = bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND
                              ? quantiser.QuantiseStochasticRounding({__ldg(&g[p]), __ldg(&h[p])},
                                                           hash_combine(seed, p[0], p[2]))
                              : IntegerGPair{0, 0};
     }
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      if (computeHistogram[i] && bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND) {
+      if (bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND) {
         shared_histogram.Add(bin_idx[i], gpair[i]);
       }
     }
@@ -461,9 +453,12 @@ struct HistogramAgent {
     while (offset + kItemsPerTile <= n_elements) {
       // If all threads here have the same node we use shared memory
       int node_id = this->GetTileNode(offset);
+
       if (node_id != -1) {
-        // if(node_id == 0){
-        ProcessTileShared(offset, node_id);
+        if (ComputeHistogramBin(
+              node_id, node_sums, histogram.ContainsNode(BinaryTree::Parent(node_id)))) {
+          ProcessTileShared(offset, node_id);
+        }
       } else {
         ProcessPartialTileGlobal(offset, offset + kItemsPerTile);
       }
@@ -524,8 +519,8 @@ struct HistogramKernel {
   {
     int device;
     CHECK_CUDA(cudaGetDevice(&device));
-    // Fix at 32KB for now
-    max_shared_memory = 32 * 1024;
+    // Fix at 16KB for now
+    max_shared_memory = 16 * 1024;
 
     CHECK_CUDA(cudaFuncSetAttribute(
       shared_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, max_shared_memory));
