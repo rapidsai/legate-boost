@@ -31,6 +31,9 @@ def create_dataset(args):
     gen = cn.random.Generator(cn.random.XORWOW(seed=42))
     rows = args.nrows if args.strong_scaling else args.nrows * n_processors
     X = gen.normal(size=(rows, args.ncols), dtype=cn.float32)
+    X[:, args.ncols // 2 :] = gen.binomial(1, 0.5, size=(rows, args.ncols // 2)).astype(
+        cn.float32
+    )
     y = gen.integers(0, args.nclasses, size=X.shape[0], dtype=cn.int32)
     get_legate_runtime().issue_execution_fence(block=True)
     return X, y
