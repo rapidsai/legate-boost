@@ -192,10 +192,12 @@ template <typename T,
           int kItemsPerThread,
           int kItemsPerTile = kBlockThreads * kItemsPerThread>
 struct HistogramAgent {
+  static const int kImpureTile = -1;  // Special value for a tile that is not pure (contains
+                                      // multiple nodes)
   struct SharedMemoryHistogram {
     SharedMemoryHistogramType* data;
     // -1 means no node is currently being processed
-    int current_node    = -1;
+    int current_node    = kImpureTile;
     const int begin_idx = 0;
     const int end_idx   = 0;
 
@@ -206,7 +208,7 @@ struct HistogramAgent {
     // Write out to global memory
     __device__ void Flush(Histogram<IntegerGPair>& histogram, int output)
     {
-      if (current_node == -1) return;
+      if (current_node == kImpure) return;
       __syncthreads();
 
       for (int i = threadIdx.x; i < (end_idx - begin_idx) * 2; i += kBlockThreads) {
@@ -255,7 +257,6 @@ struct HistogramAgent {
   int feature_end;
   int feature_stride;
   SharedMemoryHistogram shared_histogram;
-  static const int kImpureTile = -1;
 
   __device__ HistogramAgent(legate::AccessorRO<T, 3> X,
                             int64_t sample_offset,

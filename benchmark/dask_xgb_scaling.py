@@ -29,9 +29,10 @@ def create_dataset(args, client):
     rows = args.nrows if args.strong_scaling else args.nrows * n_processors
     chunk_size = np.ceil(rows / n_processors)
     X = rng.normal(size=(rows, args.ncols), chunks=(chunk_size, -1))
-    X[:, args.ncols // 2 :] = rng.binomial(1, 0.5, size=(rows, args.ncols // 2)).astype(
-        np.float32
-    )
+    numerical_features = int(args.ncols * args.proportion_numerical)
+    X[:, numerical_features:] = rng.binomial(
+        1, 0.5, size=(rows, numerical_features)
+    ).astype(np.float32)
     y = rng.integers(
         0, args.nclasses, size=X.shape[0], chunks=(chunk_size), dtype=np.int32
     )
