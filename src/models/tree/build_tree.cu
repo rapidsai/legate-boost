@@ -208,7 +208,7 @@ struct HistogramAgent {
     // Write out to global memory
     __device__ void Flush(Histogram<IntegerGPair>& histogram, int output)
     {
-      if (current_node == kImpure) return;
+      if (current_node == kImpureTile) return;
       __syncthreads();
 
       for (int i = threadIdx.x; i < (end_idx - begin_idx) * 2; i += kBlockThreads) {
@@ -248,7 +248,7 @@ struct HistogramAgent {
   const size_t n_outputs;
   const SparseSplitProposals<T> split_proposals;
   const NodeBatch batch;
-  Histogram<IntegerGPair> histogram;
+  Histogram<IntegerGPair>& histogram;
   const legate::Buffer<IntegerGPair, 2> node_sums;
   const GradientQuantiser quantiser;
   const int64_t seed;
@@ -265,7 +265,7 @@ struct HistogramAgent {
                             size_t n_outputs,
                             SparseSplitProposals<T> split_proposals,
                             NodeBatch batch,
-                            Histogram<IntegerGPair> histogram,
+                            Histogram<IntegerGPair>& histogram,
                             legate::Buffer<IntegerGPair, 2> node_sums,
                             GradientQuantiser quantiser,
                             legate::Buffer<int> feature_groups,
@@ -331,8 +331,9 @@ struct HistogramAgent {
     // If this whole tile has a node that we don't need to compute
     // Early exit
     if (!ComputeHistogramBin(
-          node_id, node_sums, histogram.ContainsNode(BinaryTree::Parent(node_id))))
+          node_id, node_sums, histogram.ContainsNode(BinaryTree::Parent(node_id)))) {
       return;
+    }
 
     shared_histogram.LazyInit(node_id, histogram, output);
 
@@ -350,7 +351,7 @@ struct HistogramAgent {
     T x[kItemsPerThread];
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      x[i] = __ldg(&X[{sample_offset + local_sample_idx[i], feature[i], 0}]);
+      x[i] = X[{sample_offset + local_sample_idx[i], feature[i], 0}];
     }
 
     int bin_idx[kItemsPerThread];
@@ -394,7 +395,6 @@ struct HistogramAgent {
     std::size_t offset     = blockIdx.x * kItemsPerTile;
     while (offset + kItemsPerTile <= n_elements) {
       int tile_node_id = this->GetTileNode(offset);
-
       // If all threads here have the same node we can use shared memory
       if (tile_node_id == kImpureTile) {
         ProcessPartialTileGlobal(offset, offset + kItemsPerTile);
