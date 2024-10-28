@@ -119,7 +119,13 @@ requirements:
 test:
   # import tests at build time do not work for the CUDA packages,
   # because builds happen on machines without a GPU
-  # TODO: put thee import tests back before merging
+  {% if not gpu_enabled_bool %}
+  imports:
+    - legateboost
+    - legateboost.metrics
+    - legateboost.models
+    - legateboost.objectives
+  {% endif %}
   commands:
     - pip show legate-boost
 
