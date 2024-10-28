@@ -22,14 +22,15 @@ if [ -z "${PKGS_TO_UPLOAD}" ]; then
     ls -l "${RAPIDS_LOCAL_CONDA_CHANNEL}/"*
 fi
 
-rapids-echo-stderr "Uploading packages to Anaconda.org (channel='legate', label='${conda_label}'): ${PKGS_TO_UPLOAD}"
+rapids-echo-stderr "Uploading packages to Anaconda.org (channel='legate', label='${conda_label}'):"
+rapids-echo-stderr "${PKGS_TO_UPLOAD}"
 
-# export RAPIDS_RETRY_SLEEP=180
-# # shellcheck disable=SC2086
-# rapids-retry anaconda \
-#     -t "${CONDA_LEGATE_TOKEN}" \
-#     upload \
-#     --label "${RAPIDS_CONDA_UPLOAD_LABEL:-main}" \
-#     --skip-existing \
-#     --no-progress \
-#     ${PKGS_TO_UPLOAD}
+# shellcheck disable=SC2086
+RAPIDS_RETRY_SLEEP=180 \
+    rapids-retry anaconda \
+        -t "${CONDA_LEGATE_TOKEN}" \
+        upload \
+        --label "${conda_label}" \
+        --skip-existing \
+        --no-progress \
+        ${PKGS_TO_UPLOAD}

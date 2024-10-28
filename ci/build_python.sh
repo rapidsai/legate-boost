@@ -8,7 +8,7 @@ rapids-generate-version > ./VERSION
 
 CMAKE_GENERATOR=Ninja \
 CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
-LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
+LEGATEBOOST_PACKAGE_VERSION="24.09.00dev0" \
 rapids-conda-retry mambabuild \
     --channel legate \
     --channel legate/label/experimental \
