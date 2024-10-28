@@ -75,13 +75,25 @@ model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max
 
 ## Installation
 
-If you already have `cunumeric` and `legate` installed, run the following:
+Install using `conda`.
 
 ```shell
-pip install \
-    --no-build-isolation \
-    --no-deps \
-    .
+# stable release
+conda install -c legate -c conda-forge -c nvidia legate-boost
+
+# nightly release
+conda install -c legate/label/experimental -c legate -c conda-forge -c nvidia legate-boost
 ```
 
-For more details on customizing the build and setting up a development environment, see [`contributing.md`](./contributing.md).
+On systems without a GPU, the CPU-only package should automatically be installed.
+On systems with a GPU and compatible CUDA version, the GPU package should automatically be installed.
+
+To force `conda` to prefer one, pass the build strings `*_cpu*` or `*_gpu*`, for example:
+
+```shell
+# nightly release (CPU-only)
+conda install --dry-run -c legate/label/experimental -c legate -c conda-forge -c nvidia \
+    'legate-boost=*=*_cpu*'
+```
+
+For more details on building from source and setting up a development environment, see [`contributing.md`](./contributing.md).
