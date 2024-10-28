@@ -9,7 +9,7 @@
 
 # publish to the 'experimental' label on the 'legate' channel, for all cases except
 # releases (builds triggered by pushing a tag matching this regex exactly, e.g. 'v24.09.00')
-if [[ "${GITHUB_REF}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]];
+if [[ "${GITHUB_REF}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     declare -r conda_label="main"
 else
     declare -r conda_label="experimental"
@@ -20,7 +20,6 @@ PKGS_TO_UPLOAD=$(rapids-find-anaconda-uploads.py "${RAPIDS_LOCAL_CONDA_CHANNEL}"
 if [ -z "${PKGS_TO_UPLOAD}" ]; then
     rapids-echo-stderr "Couldn't find any packages to upload in: ${RAPIDS_LOCAL_CONDA_CHANNEL}"
     ls -l "${RAPIDS_LOCAL_CONDA_CHANNEL}/"*
-    continue
 fi
 
 rapids-echo-stderr "Uploading packages to Anaconda.org (channel='legate', label='${conda_label}'): ${PKGS_TO_UPLOAD}"
