@@ -197,14 +197,9 @@ NOTE: some steps in this section require direct write access to the repo (includ
 
 ### Create a stable release
 
-1. Create a pull request updating the `VERSION` file on the `main` branch to the desired version, with no leading `v`
+NOTE: this assumes that the `VERSION` file on the `main` branch already holds the 3-part version number like `24.09.00`.
 
-```shell
-echo "24.09.00" > ./VERSION
-```
-
-2. Merge that pull request
-3. Push a git tag like `v24.09.00` ... that tag push will trigger a new release
+1. Push a git tag like `v24.09.00` ... that tag push will trigger a new release
 
 ```shell
 git checkout main
@@ -213,19 +208,21 @@ git tag -a v24.09.00 -m 'v24.09.00'
 git push upstream 'v24.09.00'
 ```
 
-4. Update the `VERSION` file again, to the base version for the anticipated next release. Push this directly to `main`, with a commit that includes `[skip ci]` in the message so new packages will not be built from it.
+2. Update the `VERSION` file again, to the base version for the anticipated next release (without a leading `v`). Open a pull request with that change. Ensure the pull request title ends with `[skip ci]`.
+
+```shell
+git checkout -b update-version
+echo "24.12.00" > ./VERSION
+git commit -m "start v24.12 development"
+git push origin update-version
+```
+
+3. Merge the pull request.
+4. Tag that commit with a dev version
 
 ```shell
 git checkout main
 git pull upstream main
-echo "24.12.00" > ./VERSION
-git commit -m "start v24.12 development [skip ci]"
-git push upstream main
-```
-
-5. Tag that commit with a dev version
-
-```shell
 git tag -a v24.12.00dev -m "v24.12.00dev"
 git push upstream v24.12.00dev
 ```
