@@ -1,11 +1,14 @@
 #!/bin/bash
 
-# adopted from https://github.com/rapidsai/gha-tools/blob/main/tools/rapids-upload-to-anaconda, with some exceptions:
+# adopted from https://github.com/rapidsai/gha-tools/blob/main/tools/rapids-upload-to-anaconda,
+# with some notable differences:
 #
 #  * assumes artifacts are on GitHub Actions artifact store, not Amazon S3
 #  * assumes packages have been unpacked to env variable RAPIDS_LOCAL_CONDA_CHANNEL
 #  * does not differentiate between pull request and nightly branches
 #    (relies on workflow triggers to just not run this script when it isn't needed)
+
+set -e -E -u -o pipefail
 
 # publish to the 'experimental' label on the 'legate' channel, for all cases except
 # releases (builds triggered by pushing a tag matching this regex exactly, e.g. 'v24.09.00')

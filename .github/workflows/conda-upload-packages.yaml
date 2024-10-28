@@ -1,5 +1,5 @@
 # adopted from https://github.com/rapidsai/shared-workflows/blob/branch-24.12/.github/workflows/conda-upload-packages.yaml
-# with notable exceptions:
+# with some notable differences:
 #
 #   * assumes packages were uploaded to GitHub artifact store, not Amazon S3
 #   * always publishes to the same channel, but uses different label for non-release packages
