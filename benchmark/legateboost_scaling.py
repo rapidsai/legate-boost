@@ -32,8 +32,6 @@ def create_dataset(args):
     rows = args.nrows if args.strong_scaling else args.nrows * n_processors
     X = gen.normal(size=(rows, args.ncols), dtype=cn.float32)
     numerical_features = int(args.ncols * args.proportion_numerical)
-    print(numerical_features)
-    print(X.shape)
     X[:, numerical_features:] = gen.binomial(
         1, 0.5, size=(rows, args.ncols - numerical_features)
     ).astype(cn.float32)
