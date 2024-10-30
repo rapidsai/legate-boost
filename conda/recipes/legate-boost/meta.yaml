@@ -79,11 +79,11 @@ requirements:
     {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
     - cuda-cudart-dev
-    - cunumeric {{ legate_version }} =*_gpu*
+    - cunumeric {{ cunumeric_version }} =*_gpu*
     - legate {{ legate_version }} =*_gpu*
     - libcublas-dev
     {% else %}
-    - cunumeric {{ legate_version }} =*_cpu*
+    - cunumeric {{ cunumeric_version }} =*_cpu*
     - legate {{ legate_version }} =*_cpu*
     {% endif %}
     - openblas
@@ -99,9 +99,9 @@ requirements:
     # cuda-version is used to constrain __cuda
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - __cuda
-    - cunumeric {{ legate_version }} =*_gpu*
+    - cunumeric {{ cunumeric_version }} =*_gpu*
     {% else %}
-    - cunumeric {{ legate_version }} =*_cpu*
+    - cunumeric {{ cunumeric_version }} =*_cpu*
     {% endif %}
     # Relying on run_exports from legate to pin an appropriate range of versions and
     # GPU vs. CPU selector.
