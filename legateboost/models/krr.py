@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Set, Tuple
 
 import numpy as np
@@ -216,9 +217,7 @@ class KRR(BaseModel):
             + "\n"
         )
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, KRR):
-            raise NotImplementedError()
-        return (other.betas_ == self.betas_).all() and (
-            other.X_train == self.X_train
-        ).all()
+    def __mul__(self, scalar) -> "KRR":
+        new = copy.deepcopy(self)
+        self.betas_ *= scalar
+        return new

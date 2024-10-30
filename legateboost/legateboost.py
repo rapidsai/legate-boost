@@ -17,7 +17,7 @@ from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
 from .shapley import global_shapley_attributions, local_shapley_attributions
-from .utils import PickleCunumericMixin
+from .utils import AddableMixin, AddMember, PickleCunumericMixin
 
 if TYPE_CHECKING:
     from .callbacks import TrainingCallback
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 EvalResult: TypeAlias = dict[str, dict[str, list[float]]]
 
 
-class LBBase(BaseEstimator, PickleCunumericMixin):
+class LBBase(BaseEstimator, PickleCunumericMixin, AddableMixin):
     def __init__(
         self,
         n_estimators: int = 100,
@@ -53,6 +53,29 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         if not isinstance(base_models, tuple):
             raise ValueError("base_models must be a tuple")
         self.base_models = base_models
+
+        # define what happens to the attributes when two models are added
+        self._add_behaviour.update(
+            {
+                "models_": AddMember.ADD,
+                "model_init_": AddMember.ADD,
+                "n_features_in_": AddMember.ASSERT_SAME,
+                "is_fitted_": AddMember.ASSERT_SAME,
+                "n_estimators": AddMember.PREFER_A,
+                "objective": AddMember.ASSERT_SAME,
+                "metric": AddMember.PREFER_A,
+                "learning_rate": AddMember.PREFER_A,
+                "subsample": AddMember.PREFER_A,
+                "init": AddMember.PREFER_A,
+                "base_models": AddMember.PREFER_A,
+                "callbacks": AddMember.PREFER_A,
+                "verbose": AddMember.PREFER_A,
+                "random_state_": AddMember.PREFER_A,
+                "random_state": AddMember.PREFER_A,
+                "_objective_instance": AddMember.PREFER_A,
+                "_metrics": AddMember.PREFER_A,
+            }
+        )
 
     def _more_tags(self) -> Any:
         return {
@@ -424,6 +447,23 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self.is_fitted_ = True
 
         return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
+
+    def __len__(self) -> int:
+        return len(self.models_)
+
+    def __getitem__(self, i: int) -> BaseModel:
+        return self.models_[i]
+
+    def __iter__(self) -> Any:
+        return iter(self.models_)
+
+    def __mul__(self, scalar):
+        if not np.isscalar(scalar):
+            raise ValueError("Can only multiply by scalar")
+        new = deepcopy(self)
+        new.models_ = [m * scalar for m in self.models_]
+        new.model_init_ = self.model_init_ * scalar
+        return new
 
     def _predict(self, X: cn.ndarray) -> cn.ndarray:
         check_is_fitted(self, "is_fitted_")
@@ -814,6 +854,8 @@ class LBClassifier(LBBase, ClassifierMixin):
             verbose=verbose,
             random_state=random_state,
         )
+        # two models cannot be added if they have different classes
+        self._add_behaviour.update({"classes_": AddMember.ASSERT_SAME})
 
     def partial_fit(
         self,

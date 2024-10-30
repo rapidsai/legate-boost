@@ -1,3 +1,4 @@
+import copy
 from typing import Tuple
 
 import cunumeric as cn
@@ -118,7 +119,7 @@ class Linear(BaseModel):
             + "\n"
         )
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Linear):
-            raise NotImplementedError()
-        return (other.betas_ == self.betas_).all()
+    def __mul__(self, scalar) -> "Linear":
+        new = copy.deepcopy(self)
+        new.betas_ *= scalar
+        return new
