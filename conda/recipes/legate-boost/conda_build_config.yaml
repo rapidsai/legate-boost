@@ -25,5 +25,8 @@ gpu_enabled:
   - true
   - false
 
+cunumeric_version:
+  - "=24.09.*,>=0.0.0.dev0,!=24.09.00.dev116"
+
 legate_version:
-  - "=24.09.*,>=0.0.0.dev0"
+  - "=24.09.*,>=0.0.0.dev0,!=24.09.00.dev329"
