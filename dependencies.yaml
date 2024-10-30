@@ -89,9 +89,9 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - myst-parser
-          - pydata-sphinx-theme
-          - sphinx
+          - myst-parser>=4.0
+          - pydata-sphinx-theme>=0.16
+          - sphinx>=8.1
       - output_types: [conda]
         packages:
           - make
@@ -129,11 +129,11 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - hypothesis
-          - matplotlib
-          - mypy
-          - nbconvert
-          - notebook
-          - pytest<8
-          - seaborn
-          - xgboost
+          - hypothesis>=6
+          - matplotlib>=3.9
+          - mypy>=1.13
+          - nbconvert>=7.16
+          - notebook>=7
+          - pytest>=7,<8
+          - seaborn>=0.13
+          - xgboost>=2.0
