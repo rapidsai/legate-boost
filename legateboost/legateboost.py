@@ -449,15 +449,53 @@ class LBBase(BaseEstimator, PickleCunumericMixin, AddableMixin):
         return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
 
     def __len__(self) -> int:
+        """Returns the number of models in the ensemble.
+
+        Returns:
+            int: The number of models in the `models_` attribute.
+        """
         return len(self.models_)
 
     def __getitem__(self, i: int) -> BaseModel:
+        """Retrieve the model at the specified index.
+
+        Args:
+            i (int): The index of the model to retrieve.
+
+        Returns:
+            BaseModel: The model at the specified index.
+        """
         return self.models_[i]
 
     def __iter__(self) -> Any:
+        """Returns an iterator over the models in the estimator.
+
+        Yields:
+            Any: An iterator over the models in the `models_` attribute.
+        """
         return iter(self.models_)
 
     def __mul__(self, scalar):
+        """Gradient boosted models are linear in the predictions before the
+        non-linear link function is applied. This means that the model can be
+        multiplied by a scalar, which subsequently scales all raw output
+        predictions. This is useful for ensembling models.
+
+        Parameters
+        ----------
+        scalar : numeric
+            The scalar value to multiply with the model.
+        Returns
+        -------
+        new : object
+            A new instance of the model with all internal models and initial model
+            multiplied by the given scalar.
+        Raises
+        ------
+        ValueError
+            If the provided scalar is not a numeric value.
+        """
+
         if not np.isscalar(scalar):
             raise ValueError("Can only multiply by scalar")
         new = deepcopy(self)
