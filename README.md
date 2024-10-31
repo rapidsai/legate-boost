@@ -32,7 +32,7 @@ model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2)
 
 <img src="examples/probabalistic_regression/probabilistic_regression.gif" alt="drawing" width="800"/>
 
-The above example can be found here: [examples/probabilistic_regression](examples/probabalistic_regression/README.md).
+The above example can be found here: [examples/probabilistic_regression](https://github.com/rapidsai/legate-boost/tree/main/examples/probabalistic_regression).
 
 ### Batch training
 
@@ -51,7 +51,7 @@ for i in range(total_estimators // estimators_per_batch):
 
 <img src="examples/batch_training/batch_training.png" alt="drawing" width="600"/>
 
-The above example can be found here: [examples/batch_training](examples/batch_training/README.md).
+The above example can be found here: [examples/batch_training](https://github.com/rapidsai/legate-boost/tree/main/examples/batch_training).
 
 ### Different model types
 
