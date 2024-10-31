@@ -12,6 +12,7 @@ on:
       - "release/v[0-9][0-9].[0-9][0-9].[0-9][0-9]"
     # run on pushes of any tags
     tags:
+      - "*"
   # run by clicking buttons in the GitHub Actions UI
   workflow_dispatch:
 
