@@ -6,7 +6,32 @@ GBM implementation on Legate. The primary goals of `legate-boost` is to provide 
 
 For developers - see [contributing](contributing.md)
 
-## Example
+## Installation
+
+Install using `conda`.
+
+```shell
+# stable release
+conda install -c legate -c conda-forge -c nvidia legate-boost
+
+# nightly release
+conda install -c legate/label/experimental -c legate -c conda-forge -c nvidia legate-boost
+```
+
+On systems without a GPU, the CPU-only package should automatically be installed.
+On systems with a GPU and compatible CUDA version, the GPU package should automatically be installed.
+
+To force `conda` to prefer one, pass the build strings `*_cpu*` or `*_gpu*`, for example:
+
+```shell
+# nightly release (CPU-only)
+conda install --dry-run -c legate/label/experimental -c legate -c conda-forge -c nvidia \
+    'legate-boost=*=*_cpu*'
+```
+
+For more details on building from source and setting up a development environment, see [`contributing.md`](./contributing.md).
+
+## Simple example
 
 Run with the legate launcher
 ```bash
@@ -72,28 +97,3 @@ model = lb.LBRegressor(base_models=(lb.models.KRR(sigma=0.5), lb.models.Tree(max
 ```
 
 <img src="examples/kernel_ridge_regression/kernel_ridge_regression.png" alt="drawing" width="400"/>
-
-## Installation
-
-Install using `conda`.
-
-```shell
-# stable release
-conda install -c legate -c conda-forge -c nvidia legate-boost
-
-# nightly release
-conda install -c legate/label/experimental -c legate -c conda-forge -c nvidia legate-boost
-```
-
-On systems without a GPU, the CPU-only package should automatically be installed.
-On systems with a GPU and compatible CUDA version, the GPU package should automatically be installed.
-
-To force `conda` to prefer one, pass the build strings `*_cpu*` or `*_gpu*`, for example:
-
-```shell
-# nightly release (CPU-only)
-conda install --dry-run -c legate/label/experimental -c legate -c conda-forge -c nvidia \
-    'legate-boost=*=*_cpu*'
-```
-
-For more details on building from source and setting up a development environment, see [`contributing.md`](./contributing.md).
