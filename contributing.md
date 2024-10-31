@@ -223,8 +223,8 @@ git push origin update-version
 ```shell
 git checkout main
 git pull upstream main
-git tag -a v24.12.00dev -m "v24.12.00dev"
-git push upstream v24.12.00dev
+git tag -a v24.12.00.dev -m "v24.12.00.dev"
+git push upstream v24.12.00.dev
 ```
 
 From that point forward, all packages produced by CI from the `main` branch will have versions like `v24.12.00.dev{n}`,
@@ -251,8 +251,8 @@ git commit -m 'start v24.09.01 [skip ci]'
 git push upstream release/24.09
 
 # tag the first commit on the new branch as the beginning of the 24.09.01 series
-git tag -a v24.09.01dev -m 'v24.09.01dev'
-git push upstream v24.09.01dev
+git tag -a v24.09.01.dev -m 'v24.09.01.dev'
+git push upstream v24.09.01.dev
 ```
 
 2. Open pull requests targeting that branch and merge them into that branch.
@@ -283,7 +283,7 @@ git cherry-pick release/v24.09
 
 NOTE: The use of `cherry-pick` here is important because it re-writes the commit IDs. That avoids the situation where e.g. the
 `v24.09.01` hotfix tag points to commits on the `main` branch during `v24.12` development (which could lead to those packages
-incorrectly getting `v24.09.01dev{n}` versions).
+incorrectly getting `v24.09.01.dev{n}` versions).
 
 3. Open a pull request to merge that branch into `main`.
 4. Perform a non-squash merge of that pull request.

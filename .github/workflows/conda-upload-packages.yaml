@@ -1,0 +1,39 @@
+# adopted from https://github.com/rapidsai/shared-workflows/blob/branch-24.12/.github/workflows/conda-upload-packages.yaml
+# with some notable differences:
+#
+#   * assumes packages were uploaded to GitHub artifact store, not Amazon S3
+#   * always publishes to the same channel, but uses different label for non-release packages
+#
+
+on:
+  # run only when called by other workflows
+  workflow_call:
+
+env:
+  # where jobs that download conda packages store the local channel
+  RAPIDS_LOCAL_CONDA_CHANNEL: /tmp/local-conda-packages
+
+jobs:
+  upload:
+    runs-on: linux-amd64-cpu4
+    container:
+      image: rapidsai/ci-conda:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # the notebooks and PNG files stored in git LFS aren't necessary for package uploads
+          lfs: false
+      - name: download conda packages
+        uses: actions/download-artifact@v4
+        with:
+          # omitting 'name' here means "download all artifacts from this run"... useful to
+          # avoid having to list the matrix of CUDA / Python versions here
+          path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - name: Upload packages
+        run: "ci/upload-to-anaconda.sh"
+        env:
+          CONDA_LEGATE_TOKEN: ${{ secrets.CONDA_LEGATE_TOKEN }}

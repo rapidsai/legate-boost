@@ -10,9 +10,8 @@ on:
     branches:
       - "main"
       - "release/v[0-9][0-9].[0-9][0-9].[0-9][0-9]"
-    # run on pushes of new release tags
+    # run on pushes of any tags
     tags:
-      - v[0-9][0-9].[0-9][0-9].[0-9][0-9]
   # run by clicking buttons in the GitHub Actions UI
   workflow_dispatch:
 
@@ -21,6 +20,11 @@ jobs:
     uses: ./.github/workflows/conda-python-build.yaml
     with:
       script: "ci/build_python.sh"
+    secrets: inherit
+  upload-conda:
+    needs:
+      - conda-python-build
+    uses: ./.github/workflows/conda-upload-packages.yaml
     secrets: inherit
   docs-build:
     needs:
