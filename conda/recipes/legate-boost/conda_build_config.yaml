@@ -25,5 +25,11 @@ gpu_enabled:
   - true
   - false
 
+cunumeric_version:
+  # .dev116: https://github.com/nv-legate/legate.core.internal/issues/1409
+  - "=24.09.*,>=0.0.0.dev0,!=24.09.00.dev116"
+
 legate_version:
-  - "=24.09.*,>=0.0.0.dev0"
+  # .dev319: https://github.com/nv-legate/legate.core.internal/pull/1401
+  # .dev329: https://github.com/nv-legate/legate.core.internal/issues/1409
+  - "=24.09.*,>=0.0.0.dev0,!=24.09.00.dev319,!=24.09.00.dev329"

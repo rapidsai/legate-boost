@@ -1,4 +1,4 @@
-name: legate-boost build/test
+name: pr
 
 concurrency:
   group: ci-on-${{ github.event_name }}-from-${{ github.ref_name }}
@@ -13,8 +13,6 @@ on:
 env:
   # CUDA architectures to build for
   CUDAARCHS: "all-major"
-  # where conda-build puts files it creates
-  RAPIDS_CONDA_BLD_OUTPUT_DIR: /tmp/conda-bld-output
   # where jobs that download conda packages store the local channel
   RAPIDS_LOCAL_CONDA_CHANNEL: /tmp/local-conda-packages
 
@@ -23,8 +21,6 @@ jobs:
   # group together all jobs that must pass for a PR to be merged
   # (for use by branch protections)
   pr-builder:
-    # skip on builds from merges to main
-    if: github.ref != 'refs/heads/main'
     needs:
       - pre-commit
       - conda-python-build
