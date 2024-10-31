@@ -70,7 +70,7 @@ def test_add_different_n_classes(X_y_classification):
         model_a + model_b
 
 
-def test_multiply(X_y_regression):
+def test_multiply(X_y_regression, X_y_classification):
     X, y = X_y_regression
     model_a = lb.LBRegressor(
         n_estimators=2, learning_rate=0.1, base_models=all_base_models()
@@ -80,6 +80,11 @@ def test_multiply(X_y_regression):
     model_c = model_a * 0.5
     assert np.allclose(model_a.predict(X) * 0.5, model_c.predict(X))
     assert np.allclose((model_a * 0.5 + model_a * 0.5).predict(X), model_a.predict(X))
+
+    X, y = X_y_classification
+    model_a = lb.LBClassifier(n_estimators=2, base_models=all_base_models()).fit(X, y)
+    model_b = model_a * 2.0
+    assert np.allclose(model_a.predict_raw(X) * 2, model_b.predict_raw(X))
 
 
 def test_regression_and_classification(X_y_regression, X_y_classification):
