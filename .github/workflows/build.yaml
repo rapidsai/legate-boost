@@ -39,5 +39,5 @@ jobs:
     with:
       script: "ci/build_docs.sh"
       # only deploy docs on tag pushes or when someone manually runs the workflow
-      deploy: ${{ github.event_name == "tag" }} || ${{ inputs.deploy_docs == true }}
+      deploy: ${{ github.event_name == "tag" || inputs.deploy_docs == true }}
     secrets: inherit
