@@ -35,7 +35,6 @@ jobs:
   docs-build:
     needs:
       - conda-python-build
-    if: github.event_name == "tag" || github.event_name == "workflow_dispatch"
     uses: ./.github/workflows/docs-build.yaml
     with:
       script: "ci/build_docs.sh"
