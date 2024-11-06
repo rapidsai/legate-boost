@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       do-stuff:
-      run: |
-        echo "inputs.deploy_docs: ${{ inputs.deploy_docs }}"
-        echo "inputs.deploy_docs == true: ${{ inputs.deploy_docs == true }}"
-        echo "github.event_name: ${{ github.event_name }}"
+        run: |
+          echo "inputs.deploy_docs: ${{ inputs.deploy_docs }}"
+          echo "inputs.deploy_docs == true: ${{ inputs.deploy_docs == true }}"
+          echo "github.event_name: ${{ github.event_name }}"
   docs-build:
     needs:
       - check-settings
