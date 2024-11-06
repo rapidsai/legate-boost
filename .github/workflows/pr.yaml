@@ -130,5 +130,5 @@ jobs:
     uses: ./.github/workflows/docs-build.yaml
     with:
       script: "ci/build_docs.sh"
-      deploy: ${{ github.event_name == 'tag' || inputs.deploy_docs == true }}
+      deploy: ${{ github.event_name == "tag" || inputs.deploy_docs == true }}
     secrets: inherit
