@@ -22,6 +22,15 @@ on:
         type: boolean
 
 jobs:
+  check-settings:
+    runs-on: ubuntu-latest
+    steps:
+      # print info to help debug problems with GitHub Actions triggers / filters
+      - name: summarize GitHub inputs
+        run: |
+          echo "github.event_name: ${{ github.event_name }}"
+          echo "github.ref_name: ${{ github.event_name }}"
+          echo "inputs.deploy_docs: ${{ inputs.deploy_docs }}"
   conda-python-build:
     uses: ./.github/workflows/conda-python-build.yaml
     with:
