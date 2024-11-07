@@ -35,13 +35,6 @@ jobs:
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
     steps:
-      # print info to help debug problems with GitHub Actions triggers / filters
-      - name: summarize GitHub inputs
-        run: |
-          echo "github.event_name: ${{ github.event_name }}"
-          echo "github.ref_name: ${{ github.event_name }}"
-          echo "inputs.deploy: ${{ github.deploy }}"
-          echo "intputs.script: ${{ inputs.script }}"
       - name: install git-lfs
         run: |
           conda install --yes \
