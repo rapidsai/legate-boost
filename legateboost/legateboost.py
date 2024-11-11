@@ -28,6 +28,7 @@ EvalResult: TypeAlias = dict[str, dict[str, list[float]]]
 class LBBase(BaseEstimator, PickleCunumericMixin):
     def __init__(
         self,
+        *,
         n_estimators: int = 100,
         objective: Union[str, BaseObjective] = "squared_error",
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
@@ -206,6 +207,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self,
         X: cn.ndarray,
         y: cn.ndarray,
+        *,
         sample_weight: Optional[cn.ndarray] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
@@ -289,6 +291,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self,
         X: cn.ndarray,
         y: cn.ndarray,
+        *,
         sample_weight: Optional[cn.ndarray] = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
@@ -376,6 +379,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self,
         X: cn.ndarray,
         y: cn.ndarray,
+        *,
         sample_weight: cn.ndarray,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
@@ -423,7 +427,13 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         )
         self.is_fitted_ = True
 
-        return self._partial_fit(X, y, sample_weight, eval_set, eval_result)
+        return self._partial_fit(
+            X,
+            y,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            eval_result=eval_result,
+        )
 
     def _predict(self, X: cn.ndarray) -> cn.ndarray:
         check_is_fitted(self, "is_fitted_")
@@ -450,6 +460,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self,
         X: cn.array,
         y: cn.array,
+        *,
         metric: Optional[BaseMetric] = None,
         random_state: Optional[np.random.RandomState] = None,
         n_samples: int = 5,
@@ -512,6 +523,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         self,
         X: cn.array,
         X_background: cn.array,
+        *,
         random_state: Optional[np.random.RandomState] = None,
         n_samples: int = 5,
         check_efficiency: bool = False,
@@ -616,6 +628,7 @@ class LBRegressor(LBBase, RegressorMixin):
 
     def __init__(
         self,
+        *,
         n_estimators: int = 100,
         objective: Union[str, BaseObjective] = "squared_error",
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
@@ -649,6 +662,7 @@ class LBRegressor(LBBase, RegressorMixin):
         self,
         X: cn.ndarray,
         y: cn.ndarray,
+        *,
         sample_weight: cn.ndarray = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
@@ -695,6 +709,7 @@ class LBRegressor(LBBase, RegressorMixin):
         self,
         X: cn.ndarray,
         y: cn.ndarray,
+        *,
         sample_weight: cn.ndarray = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
@@ -791,6 +806,7 @@ class LBClassifier(LBBase, ClassifierMixin):
 
     def __init__(
         self,
+        *,
         n_estimators: int = 100,
         objective: Union[str, BaseObjective] = "log_loss",
         metric: Union[str, BaseMetric, list[Union[str, BaseMetric]]] = "default",
@@ -819,6 +835,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         self,
         X: cn.ndarray,
         y: cn.ndarray,
+        *,
         classes: Optional[cn.ndarray] = None,
         sample_weight: cn.ndarray = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
@@ -893,6 +910,7 @@ class LBClassifier(LBBase, ClassifierMixin):
         self,
         X: cn.ndarray,
         y: cn.ndarray,
+        *,
         sample_weight: cn.ndarray = None,
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
