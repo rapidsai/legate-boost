@@ -450,6 +450,11 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         return pred
 
     def dump_models(self) -> str:
+        """Dumps the models in the current instance to a string.
+
+        Returns:
+            str: A string representation of the models.
+        """
         check_is_fitted(self, "is_fitted_")
         text = "init={}\n".format(self.model_init_)
         for m in self.models_:
