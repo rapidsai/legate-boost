@@ -238,7 +238,7 @@ class Tree(BaseModel):
 
         return recurse_print(0, 0)
 
-    def __mul__(self, scalar) -> "Tree":
+    def __mul__(self, scalar: Any) -> "Tree":
         new = copy.deepcopy(self)
         new.leaf_value *= scalar
         return new

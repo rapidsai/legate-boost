@@ -26,7 +26,7 @@ class AddMember(Enum):
 class AddableMixin:
     _add_behaviour: dict[str, AddMember] = {}
 
-    def __add__(self, other):
+    def __add__(self, other: Any) -> Any:
         # check is same subclass
         if not isinstance(other, self.__class__):
             raise TypeError("Can only add two instances of the same class")

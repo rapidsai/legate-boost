@@ -475,7 +475,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin, AddableMixin):
         """
         return iter(self.models_)
 
-    def __mul__(self, scalar):
+    def __mul__(self, scalar: Any) -> Self:
         """Gradient boosted models are linear in the predictions before the
         non-linear link function is applied. This means that the model can be
         multiplied by a scalar, which subsequently scales all raw output

@@ -136,7 +136,7 @@ class NN(BaseModel):
         return result
 
     # multiply only the output layer
-    def __mul__(self, scalar) -> "NN":
+    def __mul__(self, scalar: Any) -> "NN":
         new = copy.deepcopy(self)
         new.coefficients_[-1] *= scalar
         new.biases_[-1] *= scalar

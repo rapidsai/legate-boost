@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Set, Tuple
+from typing import Any, Set, Tuple
 
 import numpy as np
 from scipy.special import lambertw
@@ -217,7 +217,7 @@ class KRR(BaseModel):
             + "\n"
         )
 
-    def __mul__(self, scalar) -> "KRR":
+    def __mul__(self, scalar: Any) -> "KRR":
         new = copy.deepcopy(self)
         self.betas_ *= scalar
         return new

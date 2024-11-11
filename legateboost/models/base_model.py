@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 
@@ -101,7 +102,7 @@ class BaseModel(PickleCunumericMixin, ABC):
     def clear(self) -> None: ...  # noqa: E704
 
     @abstractmethod
-    def __mul__(self, scalar) -> "BaseModel":
+    def __mul__(self, scalar: Any) -> "BaseModel":
         pass
 
     def __hash__(self) -> int:

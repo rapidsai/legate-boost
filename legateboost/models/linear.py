@@ -1,5 +1,5 @@
 import copy
-from typing import Tuple
+from typing import Any, Tuple
 
 import cunumeric as cn
 
@@ -119,7 +119,7 @@ class Linear(BaseModel):
             + "\n"
         )
 
-    def __mul__(self, scalar) -> "Linear":
+    def __mul__(self, scalar: Any) -> "Linear":
         new = copy.deepcopy(self)
         new.betas_ *= scalar
         return new
