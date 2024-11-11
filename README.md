@@ -51,6 +51,17 @@ model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2)
 
 ## Features
 
+### Model ensembling
+
+`legate-boost` can create models from linear combinations of other models. Ensembling is as easy as:
+
+```python
+model_a = lb.LBClassifier().fit(X_train_a, y_train_a)
+model_b = lb.LBClassifier().fit(X_train_b, y_train_b)
+model_c = (model_a + model_b) * 0.5
+```
+
+
 ### Probabilistic regression
 
 `legate-boost` can learn distributions for continuous data. This is useful in cases where simply predicting the mean does not carry enough information about the training data:
