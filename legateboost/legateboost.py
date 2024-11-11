@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
 EvalResult: TypeAlias = dict[str, dict[str, list[float]]]
 
+__all__ = ["LBBase", "LBClassifier", "LBRegressor"]
+
 
 class LBBase(BaseEstimator, PickleCunumericMixin):
     def __init__(

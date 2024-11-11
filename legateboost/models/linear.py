@@ -121,4 +121,4 @@ class Linear(BaseModel):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Linear):
             raise NotImplementedError()
-        return (other.betas_ == self.betas_).all()
+        return bool((other.betas_ == self.betas_).all())

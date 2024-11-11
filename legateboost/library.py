@@ -66,7 +66,7 @@ class UserLibrary:
     def get_c_header(self) -> str:
         from .install_info import header
 
-        return header
+        return str(header)
 
     def get_registration_callback(self) -> str:
         return "legateboost_perform_registration"

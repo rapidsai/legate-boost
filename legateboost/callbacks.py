@@ -6,6 +6,8 @@ import numpy as np
 from .legateboost import EvalResult, LBBase
 from .metrics import metrics
 
+__all__ = ["TrainingCallback", "EarlyStopping"]
+
 
 class TrainingCallback(ABC):
     """Interface for training callback."""
@@ -100,11 +102,11 @@ class EarlyStopping(TrainingCallback):
     ) -> bool:
         def maximize(new: float, best: float) -> bool:
             """New score should be greater than the old one."""
-            return np.greater(new - self._min_delta, best)
+            return bool(np.greater(new - self._min_delta, best))
 
         def minimize(new: float, best: float) -> bool:
             """New score should be lesser than the old one."""
-            return np.greater(best - self._min_delta, new)
+            return bool(np.greater(best - self._min_delta, new))
 
         if metrics[metric].minimize():
             improve_op = minimize
