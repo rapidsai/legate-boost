@@ -48,6 +48,13 @@ def argparser():
         help="Comma separated list of base model types."
         " Can be 'tree', 'linear', 'krr', 'nn'.",
     )
+    parser.add_argument(
+        "--proportion_numerical",
+        type=float,
+        default=0.5,
+        help="Proportion of numerical features"
+        + " where the remaining features will be binary.",
+    )
     return parser
 
 

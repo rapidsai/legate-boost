@@ -12,8 +12,14 @@ on:
       - "release/v[0-9][0-9].[0-9][0-9].[0-9][0-9]"
     # run on pushes of any tags
     tags:
+      - "*"
   # run by clicking buttons in the GitHub Actions UI
   workflow_dispatch:
+    inputs:
+      deploy-docs:
+        description: 'Update the docs site?'
+        required: true
+        type: boolean
 
 jobs:
   conda-python-build:
@@ -32,5 +38,6 @@ jobs:
     uses: ./.github/workflows/docs-build.yaml
     with:
       script: "ci/build_docs.sh"
-      deploy: true
+      # only deploy docs on tag pushes or when someone manually runs the workflow with "update docs" selected
+      deploy: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags')) || (github.event_name == 'workflow_dispatch' && inputs.deploy-docs == true) }}
     secrets: inherit

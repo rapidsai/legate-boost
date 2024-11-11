@@ -31,6 +31,7 @@ class Tree(BaseModel):
         The maximum depth of the tree.
     split_samples : int
         The number of data points to sample for each split decision.
+        Max value is 2048 due to constraints on shared memory in GPU kernels.
     alpha : float
         The L2 regularization parameter.
     """
@@ -48,6 +49,8 @@ class Tree(BaseModel):
         alpha: float = 1.0,
     ) -> None:
         self.max_depth = max_depth
+        if split_samples > 2048:
+            raise ValueError("split_samples must be <= 2048")
         self.split_samples = split_samples
         self.alpha = alpha
 
