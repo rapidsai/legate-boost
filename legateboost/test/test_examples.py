@@ -65,7 +65,8 @@ def test_benchmark(benchmark_dir):
     del env["LEGATE_CONFIG"]
 
     subprocess.run(
-        "legate --cpus 2 legateboost_scaling.py --nrows 100 --ncols 5 --niter 2"
+        "legate --cpus=2 --gpus=0"
+        + " legateboost_scaling.py --nrows 100 --ncols 5 --niter 2"
         + " --model_types tree,linear,krr,nn",
         shell=True,
         check=True,
