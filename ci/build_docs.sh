@@ -41,4 +41,6 @@ rapids-mamba-retry install \
 
 rapids-print-env
 
+# Force minimal resource use as auto-configure may fail with few cores.
+LEGATE_CONFIG="--cpus=1 --gpus=0 --omps=0 --utility=1" \
 make -C docs html

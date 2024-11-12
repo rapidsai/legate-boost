@@ -118,14 +118,16 @@ requirements:
 test:
   # import tests at build time do not work for the CUDA packages,
   # because builds happen on machines without a GPU
-  {% if not gpu_enabled_bool %}
-  imports:
-    - legateboost
-    - legateboost.metrics
-    - legateboost.models
-    - legateboost.objectives
-  {% endif %}
   commands:
+  {% if not gpu_enabled_bool %}
+    # Force minimal resource use as auto-configure may fail with few cores
+    # otherwise, should use `imports:` section.
+    - LEGATE_CONFIG="--cpus=1 --gpus=0 --omps=0 --utility=1"
+      python -c "import legateboost;
+                 import legateboost.metrics;
+                 import legateboost.models;
+                 import legateboost.objectives"
+  {% endif %}
     - pip show legate-boost
 
 about:
