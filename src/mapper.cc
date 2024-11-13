@@ -14,6 +14,8 @@
  *
  */
 
+#include <set>
+#include <vector>
 #include "mapper.h"
 #include "legateboost.h"
 

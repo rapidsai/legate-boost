@@ -14,7 +14,7 @@
  * limitations under the License.
  *
  */
-#include "rbf.h"
+#include "models/krr/rbf.h"
 namespace  // unnamed
 {
 static void __attribute__((constructor)) register_tasks(void)

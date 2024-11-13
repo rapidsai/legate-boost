@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <vector>
 #include "legate_library.h"
 
 namespace legateboost {
@@ -30,13 +31,13 @@ class LegateboostMapper : public legate::mapping::Mapper {
 
   // Legate mapping functions
  public:
-  virtual legate::mapping::TaskTarget task_target(
+  legate::mapping::TaskTarget task_target(
     const legate::mapping::Task& task,
     const std::vector<legate::mapping::TaskTarget>& options) override;
-  virtual std::vector<legate::mapping::StoreMapping> store_mappings(
+  std::vector<legate::mapping::StoreMapping> store_mappings(
     const legate::mapping::Task& task,
     const std::vector<legate::mapping::StoreTarget>& options) override;
-  virtual legate::Scalar tunable_value(legate::TunableID tunable_id) override;
+  legate::Scalar tunable_value(legate::TunableID tunable_id) override;
 };
 
 }  // namespace legateboost

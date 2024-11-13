@@ -16,10 +16,11 @@
 
 #pragma once
 
+#include <nccl.h>
+#include <cstdio>
 #include "legate.h"
 #include "cpp_utils.h"
 #include "legate/cuda/cuda.h"
-#include <nccl.h>
 
 namespace legateboost {
 
@@ -117,7 +118,7 @@ class ThrustAllocator : public legate::ScopedAllocator {
  public:
   using value_type = char;
 
-  ThrustAllocator(legate::Memory::Kind kind) : legate::ScopedAllocator(kind) {}
+  explicit ThrustAllocator(legate::Memory::Kind kind) : legate::ScopedAllocator(kind) {}
 
   char* allocate(size_t num_bytes)
   {

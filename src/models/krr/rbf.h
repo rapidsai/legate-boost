@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #pragma once
+#include <tuple>
 #include "../../cpp_utils/cpp_utils.h"
 #include "legateboost.h"
 namespace legateboost {
