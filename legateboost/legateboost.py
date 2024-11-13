@@ -61,7 +61,7 @@ class LBBase(BaseEstimator, PickleCunumericMixin, AddableMixin):
                 "model_init_": AddMember.ADD,
                 "n_features_in_": AddMember.ASSERT_SAME,
                 "is_fitted_": AddMember.ASSERT_SAME,
-                "n_estimators": AddMember.PREFER_A,
+                "n_estimators": AddMember.ADD,
                 "objective": AddMember.ASSERT_SAME,
                 "metric": AddMember.PREFER_A,
                 "learning_rate": AddMember.PREFER_A,
