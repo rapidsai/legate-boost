@@ -93,7 +93,7 @@ class MSEMetric(BaseMetric):
         # per output
         mse = numerator / w_sum
         # average over outputs
-        return float(mse.mean())
+        return mse.mean()
 
     def name(self) -> str:
         return "mse"
@@ -137,7 +137,7 @@ class NormalLLMetric(BaseMetric):
         # ll = -0.5 * cn.log(2 * cn.pi) + 2 * log_sigma - 0.5 * (diff * diff) / var
         neg_ll = (neg_ll * w).sum(axis=0) / w_sum
         # average over output
-        return float(neg_ll.mean())
+        return neg_ll.mean()
 
     def name(self) -> str:
         return "normal_neg_ll"
@@ -159,7 +159,7 @@ class GammaLLMetric(BaseMetric):
         b = pred[:, :, 1]
         error = -(k - 1) * cn.log(y) + y / (b + 1e-6) + k * cn.log(b) + loggamma(k)
 
-        return float(sample_average(error, w))
+        return sample_average(error, w)
 
     @override
     def name(self) -> str:
@@ -194,7 +194,7 @@ class NormalCRPSMetric(BaseMetric):
         z = (y - loc) / scale
         # This is negating the definition in [1] to make it a loss.
         v = scale * (z * (2 * norm_cdf(z) - 1) + 2 * norm_pdf(z) - 1 / cn.sqrt(cn.pi))
-        return float(sample_average(v, w))
+        return sample_average(v, w)
 
     def name(self) -> str:
         return "normal_crps"
@@ -214,7 +214,7 @@ class GammaDevianceMetric(BaseMetric):
         result = sample_average(d, w)
         if result.size > 1:
             result = cn.average(result)
-        return float(result)
+        return result
 
     def name(self) -> str:
         return "deviance_gamma"
@@ -245,7 +245,7 @@ class QuantileMetric(BaseMetric):
         diff = y - pred
         indicator = diff <= 0
         loss = (self.quantiles[cn.newaxis, :] - indicator) * diff
-        return float(((loss * w[:, cn.newaxis]).sum() / self.quantiles.size) / w.sum())
+        return ((loss * w[:, cn.newaxis]).sum() / self.quantiles.size) / w.sum()
 
     def name(self) -> str:
         return "quantile"
