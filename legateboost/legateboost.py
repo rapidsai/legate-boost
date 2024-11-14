@@ -113,8 +113,12 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             name: str,
         ) -> None:
             eval_result[name][metric.name()].append(
-                metric.metric(
-                    y, self._objective_instance.transform(metric_pred), sample_weight
+                float(
+                    metric.metric(
+                        y,
+                        self._objective_instance.transform(metric_pred),
+                        sample_weight,
+                    )
                 )
             )
 
