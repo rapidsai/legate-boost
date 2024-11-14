@@ -219,6 +219,7 @@ class KRR(BaseModel):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, KRR):
             raise NotImplementedError()
-        return (other.betas_ == self.betas_).all() and (
-            other.X_train == self.X_train
-        ).all()
+        return bool(
+            (other.betas_ == self.betas_).all()
+            and (other.X_train == self.X_train).all()
+        )

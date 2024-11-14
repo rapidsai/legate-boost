@@ -30,7 +30,7 @@ class TestLinear:
             base_models=(lb.models.Linear(),),
             init=None,
             learning_rate=1.0,
-        ).fit(X, y, w)
+        ).fit(X, y, sample_weight=w)
         assert cn.allclose(
             model.models_[0].betas_[0], np.average(y, axis=0, weights=w), atol=1e-5
         )

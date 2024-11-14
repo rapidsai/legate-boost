@@ -14,7 +14,7 @@ def test_regressor_global_shapley_attributions(random_state, metric, num_outputs
     shapley, se = model.global_attributions(
         X,
         y,
-        metric,
+        metric=metric,
         n_samples=20,
         random_state=random_state,
         check_efficiency=True,
@@ -34,7 +34,7 @@ def test_classifier_global_shapley_attributions(metric, num_classes):
     shapley, se = model.global_attributions(
         X,
         y,
-        metric,
+        metric=metric,
         random_state=9,
         check_efficiency=True,
     )
