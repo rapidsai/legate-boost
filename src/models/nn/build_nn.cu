@@ -269,7 +269,7 @@ T eval_cost(NNContext* context,
                          result.ptr(0),
                          cost_array.size(),
                          context->stream);
-  auto temp_storage = legate::create_buffer<int8_t>({temp_storage_bytes});
+  auto temp_storage = legate::create_buffer<int8_t>(temp_storage_bytes);
   cub::DeviceReduce::Sum(temp_storage.ptr(0),
                          temp_storage_bytes,
                          cost_array.data,

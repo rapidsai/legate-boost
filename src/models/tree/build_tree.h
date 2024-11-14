@@ -176,7 +176,7 @@ class Histogram {
   std::size_t size_;
 
  public:
-#ifdef __NVCC__
+#ifdef __CUDACC__
   Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
     : node_begin_(node_begin), node_end_(node_end)
   {

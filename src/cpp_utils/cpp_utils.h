@@ -276,6 +276,6 @@ class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
 
 }  // namespace legateboost
 
-#if __CUDACC__
+#ifdef __CUDACC__
 #include "../cpp_utils/cpp_utils.cuh"
 #endif

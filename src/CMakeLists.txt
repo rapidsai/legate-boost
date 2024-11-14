@@ -9,13 +9,16 @@ if(Legion_USE_CUDA)
   # it built and installed on the machine already
   rapids_find_package(NCCL REQUIRED)
 
-  list(APPEND LB_CUDA_FLAGS --expt-extended-lambda )
-  list(APPEND LB_CUDA_FLAGS --expt-relaxed-constexpr )
-
-  if(CMAKE_BUILD_TYPE MATCHES Debug)
-    list(APPEND LB_CUDA_FLAGS -G -Xcompiler=-rdynamic)
+  if (CMAKE_CUDA_COMPILER_ID STREQUAL "Clang")
   else()
-    list(APPEND LB_CUDA_FLAGS -lineinfo )
+    list(APPEND LB_CUDA_FLAGS --expt-extended-lambda )
+    list(APPEND LB_CUDA_FLAGS --expt-relaxed-constexpr )
+
+    if(CMAKE_BUILD_TYPE MATCHES Debug)
+      list(APPEND LB_CUDA_FLAGS -G -Xcompiler=-rdynamic)
+    else()
+      list(APPEND LB_CUDA_FLAGS -lineinfo )
+    endif()
   endif()
 endif()
 

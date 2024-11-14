@@ -35,9 +35,28 @@ __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
   }
 }
 
-#define CHECK_CUDA(expr) LegateCheckCUDA(expr)
+inline void throw_on_cuda_error(cudaError_t code, const char* file, int line)
+{
+  if (code != cudaSuccess) {
+    std::stringstream ss;
+    ss << file << "(" << line << ")";
+    std::string file_and_line;
+    ss >> file_and_line;
+    throw thrust::system_error(code, thrust::cuda_category(), file_and_line);
+  }
+}
 
-#define CHECK_CUDA_STREAM(expr) LegateCheckCUDAStream(expr)
+#define CHECK_CUDA(expr) throw_on_cuda_error(expr, __FILE__, __LINE__)
+
+#ifdef DEBUG
+#define CHECK_CUDA_STREAM(stream)              \
+  do {                                         \
+    CHECK_CUDA(cudaStreamSynchronize(stream)); \
+    CHECK_CUDA(cudaPeekAtLastError());         \
+  } while (false)
+#else
+#define CHECK_CUDA_STREAM(stream) CHECK_CUDA(cudaPeekAtLastError())
+#endif
 
 #define CHECK_NCCL(expr)                    \
   do {                                      \

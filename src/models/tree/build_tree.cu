@@ -425,7 +425,9 @@ __global__ static void __launch_bounds__(kBlockThreads)
                         legate::Buffer<int> feature_groups,
                         int64_t seed)
 {
-  __shared__ SharedMemoryHistogramType shared_memory[kMaxSharedBins];
+  __shared__ char shared_char[kMaxSharedBins * sizeof(SharedMemoryHistogramType)];
+  SharedMemoryHistogramType* shared_memory =
+    reinterpret_cast<SharedMemoryHistogramType*>(shared_char);
   HistogramAgent<T, kBlockThreads, kItemsPerThread> agent(X,
                                                           sample_offset,
                                                           g,
