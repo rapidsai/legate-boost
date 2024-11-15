@@ -221,3 +221,11 @@ class KRR(BaseModel):
         new = copy.deepcopy(self)
         self.betas_ *= scalar
         return new
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, KRR):
+            raise NotImplementedError()
+        return bool(
+            (other.betas_ == self.betas_).all()
+            and (other.X_train == self.X_train).all()
+        )

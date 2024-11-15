@@ -59,10 +59,10 @@ verbose = true
 version = {file = "legateboost/VERSION"}
 
 [tool.mypy]
-
-disallow_untyped_defs = true
+strict = true
 follow_imports = "skip"
 ignore_missing_imports = true
+disallow_subclassing_any = false # mypy has no type info for sklearn base classes
 
 [tool.isort]
 

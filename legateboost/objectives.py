@@ -21,6 +21,17 @@ from .utils import mod_col_by_idx, sample_average, set_col_by_idx
 
 GradPair: TypeAlias = Tuple[cn.ndarray, cn.ndarray]
 
+__all__ = [
+    "BaseObjective",
+    "SquaredErrorObjective",
+    "NormalObjective",
+    "LogLossObjective",
+    "ExponentialObjective",
+    "QuantileObjective",
+    "GammaDevianceObjective",
+    "GammaObjective",
+]
+
 
 class BaseObjective(ABC):
     """The base class for objective functions.

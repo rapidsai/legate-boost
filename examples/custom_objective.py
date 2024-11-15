@@ -3,7 +3,7 @@ import legateboost as lb
 
 
 class MyMetric(lb.BaseMetric):
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         return cn.sqrt(((y - pred) ** 2 * w).sum() / w.sum())
 
     def name(self):
