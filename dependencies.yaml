@@ -71,6 +71,7 @@ dependencies:
         packages:
           - cuda-nvcc
           - python-build>=1.2.0
+          - clang-tools>=19.0 # clang-tidy
   # NOTE: '>=' constraints are used here because some dependencies of
   #       cunumeric have very tight cuda-version pins, e.g. libcusolver
   cuda_version:
