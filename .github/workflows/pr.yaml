@@ -23,6 +23,7 @@ jobs:
   pr-builder:
     needs:
       - pre-commit
+      - clang-tidy
       - conda-python-build
       - conda-python-tests-cpu
       - conda-python-tests-gpu
@@ -34,6 +35,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: pre-commit/action@v3.0.1
+
 
   conda-python-build:
     needs:
@@ -78,6 +80,37 @@ jobs:
       - name: test
         run: |
           ci/test_python_cpu.sh
+
+  clang-tidy:
+    needs :
+      - pre-commit
+      - conda-python-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ARCH: "amd64"
+            CUDA_VER: "12.5.1"
+            PY_VER: "3.11"
+    runs-on: linux-${{ matrix.ARCH }}-cpu4
+    container:
+      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # the notebooks and PNG files stored in git LFS aren't necessary for package-building
+          lfs: false
+      - name: download conda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
+          path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - name: build
+        run: "ci/build_clang_tidy.sh"
 
   conda-python-tests-gpu:
     needs:

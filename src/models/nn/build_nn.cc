@@ -83,7 +83,7 @@ template <typename T>
 void print(Matrix<T>& A, int64_t n)
 {
   for (int i = 0; i < std::min(n, A.size()); i++) { std::cout << A.data[i] << " "; }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T>
@@ -417,8 +417,7 @@ class LBfgs {
     T t = vector_dot(grad, direction);
     if (t >= 0) {
       if (verbose)
-        std::cout << "Search direction is not a descent direction. Resetting LBFGS search."
-                  << std::endl;
+        std::cout << "Search direction is not a descent direction. Resetting LBFGS search." << '\n';
       s.clear();
       y.clear();
       return multiply(grad, T(-1.0));

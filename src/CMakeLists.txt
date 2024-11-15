@@ -10,6 +10,7 @@ if(Legion_USE_CUDA)
   rapids_find_package(NCCL REQUIRED)
 
   if (CMAKE_CUDA_COMPILER_ID STREQUAL "Clang")
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # used to run clang-tidy
   else()
     list(APPEND LB_CUDA_FLAGS --expt-extended-lambda )
     list(APPEND LB_CUDA_FLAGS --expt-relaxed-constexpr )

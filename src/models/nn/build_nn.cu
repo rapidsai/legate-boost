@@ -16,10 +16,10 @@ namespace {
 
 void SyncCPU(legate::TaskContext context)
 {
-  auto domain      = context.get_launch_domain();
-  size_t num_ranks = domain.get_volume();
+  const auto& domain = context.get_launch_domain();
+  size_t num_ranks   = domain.get_volume();
   if (num_ranks == 1) return;
-  auto comm = context.communicator(1);
+  const auto& comm = context.communicator(1);
   std::vector<float> gather_result(num_ranks);
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
@@ -148,7 +148,7 @@ void print(Matrix<T>& A, int64_t n)
   std::vector<T> host_data(A.size());
   cudaMemcpy(host_data.data(), A.data, A.size() * sizeof(T), cudaMemcpyDeviceToHost);
   for (int i = 0; i < std::min(n, A.size()); i++) { std::cout << host_data[i] << " "; }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T>
@@ -533,8 +533,7 @@ class LBfgs {
     T t = vector_dot(context, grad, direction);
     if (t >= 0) {
       if (verbose)
-        std::cout << "Search direction is not a descent direction. Resetting LBFGS search."
-                  << std::endl;
+        std::cout << "Search direction is not a descent direction. Resetting LBFGS search." << '\n';
       s.clear();
       y.clear();
       return multiply(grad, T(-1.0), context->stream);

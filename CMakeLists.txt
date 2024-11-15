@@ -12,7 +12,7 @@ else()
   )
 endif()
 
-project(legateboost VERSION "${_legateboost_version}" LANGUAGES C CXX)
+project(legateboost VERSION "${_legateboost_version}" LANGUAGES C CXX CUDA)
 
 option(SANITIZE "Build with address sanitizer" OFF)
 
@@ -31,6 +31,8 @@ find_package(legate REQUIRED)
 
 if(Legion_USE_CUDA)
   enable_language(CUDA)
+  find_package(CUDAToolkit)
+  message(STATUS "CUDA found: ${CUDAToolkit_ROOT}")
 endif()
 
 find_package(BLAS REQUIRED)

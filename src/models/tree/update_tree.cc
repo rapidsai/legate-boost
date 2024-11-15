@@ -21,7 +21,7 @@
 namespace legateboost {
 
 template <typename T, int DIM>
-void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, DIM>& x)
+void WriteOutput(const legate::PhysicalStore& out, const legate::Buffer<T, DIM>& x)
 {
   auto shape = out.shape<DIM>();
   auto write = out.write_accessor<T, DIM>();

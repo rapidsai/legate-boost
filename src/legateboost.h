@@ -1,7 +1,7 @@
 #ifndef __LEGATEBOOST_C_H__
 #define __LEGATEBOOST_C_H__
 
-enum LegateBoostOpCode {
+enum LegateBoostOpCode : uint8_t {
   _OP_CODE_BASE = 0,
   BUILD_TREE    = 1,
   PREDICT       = 2,

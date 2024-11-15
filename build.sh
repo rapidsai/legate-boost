@@ -13,10 +13,12 @@ HELP="$0 [<target> ...] [<flag> ...]
 
     liblegateboost     - build the liblegateboost.so shared library
     legate-boost       - build and 'pip install' the legate-boost Python package
+    clang-tidy         - run clang-tidy on the codebase
 
  where <flag> is any of:
 
    --editable        - install Python wheel in editable mode
+   --fix             - clang-tidy will attempt to fix issues
    -h | --help       - print the help text
 "
 
@@ -44,16 +46,30 @@ if hasArg --editable; then
     PIP_INSTALL_ARGS+=("--editable")
 fi
 
+legate_root=$(
+    python -c 'import legate.install_info as i; from pathlib import Path; print(Path(i.libpath).parent.resolve())'
+)
 if hasArg liblegateboost || hasArg --editable; then
     echo "building liblegateboost..."
-    legate_root=$(
-        python -c 'import legate.install_info as i; from pathlib import Path; print(Path(i.libpath).parent.resolve())'
-    )
     echo "Using Legate at '${legate_root}'"
 
     cmake -S . -B build -Dlegate_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}"
     cmake --build build -j
     echo "done building liblegateboost"
+fi
+
+if hasArg clang-tidy; then
+    echo "running clang-tidy..."
+    # Build the project with clang
+    CUDA_ROOT="$(dirname "$(dirname "$(which nvcc)")")"
+    echo "Using CUDA at '${CUDA_ROOT}'"
+    cmake . -B build -Dlegate_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    FIX_ARG=""
+    if hasArg --fix; then
+        FIX_ARG="-fix"
+    fi
+    run-clang-tidy -p build -header-filter=.* ${FIX_ARG}
+    echo "done running clang-tidy"
 fi
 
 if hasArg legate-boost; then
