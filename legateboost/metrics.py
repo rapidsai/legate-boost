@@ -8,6 +8,18 @@ import cunumeric as cn
 from .special import erf, loggamma
 from .utils import pick_col_by_idx, sample_average, set_col_by_idx
 
+__all__ = [
+    "BaseMetric",
+    "MSEMetric",
+    "NormalLLMetric",
+    "GammaLLMetric",
+    "NormalCRPSMetric",
+    "GammaDevianceMetric",
+    "QuantileMetric",
+    "LogLossMetric",
+    "ExponentialMetric",
+]
+
 
 class BaseMetric(ABC):
     """The base class for metrics.
@@ -19,7 +31,7 @@ class BaseMetric(ABC):
     one = cn.ones(1, dtype=cn.float64)
 
     @abstractmethod
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         """Computes the metric between the true labels `y` and predicted labels
         `pred`, weighted by `w`.
 
@@ -67,7 +79,7 @@ class MSEMetric(BaseMetric):
         :class:`legateboost.objectives.SquaredErrorObjective`
     """
 
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         assert w.ndim == 1
         y = y.reshape(pred.shape)
         w_sum = w.sum()
@@ -81,7 +93,7 @@ class MSEMetric(BaseMetric):
         # per output
         mse = numerator / w_sum
         # average over outputs
-        return float(mse.mean())
+        return mse.mean()
 
     def name(self) -> str:
         return "mse"
@@ -109,7 +121,7 @@ class NormalLLMetric(BaseMetric):
         :class:`legateboost.objectives.NormalObjective`
     """  # noqa: E501
 
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y, pred = check_dist_param(y, pred)
         w_sum = w.sum()
         if w_sum == 0:
@@ -125,7 +137,7 @@ class NormalLLMetric(BaseMetric):
         # ll = -0.5 * cn.log(2 * cn.pi) + 2 * log_sigma - 0.5 * (diff * diff) / var
         neg_ll = (neg_ll * w).sum(axis=0) / w_sum
         # average over output
-        return float(neg_ll.mean())
+        return neg_ll.mean()
 
     def name(self) -> str:
         return "normal_neg_ll"
@@ -136,7 +148,7 @@ class GammaLLMetric(BaseMetric):
     predicted by the model."""
 
     @override
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y, pred = check_dist_param(y, pred)
 
         w_sum = w.sum()
@@ -147,7 +159,7 @@ class GammaLLMetric(BaseMetric):
         b = pred[:, :, 1]
         error = -(k - 1) * cn.log(y) + y / (b + 1e-6) + k * cn.log(b) + loggamma(k)
 
-        return float(sample_average(error, w))
+        return sample_average(error, w)
 
     @override
     def name(self) -> str:
@@ -174,7 +186,7 @@ class NormalCRPSMetric(BaseMetric):
         `Strictly Proper Scoring Rules, Prediction, and Estimation`
     """
 
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y, pred = check_dist_param(y, pred)
         loc = pred[:, :, 0]
         # `NormalObjective` outputs variance instead of scale.
@@ -194,7 +206,7 @@ class GammaDevianceMetric(BaseMetric):
     :math:`E = 2[(\\ln{\\frac{p_i}{y_i}} + \\frac{y_i}{p_i} - 1)w_i]`
     """
 
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         eps = 1e-6
         y = y + eps
         pred = pred + eps
@@ -202,7 +214,7 @@ class GammaDevianceMetric(BaseMetric):
         result = sample_average(d, w)
         if result.size > 1:
             result = cn.average(result)
-        return float(result)
+        return result
 
     def name(self) -> str:
         return "deviance_gamma"
@@ -226,7 +238,7 @@ class QuantileMetric(BaseMetric):
         assert cn.all(0.0 <= quantiles) and cn.all(quantiles <= self.one)
         self.quantiles = quantiles
 
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         assert w.ndim == 1
         assert y.shape[1] == 1
         assert pred.shape[1] == self.quantiles.size
@@ -258,7 +270,7 @@ class LogLossMetric(BaseMetric):
         :class:`legateboost.objectives.LogLossObjective`
     """  # noqa: E501
 
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y = y.squeeze()
         eps = cn.finfo(pred.dtype).eps
         cn.clip(pred, eps, 1 - eps, out=pred)
@@ -296,13 +308,13 @@ class ExponentialMetric(BaseMetric):
         :class:`legateboost.objectives.ExponentialObjective`
     """  # noqa: E501
 
-    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> float:
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y = y.squeeze()
         # binary case
         if pred.ndim == 1 or pred.shape[1] == 1:
             pred = pred.squeeze()
             exp = cn.power(pred / (self.one - pred), 0.5 - y)
-            return float((exp * w).sum() / w.sum())
+            return (exp * w).sum() / w.sum()
 
         # multi-class case
         # note that exp loss is invariant to adding a constant to prediction
@@ -314,7 +326,7 @@ class ExponentialMetric(BaseMetric):
         # y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
 
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
-        return float((exp * w).sum() / w.sum())
+        return (exp * w).sum() / w.sum()
 
     def name(self) -> str:
         return "exp"

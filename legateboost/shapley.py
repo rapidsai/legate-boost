@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 from sklearn.base import is_regressor
@@ -11,6 +11,8 @@ from .metrics import BaseMetric
 # provide definitions for mypy without circular import at runtime
 if TYPE_CHECKING:
     from .legateboost import LBBase
+
+__all__: List[str] = []
 
 
 def global_shapley_attributions(
