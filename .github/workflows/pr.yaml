@@ -110,7 +110,8 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ github.run_id }}
       - name: run clang-tidy
-        run: "ci/run_clang_tidy.sh"
+        run: |
+          ci/run_clang_tidy.sh
 
   conda-python-tests-gpu:
     needs:
