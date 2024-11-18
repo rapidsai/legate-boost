@@ -123,8 +123,3 @@ class Linear(BaseModel):
         new = copy.deepcopy(self)
         new.betas_ *= scalar
         return new
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Linear):
-            raise NotImplementedError()
-        return bool((other.betas_ == self.betas_).all())
