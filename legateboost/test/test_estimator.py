@@ -204,3 +204,14 @@ def test_subsample():
         subsample_test_mse.append(subsample_eval_result["eval-0"]["mse"][-1])
 
     assert np.mean(subsample_test_mse) < np.mean(full_test_mse)
+
+
+def test_iterator_methods():
+    np.random.seed(2)
+    X = np.random.random((100, 10))
+    y = np.random.random((X.shape[0], 2))
+    model = lb.LBRegressor(n_estimators=5).fit(X, y)
+    assert len(model) == 5
+    assert list(model) == list(model.models_)
+    for i, est in enumerate(model):
+        assert est == model[i]

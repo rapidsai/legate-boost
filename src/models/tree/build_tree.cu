@@ -13,14 +13,6 @@
  * limitations under the License.
  *
  */
-#include "legate_library.h"
-#include "legateboost.h"
-#include "../../cpp_utils/cpp_utils.h"
-#include "../../cpp_utils/cpp_utils.cuh"
-#include "legate/comm/coll.h"
-#include "build_tree.h"
-#include <numeric>
-
 #include <cuda/std/tuple>
 #include <cuda/functional>
 #include <thrust/execution_policy.h>
@@ -30,6 +22,16 @@
 #include <thrust/random.h>
 #include <thrust/unique.h>
 #include <cooperative_groups.h>
+#include <numeric>
+#include <limits>
+#include <vector>
+#include <algorithm>
+#include "legate_library.h"
+#include "legateboost.h"
+#include "../../cpp_utils/cpp_utils.h"
+#include "../../cpp_utils/cpp_utils.cuh"
+#include "legate/comm/coll.h"
+#include "build_tree.h"
 namespace cg = cooperative_groups;
 
 namespace legateboost {
@@ -517,7 +519,7 @@ struct HistogramKernel {
     int average_features_per_group         = split_proposals.num_features / num_groups;
     std::size_t average_elements_per_group = batch.InstancesInBatch() * average_features_per_group;
     auto min_blocks  = (average_elements_per_group + kItemsPerTile - 1) / kItemsPerTile;
-    auto x_grid_size = std::min(uint64_t(maximum_blocks_for_occupancy), min_blocks);
+    auto x_grid_size = std::min(static_cast<uint64_t>(maximum_blocks_for_occupancy), min_blocks);
     // Launch the kernel
     fill_histogram_shared<T, kBlockThreads, kItemsPerThread>
       <<<dim3(x_grid_size, num_groups, n_outputs), kBlockThreads, 0, stream>>>(X,
@@ -957,9 +959,9 @@ struct TreeBuilder {
           sorted_positions[idx] = cuda::std::make_tuple(-1, row);
           return;
         }
-        double x_value        = X[{X_shape.lo[0] + (int64_t)row, tree_feature_ptr[pos], 0}];
-        bool left             = x_value <= tree_split_value_ptr[pos];
-        pos                   = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
+        double x_value = X[{X_shape.lo[0] + static_cast<int64_t>(row), tree_feature_ptr[pos], 0}];
+        bool left      = x_value <= tree_split_value_ptr[pos];
+        pos            = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
         sorted_positions[idx] = cuda::std::make_tuple(pos, row);
       });
     CHECK_CUDA_STREAM(stream);
@@ -1134,7 +1136,7 @@ struct TreeBuilder {
               int batch_end   = std::min(batch_begin + max_batch_size, BinaryTree::LevelEnd(depth));
               auto comp       = [] __device__(auto a, auto b) {
                 return cuda::std::get<0>(a) < cuda::std::get<0>(b);
-              };
+              };  // NOLINT(readability/braces)
 
               auto lower             = thrust::lower_bound(thrust::seq,
                                                sorted_positions_ptr,

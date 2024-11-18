@@ -13,12 +13,16 @@
  * limitations under the License.
  *
  */
-#include "legate.h"
+#include "build_tree.h"
+#include <legate.h>
+#include <random>
+#include <set>
+#include <tuple>
+#include <vector>
+#include <algorithm>
 #include "legate_library.h"
 #include "legateboost.h"
-#include "../../cpp_utils/cpp_utils.h"
-#include "build_tree.h"
-#include <random>
+#include "cpp_utils/cpp_utils.h"
 
 namespace legateboost {
 namespace {
@@ -379,7 +383,9 @@ struct TreeBuilder {
     for (auto batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
       int batch_begin = BinaryTree::LevelBegin(depth) + batch_idx * max_batch_size;
       int batch_end   = std::min(batch_begin + max_batch_size, BinaryTree::LevelEnd(depth));
-      auto comp       = [] __device__(auto a, auto b) { return std::get<0>(a) < std::get<0>(b); };
+      auto comp       = [] __device__(auto a, auto b) {
+        return std::get<0>(a) < std::get<0>(b);
+      };  // NOLINT(readability/braces)
 
       auto lower = std::lower_bound(sorted_positions.ptr(0),
                                     sorted_positions.ptr(0) + num_rows,

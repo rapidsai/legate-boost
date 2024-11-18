@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Set, Tuple
+import copy
+from typing import Any, Set, Tuple
 
 import numpy as np
 from scipy.special import lambertw
@@ -216,10 +217,7 @@ class KRR(BaseModel):
             + "\n"
         )
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, KRR):
-            raise NotImplementedError()
-        return bool(
-            (other.betas_ == self.betas_).all()
-            and (other.X_train == self.X_train).all()
-        )
+    def __mul__(self, scalar: Any) -> "KRR":
+        new = copy.deepcopy(self)
+        self.betas_ *= scalar
+        return new

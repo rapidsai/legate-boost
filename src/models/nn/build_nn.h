@@ -14,6 +14,9 @@
  *
  */
 #pragma once
+#include <algorithm>
+#include <memory>
+#include <limits>
 #include "../../cpp_utils/cpp_utils.h"
 #include "legate_library.h"
 #include "legateboost.h"

@@ -17,7 +17,7 @@ from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
 from .shapley import global_shapley_attributions, local_shapley_attributions
-from .utils import PickleCunumericMixin
+from .utils import AddableMixin, AddMember, PickleCunumericMixin
 
 if TYPE_CHECKING:
     from .callbacks import TrainingCallback
@@ -27,7 +27,7 @@ EvalResult: TypeAlias = dict[str, dict[str, list[float]]]
 __all__ = ["LBBase", "LBClassifier", "LBRegressor"]
 
 
-class LBBase(BaseEstimator, PickleCunumericMixin):
+class LBBase(BaseEstimator, PickleCunumericMixin, AddableMixin):
     def __init__(
         self,
         *,
@@ -56,6 +56,29 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
         if not isinstance(base_models, tuple):
             raise ValueError("base_models must be a tuple")
         self.base_models = base_models
+
+        # define what happens to the attributes when two models are added
+        self._add_behaviour.update(
+            {
+                "models_": AddMember.ADD,
+                "model_init_": AddMember.ADD,
+                "n_features_in_": AddMember.ASSERT_SAME,
+                "is_fitted_": AddMember.ASSERT_SAME,
+                "n_estimators": AddMember.ADD,
+                "objective": AddMember.ASSERT_SAME,
+                "metric": AddMember.PREFER_A,
+                "learning_rate": AddMember.PREFER_A,
+                "subsample": AddMember.PREFER_A,
+                "init": AddMember.PREFER_A,
+                "base_models": AddMember.PREFER_A,
+                "callbacks": AddMember.PREFER_A,
+                "verbose": AddMember.PREFER_A,
+                "random_state_": AddMember.PREFER_A,
+                "random_state": AddMember.PREFER_A,
+                "_objective_instance": AddMember.PREFER_A,
+                "_metrics": AddMember.PREFER_A,
+            }
+        )
 
     def _more_tags(self) -> Any:
         return {
@@ -440,6 +463,61 @@ class LBBase(BaseEstimator, PickleCunumericMixin):
             eval_set=eval_set,
             eval_result=eval_result,
         )
+
+    def __len__(self) -> int:
+        """Returns the number of models in the ensemble.
+
+        Returns:
+            int: The number of models in the `models_` attribute.
+        """
+        return len(self.models_)
+
+    def __getitem__(self, i: int) -> BaseModel:
+        """Retrieve the model at the specified index.
+
+        Args:
+            i (int): The index of the model to retrieve.
+
+        Returns:
+            BaseModel: The model at the specified index.
+        """
+        return self.models_[i]
+
+    def __iter__(self) -> Any:
+        """Returns an iterator over the models in the estimator.
+
+        Yields:
+            Any: An iterator over the models in the `models_` attribute.
+        """
+        return iter(self.models_)
+
+    def __mul__(self, scalar: Any) -> Self:
+        """Gradient boosted models are linear in the predictions before the
+        non-linear link function is applied. This means that the model can be
+        multiplied by a scalar, which subsequently scales all raw output
+        predictions. This is useful for ensembling models.
+
+        Parameters
+        ----------
+        scalar : numeric
+            The scalar value to multiply with the model.
+        Returns
+        -------
+        new : object
+            A new instance of the model with all internal models and initial model
+            multiplied by the given scalar.
+        Raises
+        ------
+        ValueError
+            If the provided scalar is not a numeric value.
+        """
+
+        if not np.isscalar(scalar):
+            raise ValueError("Can only multiply by scalar")
+        new = deepcopy(self)
+        new.models_ = [m * scalar for m in self.models_]
+        new.model_init_ = self.model_init_ * scalar
+        return new
 
     def _predict(self, X: cn.ndarray) -> cn.ndarray:
         check_is_fitted(self, "is_fitted_")
@@ -841,6 +919,8 @@ class LBClassifier(LBBase, ClassifierMixin):
             verbose=verbose,
             random_state=random_state,
         )
+        # two models cannot be added if they have different classes
+        self._add_behaviour.update({"classes_": AddMember.ASSERT_SAME})
 
     def partial_fit(
         self,
