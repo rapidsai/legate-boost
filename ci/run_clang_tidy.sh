@@ -37,4 +37,5 @@ set -u
 
 rapids-print-env
 
+CMAKE_GENERATOR=Ninja \
 ./build.sh clang-tidy
