@@ -1,3 +1,4 @@
+import copy
 from typing import Any, List, Tuple
 
 import cunumeric as cn
@@ -134,9 +135,9 @@ class NN(BaseModel):
             result += str(c) + "\n"
         return result
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, NN):
-            return False
-        if len(other.coefficients_) != len(self.coefficients_):
-            return False
-        return all([x == y for x, y in zip(self.coefficients_, other.coefficients_)])
+    # multiply only the output layer
+    def __mul__(self, scalar: Any) -> "NN":
+        new = copy.deepcopy(self)
+        new.coefficients_[-1] *= scalar
+        new.biases_[-1] *= scalar
+        return new

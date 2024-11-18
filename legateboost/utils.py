@@ -1,4 +1,6 @@
+import copy
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
@@ -15,6 +17,56 @@ from legate.core import (
 from .library import user_context, user_lib
 
 __all__: List[str] = []
+
+
+class AddMember(Enum):
+    ADD = 1
+    PREFER_A = 2
+    ASSERT_SAME = 3
+
+
+class AddableMixin:
+    _add_behaviour: dict[str, AddMember] = {}
+
+    def __add__(self, other: Any) -> Any:
+        # check is same subclass
+        if not isinstance(other, self.__class__):
+            raise TypeError("Can only add two instances of the same class")
+
+        new = copy.deepcopy(self)
+        diff = set(vars(self)) - set(vars(other))
+        if diff:
+            raise ValueError(
+                "The following attributes are not present in both models: {}".format(
+                    diff
+                )
+            )
+
+        for v in vars(self):
+            try:
+                case = self._add_behaviour[v]
+                if case == AddMember.ADD:
+                    new.__dict__[v] = self.__dict__[v] + other.__dict__[v]
+                elif case == AddMember.PREFER_A:
+                    new.__dict__[v] = self.__dict__[v]
+                elif case == AddMember.ASSERT_SAME:
+                    if not np.array_equal(self.__dict__[v], other.__dict__[v]):
+                        raise ValueError(
+                            (
+                                "{} for operand a has value {}, and operand b has"
+                                " value {}. They must be equal."
+                            ).format(v, self.__dict__[v], other.__dict__[v])
+                        )
+                    new.__dict__[v] = self.__dict__[v]
+                else:
+                    raise ValueError("Unknown AddMember case")
+
+            except KeyError:
+                raise ValueError(
+                    "Attribute {} has no defined behaviour for addition".format(v)
+                )
+
+        return new
 
 
 class PickleCunumericMixin:
