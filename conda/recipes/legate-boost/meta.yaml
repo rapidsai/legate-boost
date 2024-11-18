@@ -58,6 +58,8 @@ build:
   ignore_run_exports_from:
     {% if gpu_enabled_bool %}
     - {{ compiler('cuda') }}
+    - cuda-cudart-dev
+    - libcublas-dev
     {% endif %}
   {% if not gpu_enabled_bool %}
   # The CPU-only packages having more track_features than the GPU builds helps
@@ -98,6 +100,8 @@ requirements:
     {% if gpu_enabled_bool %}
     # cuda-version is used to constrain __cuda
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
+    - cuda-cudart
+    - libcublas
     - __cuda
     - cunumeric {{ cunumeric_version }} =*_gpu*
     {% else %}
