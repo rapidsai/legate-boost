@@ -61,7 +61,7 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - cmake>=3.24.0,!=3.30.0
-          - &legate legate==25.01.*,>=0.0.0.dev0
+          - &legate legate==24.11.*
           - ninja>=1.11.1.1
           - scikit-build>=0.18.0
           - setuptools>=70.0
@@ -123,7 +123,7 @@ dependencies:
           - typing-extensions>=4.0
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cunumeric==25.01.*,>=0.0.0.dev0
+          - cupynumeric==24.11.*
           - *legate
   test:
     common:
