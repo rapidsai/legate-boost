@@ -20,6 +20,11 @@ files:
     includes:
       - build
       - build_tools
+  run_clang_tidy:
+    output: none
+    includes:
+      - build
+      - clang_tidy
   py_docs:
     output: none
     includes:
@@ -60,7 +65,6 @@ dependencies:
           - cuda-cudart-dev
           - libcublas-dev
           - openblas
-          - clang-tools>=19.0 # clang-tidy
       - output_types: [conda, pyproject, requirements]
         packages:
           - cmake>=3.24.0,!=3.30.0
@@ -68,6 +72,12 @@ dependencies:
           - ninja>=1.11.1.1
           - scikit-build>=0.18.0
           - setuptools>=70.0
+  clang_tidy:
+    common:
+      - output_types: [conda]
+        packages:
+          - clang-tools>=19.0
+          - clangxx>=19.0
   build_tools:
     common:
       - output_types: [conda]
