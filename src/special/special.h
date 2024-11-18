@@ -14,20 +14,21 @@
  */
 #pragma once
 
-#include <cstdint>                              // for int32_t
-#include <type_traits>                          // for is_same_v
+#include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator
+#include <thrust/for_each.h>                    // for for_each_n
 #include <legate/task/task_context.h>           // for TaskContext
 #include <legate/task/exception.h>              // for TaskException
 #include <legate/data/physical_array.h>         // for PhysicalArray
-#include "legateboost.h"                        // for ERF
-#include "legate_library.h"                     // for Task
-#include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator
-#include <thrust/for_each.h>                    // for for_each_n
+#include <cstdint>                              // for int32_t
 #include <cmath>                                // for lgamma, erf
+#include <type_traits>                          // for is_same_v
+#include <limits>
+#include <tuple>
+#include "legateboost.h"     // for ERF
+#include "legate_library.h"  // for Task
 #include "../cpp_utils/cpp_utils.h"
 
 namespace legateboost {
-namespace {
 /*
  * Code from PyTorch, which comes from cephes. See thirdparty/LICENSES/LICENSE.pytorch
  */
@@ -140,7 +141,7 @@ __host__ __device__ inline float calc_digamma(float x)
     // the computation of pi * x is a source of error (when |x| > 1).
     double q, r;
     r                      = std::modf(x, &q);
-    float pi_over_tan_pi_x = (float)(m_PI / std::tan(m_PI * r));
+    float pi_over_tan_pi_x = static_cast<float>(m_PI / std::tan(m_PI * r));
     return calc_digamma(1 - x) - pi_over_tan_pi_x;
   }
 
@@ -256,8 +257,6 @@ __host__ __device__ inline double zeta(double x, double q)
   }
   return s;
 }
-
-};  // namespace
 
 struct ErfOp {
   using ArgsT = std::tuple<>;

@@ -19,6 +19,8 @@
 #ifdef __CUDACC__
 #include <thrust/binary_search.h>
 #endif
+#include <utility>
+#include <tuple>
 
 namespace legateboost {
 
@@ -166,7 +168,7 @@ class Histogram {
   // If we are using int64 as our type we need to do atomic adds as unsigned long long
   using atomic_add_type =
     typename std::conditional<std::is_same_v<typename value_type::value_type, int64_t>,
-                              unsigned long long,
+                              unsigned long long,  // NOLINT(runtime/int)
                               typename value_type::value_type>::type;
 
  private:
