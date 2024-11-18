@@ -78,6 +78,7 @@ dependencies:
         packages:
           - clang-tools>=19.0
           - clangxx>=19.0
+          - cuda-nvcc
   build_tools:
     common:
       - output_types: [conda]
