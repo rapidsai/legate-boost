@@ -19,6 +19,7 @@ files:
       table: build-system
     includes:
       - build
+      - build_tools
   py_docs:
     output: none
     includes:
