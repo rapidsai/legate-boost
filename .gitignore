@@ -1,5 +1,6 @@
 *.a
 build
+build_clang_tidy
 *.conda
 *.data
 dist/

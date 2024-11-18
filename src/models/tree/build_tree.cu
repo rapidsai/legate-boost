@@ -147,13 +147,14 @@ __device__ int64_t hash_combine(int64_t seed, const int64_t& v, Rest... rest)
   return hash_combine(seed, rest...);
 }
 
+// NOLINTBEGIN(performance-unnecessary-value-param)
 template <int BLOCK_THREADS>
 __global__ static void __launch_bounds__(BLOCK_THREADS)
-  reduce_base_sums(const legate::AccessorRO<double, 3>& g,
-                   const legate::AccessorRO<double, 3>& h,
+  reduce_base_sums(legate::AccessorRO<double, 3> g,
+                   legate::AccessorRO<double, 3> h,
                    size_t n_local_samples,
                    int64_t sample_offset,
-                   const legate::Buffer<IntegerGPair, 2>& node_sums,
+                   legate::Buffer<IntegerGPair, 2> node_sums,
                    size_t n_outputs,
                    GradientQuantiser quantiser,
                    int64_t seed)
@@ -182,6 +183,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
       blocksum.hess);
   }
 }
+// NOLINTEND(performance-unnecessary-value-param)
 
 using SharedMemoryHistogramType = GPairBase<int32_t>;
 // NOTE: changes to the below should be reflected in the python Tree learner constructor and its
@@ -412,19 +414,20 @@ struct HistogramAgent {
   }
 };
 
+// NOLINTBEGIN(performance-unnecessary-value-param)
 template <typename T, int kBlockThreads, int kItemsPerThread>
 __global__ static void __launch_bounds__(kBlockThreads)
-  fill_histogram_shared(const legate::AccessorRO<T, 3>& X,
+  fill_histogram_shared(legate::AccessorRO<T, 3> X,
                         int64_t sample_offset,
-                        const legate::AccessorRO<double, 3>& g,
-                        const legate::AccessorRO<double, 3>& h,
+                        legate::AccessorRO<double, 3> g,
+                        legate::AccessorRO<double, 3> h,
                         size_t n_outputs,
-                        const SparseSplitProposals<T>& split_proposals,
+                        SparseSplitProposals<T> split_proposals,
                         NodeBatch batch,
                         Histogram<IntegerGPair> histogram,
-                        const legate::Buffer<IntegerGPair, 2>& node_sums,
+                        legate::Buffer<IntegerGPair, 2> node_sums,
                         GradientQuantiser quantiser,
-                        const legate::Buffer<int>& feature_groups,
+                        legate::Buffer<int> feature_groups,
                         int64_t seed)
 {
   __shared__ char shared_char[kMaxSharedBins * sizeof(SharedMemoryHistogramType)];
@@ -445,6 +448,7 @@ __global__ static void __launch_bounds__(kBlockThreads)
                                                           shared_memory);
   agent.BuildHistogram();
 }
+// NOLINTEND(performance-unnecessary-value-param)
 
 // Manage the launch parameters for histogram kernel
 template <typename T, std::int32_t kBlockThreads = 1024, std::int32_t kItemsPerThread = 4>
@@ -551,12 +555,13 @@ __device__ void vectorised_store(IntegerGPair* ptr, IntegerGPair value)
   *store     = *reinterpret_cast<int4*>(&value);
 }
 
+// NOLINTBEGIN(performance-unnecessary-value-param)
 template <typename T, int BLOCK_THREADS>
 __global__ static void __launch_bounds__(BLOCK_THREADS)
   scan_kernel(Histogram<IntegerGPair> histogram,
-              const legate::Buffer<IntegerGPair, 2>& node_sums,
+              legate::Buffer<IntegerGPair, 2> node_sums,
               int n_features,
-              const SparseSplitProposals<T>& split_proposals,
+              SparseSplitProposals<T> split_proposals,
               NodeBatch batch)
 
 {
@@ -621,6 +626,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
     }
   }
 }
+// NOLINTEND(performance-unnecessary-value-param)
 
 // Key/value pair to simplify reduction
 struct GainFeaturePair {
@@ -643,19 +649,20 @@ struct GainFeaturePair {
   __device__ bool operator<(const GainFeaturePair& other) const { return gain < other.gain; }
 };
 
+// NOLINTBEGIN(performance-unnecessary-value-param)
 template <typename TYPE, int BLOCK_THREADS>
 __global__ static void __launch_bounds__(BLOCK_THREADS)
   perform_best_split(Histogram<IntegerGPair> histogram,
                      size_t n_features,
                      size_t n_outputs,
-                     const SparseSplitProposals<TYPE>& split_proposals,
+                     SparseSplitProposals<TYPE> split_proposals,
                      double eps,
                      double alpha,
-                     const legate::Buffer<double, 2>& tree_leaf_value,
-                     const legate::Buffer<IntegerGPair, 2>& node_sums,
-                     const legate::Buffer<int32_t, 1>& tree_feature,
-                     const legate::Buffer<double, 1>& tree_split_value,
-                     const legate::Buffer<double, 1>& tree_gain,
+                     legate::Buffer<double, 2> tree_leaf_value,
+                     legate::Buffer<IntegerGPair, 2> node_sums,
+                     legate::Buffer<int32_t, 1> tree_feature,
+                     legate::Buffer<double, 1> tree_split_value,
+                     legate::Buffer<double, 1> tree_gain,
                      NodeBatch batch,
                      GradientQuantiser quantiser)
 {
@@ -736,6 +743,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
     }
   }
 }
+// NOLINTEND(performance-unnecessary-value-param)
 
 struct Tree {
   template <typename THRUST_POLICY>

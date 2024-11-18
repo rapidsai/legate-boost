@@ -48,9 +48,10 @@ repos:
           # disable whitespace checks as they are already covered by clang-format
           # runtime/references is disabled as this is a more controversial check in the google style guide
           # include_subdir is disabled as it gives false postiives for top level includes
+          # readability/nolint is disabled as it interferes with clang-tidy
           args: [
             "--linelength=100",
-            "--filter=-whitespace,-runtime/references,-build/include_subdir",
+            "--filter=-whitespace,-runtime/references,-build/include_subdir,-readability/nolint",
           ]
 
 default_language_version:

@@ -63,12 +63,12 @@ if hasArg clang-tidy; then
     # Build the project with clang
     CUDA_ROOT="$(dirname "$(dirname "$(which nvcc)")")"
     echo "Using CUDA at '${CUDA_ROOT}'"
-    cmake . -B build -Dlegate_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    cmake . -B build_clang_tidy -Dlegate_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
     FIX_ARG=""
     if hasArg --fix; then
         FIX_ARG="-fix"
     fi
-    run-clang-tidy -p build -header-filter=.* ${FIX_ARG}
+    run-clang-tidy -p build_clang_tidy -header-filter=.* ${FIX_ARG}
     echo "done running clang-tidy"
 fi
 
