@@ -28,8 +28,6 @@
 #include "legate_library.h"
 #include "legate/comm/coll.h"
 
-#include <utility>
-
 namespace legateboost {
 
 extern Legion::Logger logger;
