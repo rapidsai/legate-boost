@@ -1,6 +1,6 @@
 import numpy as np
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 __all__: list[str] = []

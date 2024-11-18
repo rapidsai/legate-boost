@@ -14,7 +14,7 @@ legate example_script.py
 ```
 
 ```python
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 X = cn.random.random((1000, 10))

@@ -3,7 +3,7 @@ from typing import Dict, Tuple, Type
 
 from typing_extensions import Self, override
 
-import cunumeric as cn
+import cupynumeric as cn
 
 from .special import erf, loggamma
 from .utils import pick_col_by_idx, sample_average, set_col_by_idx

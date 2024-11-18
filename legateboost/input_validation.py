@@ -3,7 +3,7 @@ from typing import Any, List
 import numpy as np
 import scipy.sparse as sp
 
-import cunumeric as cn
+import cupynumeric as cn
 
 __all__: List[str] = []
 

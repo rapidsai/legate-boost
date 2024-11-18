@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from scipy import optimize
 
-import cunumeric as cn
+import cupynumeric as cn
 from legateboost.utils import gather, lbfgs, sample_average
 
 

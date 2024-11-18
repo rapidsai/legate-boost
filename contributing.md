@@ -300,7 +300,7 @@ The following general principles should be followed when developing `legate-boos
     - e.g. do not replace double precision floats with single precision in order to achieve small constant factor implementation speedups.
     - Do not be afraid to use 64 bit integers for indexing if it means avoiding any possible overflow issues.
 - Avoid optimisation where possible in favour of clear implementation
-- Favour cunumeric implementations where appropriate. e.g. elementwise or matrix operations
+- Favour cupynumeric implementations where appropriate. e.g. elementwise or matrix operations
 - Use mypy type annotations if at all possible. The typing can be checked by running the following command under the project root:
 
 ```shell

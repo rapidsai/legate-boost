@@ -26,10 +26,10 @@ jobs:
   build:
     strategy:
       fail-fast: false
-      # available legate and cunumeric packages:
+      # available legate and cupynumeric packages:
       #
       #   * https://anaconda.org/legate/legate
-      #   * https://anaconda.org/legate/cunumeric
+      #   * https://anaconda.org/legate/cupynumeric
       #
       # Valid set of RAPIDS ci-conda image tags:
       #

@@ -6,7 +6,7 @@ from sklearn.metrics import (
     mean_squared_error,
 )
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 from legateboost.metrics import GammaDevianceMetric
 

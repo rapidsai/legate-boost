@@ -2,12 +2,12 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-import cunumeric as cn
+import cupynumeric as cn
 
-from ..utils import PickleCunumericMixin
+from ..utils import PicklecupynumericMixin
 
 
-class BaseModel(PickleCunumericMixin, ABC):
+class BaseModel(PicklecupynumericMixin, ABC):
     """Base class for all models in LegateBoost.
 
     Defines the interface for fitting, updating, and predicting a model,

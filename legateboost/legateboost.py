@@ -10,14 +10,14 @@ from sklearn.exceptions import DataConversionWarning
 from sklearn.utils.validation import check_is_fitted, check_random_state
 from typing_extensions import Self, TypeAlias
 
-import cunumeric as cn
+import cupynumeric as cn
 
 from .input_validation import check_sample_weight, check_X_y
 from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
 from .shapley import global_shapley_attributions, local_shapley_attributions
-from .utils import PickleCunumericMixin
+from .utils import PicklecupynumericMixin
 
 if TYPE_CHECKING:
     from .callbacks import TrainingCallback
@@ -27,7 +27,7 @@ EvalResult: TypeAlias = dict[str, dict[str, list[float]]]
 __all__ = ["LBBase", "LBClassifier", "LBRegressor"]
 
 
-class LBBase(BaseEstimator, PickleCunumericMixin):
+class LBBase(BaseEstimator, PicklecupynumericMixin):
     def __init__(
         self,
         *,
@@ -628,7 +628,7 @@ class LBRegressor(LBBase, RegressorMixin):
 
     Examples
     --------
-    >>> import cunumeric as cn
+    >>> import cupynumeric as cn
     >>> import legateboost as lbst
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.random(X.shape[0])
@@ -806,7 +806,7 @@ class LBClassifier(LBBase, ClassifierMixin):
 
     Examples
     --------
-    >>> import cunumeric as cn
+    >>> import cupynumeric as cn
     >>> import legateboost as lbst
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.randint(0, 2, X.shape[0])

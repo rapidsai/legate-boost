@@ -82,7 +82,7 @@ known_legion = [
 known_first_party = [
     "legate",
     "lllm",
-    "cunumeric"
+    "cupynumeric"
 ]
 default_section = "THIRDPARTY"
 sections = [

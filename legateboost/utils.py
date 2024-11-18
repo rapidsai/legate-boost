@@ -3,7 +3,7 @@ from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 
-import cunumeric as cn
+import cupynumeric as cn
 from legate.core import (
     LogicalArray,
     LogicalStore,
@@ -17,8 +17,8 @@ from .library import user_context, user_lib
 __all__: List[str] = []
 
 
-class PickleCunumericMixin:
-    """When reading back from pickle, convert numpy arrays to cunumeric
+class PicklecupynumericMixin:
+    """When reading back from pickle, convert numpy arrays to cupynumeric
     arrays."""
 
     def __getstate__(self) -> dict[str, Any]:
@@ -218,7 +218,7 @@ def __vlbfgs_recursion(
     for i in range(m):
         beta = delta.dot(B[:, i + m]) / B[i, i + m]
         delta[i] = delta[i] + (alpha[i] - beta)
-    # Convert back to cunumeric
+    # Convert back to cupynumeric
     return cn.dot(delta, b)
 
 

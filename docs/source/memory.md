@@ -31,4 +31,4 @@ In general the intermediate boosting stages of running legateboost (gradient cal
 Tree models in legateboost have a memory efficient C++ implementation and are not expected to use substantially more memory than the dataset itself.
 
 ### Linear models and Kernel Ridge Regression
-Linear models and kernel ridge regression are implemented using cunumeric. Due to intermediate results (e.g. from series of matrix operations) or data type conversions these algorithms can use several times more memory than the input dataset.
+Linear models and kernel ridge regression are implemented using cupynumeric. Due to intermediate results (e.g. from series of matrix operations) or data type conversions these algorithms can use several times more memory than the input dataset.
