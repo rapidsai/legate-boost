@@ -84,7 +84,6 @@ jobs:
   clang-tidy:
     needs :
       - pre-commit
-      - conda-python-build
     strategy:
       fail-fast: false
       matrix:
@@ -99,16 +98,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # the notebooks and PNG files stored in git LFS aren't necessary for package-building
+          # the notebooks and PNG files stored in git LFS aren't necessary
           lfs: false
-      - name: download conda packages
-        uses: actions/download-artifact@v4
-        with:
-          name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
-          path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.run_id }}
       - name: run clang-tidy
         run: |
           ci/run_clang_tidy.sh

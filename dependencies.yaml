@@ -45,6 +45,7 @@ files:
     includes:
       - py_version
       - test
+
 channels:
   - legate
   - legate/label/experimental
@@ -58,6 +59,7 @@ dependencies:
           - cuda-cudart-dev
           - libcublas-dev
           - openblas
+          - clang-tools>=19.0 # clang-tidy
       - output_types: [conda, pyproject, requirements]
         packages:
           - cmake>=3.24.0,!=3.30.0
@@ -71,7 +73,6 @@ dependencies:
         packages:
           - cuda-nvcc
           - python-build>=1.2.0
-          - clang-tools>=19.0 # clang-tidy
   # NOTE: '>=' constraints are used here because some dependencies of
   #       cunumeric have very tight cuda-version pins, e.g. libcusolver
   cuda_version:
