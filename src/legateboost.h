@@ -17,7 +17,7 @@
 #ifndef SRC_LEGATEBOOST_H_
 #define SRC_LEGATEBOOST_H_
 
-enum LegateBoostOpCode {
+enum LegateBoostOpCode {  // NOLINT(performance-enum-size)
   _OP_CODE_BASE = 0,
   BUILD_TREE    = 1,
   PREDICT       = 2,

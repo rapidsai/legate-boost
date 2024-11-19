@@ -72,7 +72,7 @@ class BinaryTree {
 // And infer the other side by subtraction from the parent
 template <typename GPairT>
 inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
-  int parent, legate::Buffer<GPairT, 2> node_sums)
+  int parent, const legate::Buffer<GPairT, 2>& node_sums)
 {
   int left_child  = BinaryTree::LeftChild(parent);
   int right_child = BinaryTree::RightChild(parent);
@@ -84,7 +84,7 @@ inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
 
 template <typename GPairT>
 inline __host__ __device__ bool ComputeHistogramBin(int node_id,
-                                                    legate::Buffer<GPairT, 2> node_sums,
+                                                    const legate::Buffer<GPairT, 2>& node_sums,
                                                     bool parent_histogram_exists)
 {
   if (node_id == 0) return true;
@@ -110,8 +110,8 @@ class SparseSplitProposals {
   int32_t num_features;
   int32_t histogram_size;
   static const int NOT_FOUND = -1;
-  SparseSplitProposals(legate::Buffer<T, 1> split_proposals,
-                       legate::Buffer<int32_t, 1> row_pointers,
+  SparseSplitProposals(const legate::Buffer<T, 1>& split_proposals,
+                       const legate::Buffer<int32_t, 1>& row_pointers,
                        int32_t num_features,
                        int32_t histogram_size)
     : split_proposals(split_proposals),
@@ -178,7 +178,7 @@ class Histogram {
   std::size_t size_;
 
  public:
-#ifdef __NVCC__
+#ifdef __CUDACC__
   Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
     : node_begin_(node_begin), node_end_(node_end)
   {

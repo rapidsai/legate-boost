@@ -12,7 +12,7 @@ else()
   )
 endif()
 
-project(legateboost VERSION "${_legateboost_version}" LANGUAGES C CXX)
+project(legateboost VERSION "${_legateboost_version}" LANGUAGES C CXX CUDA)
 
 option(SANITIZE "Build with address sanitizer" OFF)
 

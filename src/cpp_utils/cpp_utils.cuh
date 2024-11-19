@@ -16,10 +16,12 @@
 
 #pragma once
 
+#include "cpp_utils.h"
 #include <nccl.h>
 #include <cstdio>
+#include <utility>
+#include <string>
 #include "legate.h"
-#include "cpp_utils.h"
 #include "legate/cuda/cuda.h"
 
 namespace legateboost {
@@ -36,9 +38,28 @@ __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
   }
 }
 
-#define CHECK_CUDA(expr) LegateCheckCUDA(expr)
+inline void throw_on_cuda_error(cudaError_t code, const char* file, int line)
+{
+  if (code != cudaSuccess) {
+    std::stringstream ss;
+    ss << file << "(" << line << ")";
+    std::string file_and_line;
+    ss >> file_and_line;
+    throw thrust::system_error(code, thrust::cuda_category(), file_and_line);
+  }
+}
 
-#define CHECK_CUDA_STREAM(expr) LegateCheckCUDAStream(expr)
+#define CHECK_CUDA(expr) throw_on_cuda_error(expr, __FILE__, __LINE__)
+
+#ifdef DEBUG
+#define CHECK_CUDA_STREAM(stream)              \
+  do {                                         \
+    CHECK_CUDA(cudaStreamSynchronize(stream)); \
+    CHECK_CUDA(cudaPeekAtLastError());         \
+  } while (false)
+#else
+#define CHECK_CUDA_STREAM(stream) CHECK_CUDA(cudaPeekAtLastError())
+#endif
 
 #define CHECK_NCCL(expr)                    \
   do {                                      \
@@ -47,7 +68,8 @@ __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
   } while (false)
 
 template <typename L, int BLOCK_THREADS>
-__global__ void __launch_bounds__(BLOCK_THREADS) LaunchNKernel(size_t size, L lambda)
+__global__ void __launch_bounds__(BLOCK_THREADS)
+  LaunchNKernel(size_t size, L lambda)  // NOLINT(performance-unnecessary-value-param)
 {
   for (auto i = blockDim.x * blockIdx.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
     lambda(i);
@@ -55,7 +77,7 @@ __global__ void __launch_bounds__(BLOCK_THREADS) LaunchNKernel(size_t size, L la
 }
 
 template <int ITEMS_PER_THREAD = 8, typename L>
-inline void LaunchN(size_t n, cudaStream_t stream, L lambda)
+inline void LaunchN(size_t n, cudaStream_t stream, const L& lambda)
 {
   if (n == 0) { return; }
   const int kBlockThreads = 256;
@@ -67,12 +89,12 @@ inline void LaunchN(size_t n, cudaStream_t stream, L lambda)
 template <typename T>
 void AllReduce(legate::TaskContext context, T* x, int count, ncclRedOp_t op, cudaStream_t stream)
 {
-  auto domain      = context.get_launch_domain();
-  size_t num_ranks = domain.get_volume();
+  const auto& domain = context.get_launch_domain();
+  size_t num_ranks   = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a GPU communicator for multi-rank task.");
   if (context.num_communicators() == 0) return;
-  auto comm             = context.communicator(0);
+  const auto& comm      = context.communicator(0);
   ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();
 
   if (num_ranks > 1) {

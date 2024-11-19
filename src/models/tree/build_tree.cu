@@ -66,8 +66,8 @@ class GradientQuantiser {
 
   // Calculate scale from upper bound on data
   GradientQuantiser(legate::TaskContext context,
-                    legate::AccessorRO<double, 3> g,
-                    legate::AccessorRO<double, 3> h,
+                    const legate::AccessorRO<double, 3>& g,
+                    const legate::AccessorRO<double, 3>& h,
                     legate::Rect<3> g_shape,
                     cudaStream_t stream)
   {
@@ -147,6 +147,7 @@ __device__ int64_t hash_combine(int64_t seed, const int64_t& v, Rest... rest)
   return hash_combine(seed, rest...);
 }
 
+// NOLINTBEGIN(performance-unnecessary-value-param)
 template <int BLOCK_THREADS>
 __global__ static void __launch_bounds__(BLOCK_THREADS)
   reduce_base_sums(legate::AccessorRO<double, 3> g,
@@ -182,6 +183,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
       blocksum.hess);
   }
 }
+// NOLINTEND(performance-unnecessary-value-param)
 
 using SharedMemoryHistogramType = GPairBase<int32_t>;
 // NOTE: changes to the below should be reflected in the python Tree learner constructor and its
@@ -260,17 +262,17 @@ struct HistogramAgent {
   int feature_stride;
   SharedMemoryHistogram shared_histogram;
 
-  __device__ HistogramAgent(legate::AccessorRO<T, 3> X,
+  __device__ HistogramAgent(const legate::AccessorRO<T, 3>& X,
                             int64_t sample_offset,
-                            legate::AccessorRO<double, 3> g,
-                            legate::AccessorRO<double, 3> h,
+                            const legate::AccessorRO<double, 3>& g,
+                            const legate::AccessorRO<double, 3>& h,
                             size_t n_outputs,
-                            SparseSplitProposals<T> split_proposals,
+                            const SparseSplitProposals<T>& split_proposals,
                             NodeBatch batch,
                             Histogram<IntegerGPair>& histogram,
-                            legate::Buffer<IntegerGPair, 2> node_sums,
+                            const legate::Buffer<IntegerGPair, 2>& node_sums,
                             GradientQuantiser quantiser,
-                            legate::Buffer<int> feature_groups,
+                            const legate::Buffer<int>& feature_groups,
                             int64_t seed,
                             SharedMemoryHistogramType* shared_memory)
     : X(X),
@@ -412,6 +414,7 @@ struct HistogramAgent {
   }
 };
 
+// NOLINTBEGIN(performance-unnecessary-value-param)
 template <typename T, int kBlockThreads, int kItemsPerThread>
 __global__ static void __launch_bounds__(kBlockThreads)
   fill_histogram_shared(legate::AccessorRO<T, 3> X,
@@ -427,7 +430,9 @@ __global__ static void __launch_bounds__(kBlockThreads)
                         legate::Buffer<int> feature_groups,
                         int64_t seed)
 {
-  __shared__ SharedMemoryHistogramType shared_memory[kMaxSharedBins];
+  __shared__ char shared_char[kMaxSharedBins * sizeof(SharedMemoryHistogramType)];
+  SharedMemoryHistogramType* shared_memory =
+    reinterpret_cast<SharedMemoryHistogramType*>(shared_char);
   HistogramAgent<T, kBlockThreads, kItemsPerThread> agent(X,
                                                           sample_offset,
                                                           g,
@@ -443,6 +448,7 @@ __global__ static void __launch_bounds__(kBlockThreads)
                                                           shared_memory);
   agent.BuildHistogram();
 }
+// NOLINTEND(performance-unnecessary-value-param)
 
 // Manage the launch parameters for histogram kernel
 template <typename T, std::int32_t kBlockThreads = 1024, std::int32_t kItemsPerThread = 4>
@@ -451,7 +457,7 @@ struct HistogramKernel {
   legate::Buffer<int> feature_groups;
   int num_groups;
   int maximum_blocks_for_occupancy;
-  HistogramKernel(const SparseSplitProposals<T> split_proposals, cudaStream_t stream)
+  HistogramKernel(const SparseSplitProposals<T>& split_proposals, cudaStream_t stream)
   {
     int device;
     CHECK_CUDA(cudaGetDevice(&device));
@@ -467,7 +473,7 @@ struct HistogramKernel {
     FindFeatureGroups(split_proposals, stream);
   }
 
-  void FindFeatureGroups(const SparseSplitProposals<T> split_proposals, cudaStream_t stream)
+  void FindFeatureGroups(const SparseSplitProposals<T>& split_proposals, cudaStream_t stream)
   {
     // Find feature groups
     // This is a bin packing problem
@@ -501,15 +507,15 @@ struct HistogramKernel {
                                stream));
   }
 
-  void BuildHistogram(legate::AccessorRO<T, 3> X,
+  void BuildHistogram(const legate::AccessorRO<T, 3>& X,
                       int64_t sample_offset,
-                      legate::AccessorRO<double, 3> g,
-                      legate::AccessorRO<double, 3> h,
+                      const legate::AccessorRO<double, 3>& g,
+                      const legate::AccessorRO<double, 3>& h,
                       size_t n_outputs,
-                      SparseSplitProposals<T> split_proposals,
+                      const SparseSplitProposals<T>& split_proposals,
                       NodeBatch batch,
-                      Histogram<IntegerGPair> histogram,
-                      legate::Buffer<IntegerGPair, 2> node_sums,
+                      const Histogram<IntegerGPair>& histogram,
+                      const legate::Buffer<IntegerGPair, 2>& node_sums,
                       GradientQuantiser quantiser,
                       int64_t seed,
                       cudaStream_t stream)
@@ -549,12 +555,13 @@ __device__ void vectorised_store(IntegerGPair* ptr, IntegerGPair value)
   *store     = *reinterpret_cast<int4*>(&value);
 }
 
+// NOLINTBEGIN(performance-unnecessary-value-param)
 template <typename T, int BLOCK_THREADS>
 __global__ static void __launch_bounds__(BLOCK_THREADS)
   scan_kernel(Histogram<IntegerGPair> histogram,
               legate::Buffer<IntegerGPair, 2> node_sums,
               int n_features,
-              const SparseSplitProposals<T> split_proposals,
+              SparseSplitProposals<T> split_proposals,
               NodeBatch batch)
 
 {
@@ -619,6 +626,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
     }
   }
 }
+// NOLINTEND(performance-unnecessary-value-param)
 
 // Key/value pair to simplify reduction
 struct GainFeaturePair {
@@ -641,6 +649,7 @@ struct GainFeaturePair {
   __device__ bool operator<(const GainFeaturePair& other) const { return gain < other.gain; }
 };
 
+// NOLINTBEGIN(performance-unnecessary-value-param)
 template <typename TYPE, int BLOCK_THREADS>
 __global__ static void __launch_bounds__(BLOCK_THREADS)
   perform_best_split(Histogram<IntegerGPair> histogram,
@@ -734,6 +743,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
     }
   }
 }
+// NOLINTEND(performance-unnecessary-value-param)
 
 struct Tree {
   template <typename THRUST_POLICY>
@@ -759,8 +769,8 @@ struct Tree {
   }
 
   template <typename T, int DIM, typename ThrustPolicyT>
-  void WriteOutput(legate::PhysicalStore out,
-                   const legate::Buffer<T, DIM> x,
+  void WriteOutput(const legate::PhysicalStore& out,
+                   const legate::Buffer<T, DIM>& x,
                    const ThrustPolicyT& policy)
   {
     // Write a tile of x to the output
@@ -810,7 +820,7 @@ struct Tree {
 // Return sparse matrix of split samples for each feature
 template <typename T>
 SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
-                                           legate::AccessorRO<T, 3> X,
+                                           const legate::AccessorRO<T, 3>& X,
                                            legate::Rect<3> X_shape,
                                            int split_samples,
                                            int seed,
@@ -894,7 +904,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
 }
 
 // Can't put a device lambda in constructor so make this a function
-void FillPositions(legate::Buffer<cuda::std::tuple<int32_t, int32_t>> sorted_positions,
+void FillPositions(const legate::Buffer<cuda::std::tuple<int32_t, int32_t>>& sorted_positions,
                    std::size_t num_rows,
                    cudaStream_t stream)
 {
@@ -911,7 +921,7 @@ struct TreeBuilder {
               cudaStream_t stream,
               int32_t max_nodes,
               int32_t max_depth,
-              SparseSplitProposals<T> split_proposals,
+              const SparseSplitProposals<T>& split_proposals,
               GradientQuantiser quantiser)
     : num_rows(num_rows),
       num_features(num_features),
@@ -943,7 +953,7 @@ struct TreeBuilder {
   }
 
   template <typename TYPE>
-  void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 3> X, legate::Rect<3> X_shape)
+  void UpdatePositions(Tree& tree, const legate::AccessorRO<TYPE, 3>& X, legate::Rect<3> X_shape)
   {
     auto tree_split_value_ptr = tree.split_value.ptr(0);
     auto tree_feature_ptr     = tree.feature.ptr(0);
@@ -999,10 +1009,10 @@ struct TreeBuilder {
   void ComputeHistogram(Histogram<IntegerGPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
-                        legate::AccessorRO<TYPE, 3> X,
+                        const legate::AccessorRO<TYPE, 3>& X,
                         legate::Rect<3> X_shape,
-                        legate::AccessorRO<double, 3> g,
-                        legate::AccessorRO<double, 3> h,
+                        const legate::AccessorRO<double, 3>& g,
+                        const legate::AccessorRO<double, 3>& h,
                         NodeBatch batch,
                         int64_t seed,
                         int depth)
@@ -1040,7 +1050,7 @@ struct TreeBuilder {
   }
 
   void PerformBestSplit(Tree& tree,
-                        Histogram<IntegerGPair> histogram,
+                        const Histogram<IntegerGPair>& histogram,
                         double alpha,
                         NodeBatch batch)
   {
@@ -1063,8 +1073,8 @@ struct TreeBuilder {
   }
   void InitialiseRoot(legate::TaskContext context,
                       Tree& tree,
-                      legate::AccessorRO<double, 3> g,
-                      legate::AccessorRO<double, 3> h,
+                      const legate::AccessorRO<double, 3>& g,
+                      const legate::AccessorRO<double, 3>& h,
                       legate::Rect<3> g_shape,
                       double alpha,
                       int64_t seed)

@@ -87,7 +87,7 @@ struct Tree {
 };
 
 template <typename T>
-void WriteOutput(legate::PhysicalStore out, const std::vector<T>& x)
+void WriteOutput(const legate::PhysicalStore& out, const std::vector<T>& x)
 {
   auto shape = out.shape<1>();
   auto write = out.write_accessor<T, 1>();
@@ -95,7 +95,7 @@ void WriteOutput(legate::PhysicalStore out, const std::vector<T>& x)
 }
 
 template <typename T>
-void WriteOutput(legate::PhysicalStore out, const legate::Buffer<T, 2>& x)
+void WriteOutput(const legate::PhysicalStore& out, const legate::Buffer<T, 2>& x)
 {
   auto shape = out.shape<2>();
   auto write = out.write_accessor<T, 2>();
@@ -126,7 +126,7 @@ void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
 // Return sparse matrix of split samples for each feature
 template <typename T>
 SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
-                                           legate::AccessorRO<T, 3> X,
+                                           const legate::AccessorRO<T, 3>& X,
                                            legate::Rect<3> X_shape,
                                            int split_samples,
                                            int seed,
@@ -176,7 +176,7 @@ struct TreeBuilder {
               int32_t num_outputs,
               int32_t max_nodes,
               int32_t max_depth,
-              SparseSplitProposals<T> split_proposals)
+              const SparseSplitProposals<T>& split_proposals)
     : num_rows(num_rows),
       num_features(num_features),
       num_outputs(num_outputs),
@@ -200,10 +200,10 @@ struct TreeBuilder {
   void ComputeHistogram(Histogram<GPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
-                        legate::AccessorRO<TYPE, 3> X,
+                        const legate::AccessorRO<TYPE, 3>& X,
                         legate::Rect<3> X_shape,
-                        legate::AccessorRO<double, 3> g,
-                        legate::AccessorRO<double, 3> h,
+                        const legate::AccessorRO<double, 3>& g,
+                        const legate::AccessorRO<double, 3>& h,
                         NodeBatch batch)
   {
     // Build the histogram
@@ -334,7 +334,7 @@ struct TreeBuilder {
     }
   }
   template <typename TYPE>
-  void UpdatePositions(Tree& tree, legate::AccessorRO<TYPE, 3> X, legate::Rect<3> X_shape)
+  void UpdatePositions(Tree& tree, const legate::AccessorRO<TYPE, 3>& X, legate::Rect<3> X_shape)
   {
     // Update the positions
     for (int i = 0; i < num_rows; i++) {
@@ -403,8 +403,8 @@ struct TreeBuilder {
   }
   void InitialiseRoot(legate::TaskContext context,
                       Tree& tree,
-                      legate::AccessorRO<double, 3> g_accessor,
-                      legate::AccessorRO<double, 3> h_accessor,
+                      const legate::AccessorRO<double, 3>& g_accessor,
+                      const legate::AccessorRO<double, 3>& h_accessor,
                       const legate::Rect<3>& g_shape,
                       double alpha)
   {

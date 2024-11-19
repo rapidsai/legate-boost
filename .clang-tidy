@@ -1,0 +1,4 @@
+Checks:          'performance-*'
+WarningsAsErrors: true
+HeaderFilterRegex: '.*'
+FormatStyle:     google
