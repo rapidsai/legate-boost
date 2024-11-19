@@ -31,8 +31,6 @@ find_package(legate REQUIRED)
 
 if(Legion_USE_CUDA)
   enable_language(CUDA)
-  find_package(CUDAToolkit)
-  message(STATUS "CUDA found: ${CUDAToolkit_ROOT}")
 endif()
 
 find_package(BLAS REQUIRED)

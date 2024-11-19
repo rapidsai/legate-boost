@@ -61,7 +61,7 @@ fi
 if hasArg clang-tidy; then
     echo "running clang-tidy..."
     # Build the project with clang
-    CUDA_ROOT="$(dirname "$(dirname "$(which nvcc)")")"
+    CUDA_ROOT="$(dirname "$(dirname "$(which cuda-gdb)")")"
     echo "Using CUDA at '${CUDA_ROOT}'"
     cmake . -B build_clang_tidy -Dlegate_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
     FIX_ARG=""
