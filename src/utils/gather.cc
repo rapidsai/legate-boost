@@ -40,8 +40,8 @@ struct gather_fn {
     auto n_features = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
 
     // we can retrieve sample ids via argument(host) or legate store (host)
-    const int64_t* sample_row_ptr;
-    int64_t n_samples = 0;
+    const int64_t* sample_row_ptr = nullptr;
+    int64_t n_samples             = 0;
     if (context.scalars().size() > 0) {
       auto sample_rows_span = context.scalar(0).values<int64_t>();
       n_samples             = sample_rows_span.size();

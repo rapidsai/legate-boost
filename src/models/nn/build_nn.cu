@@ -14,6 +14,7 @@
  *
  */
 #include "build_nn.h"
+#include <math.h>
 #include <thrust/device_vector.h>
 #include <deque>
 #include <cstdio>
@@ -44,7 +45,7 @@ void SyncCPU(legate::TaskContext context)
   std::vector<float> gather_result(num_ranks);
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
-  float tmp;
+  float tmp = NAN;
   legate::comm::coll::collAllgather(
     &tmp, gather_result.data(), 1, legate::comm::coll::CollDataType::CollFloat, comm_ptr);
 }
@@ -53,7 +54,7 @@ void SyncCPU(legate::TaskContext context)
 // Store information about the coefficient and bias sizes
 class NNContext {
  public:
-  cublasHandle_t handle;
+  cublasHandle_t handle{};
   cudaStream_t stream;
   std::vector<std::array<int64_t, 2>> coefficient_extents;
   std::vector<std::array<int64_t, 2>> bias_extents;

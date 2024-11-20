@@ -23,7 +23,7 @@ namespace legateboost {
 class LegateboostMapper : public legate::mapping::Mapper {
  public:
   LegateboostMapper();
-  virtual ~LegateboostMapper(void) {}
+  ~LegateboostMapper(void) override {}
 
  private:
   LegateboostMapper(const LegateboostMapper& rhs)            = delete;

@@ -173,32 +173,36 @@ class Histogram {
 
  private:
   legate::Buffer<GPairT, 3> buffer_;  // Nodes, outputs, bins
-  int node_begin_;
-  int node_end_;
-  std::size_t size_;
+  int node_begin_{} {};
+  int node_end_{} {};
+  std::size_t size_{} {};
 
  public:
 #ifdef __CUDACC__
   Histogram(int node_begin, int node_end, int num_outputs, int num_bins, cudaStream_t stream)
-    : node_begin_(node_begin), node_end_(node_end)
+    : buffer_(legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins})),
+      node_begin_(node_begin),
+      node_end_(node_end),
+      size_((node_end - node_begin) * num_outputs * num_bins)
   {
     static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
                   "Unexpected size of GPairT");
     static_assert(sizeof(GPairT) == 2 * sizeof(atomic_add_type),
                   "AtomicAdd type does not match size of type");
-    buffer_ = legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins});
-    size_   = (node_end - node_begin) * num_outputs * num_bins;
+
     CHECK_CUDA(
       cudaMemsetAsync(buffer_.ptr(legate::Point<3>::ZEROES()), 0, size_ * sizeof(GPairT), stream));
   }
 #else
   Histogram(int node_begin, int node_end, int num_outputs, int num_bins)
-    : node_begin_(node_begin), node_end_(node_end)
+    : buffer_(legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins})),
+      node_begin_(node_begin),
+      node_end_(node_end),
+      size_((node_end - node_begin) * num_outputs * num_bins)
   {
     static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
                   "Unexpected size of GPairT");
-    buffer_ = legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins});
-    size_   = (node_end - node_begin) * num_outputs * num_bins;
+
     for (std::size_t i = 0; i < size_; i++) {
       buffer_.ptr(legate::Point<3>::ZEROES())[i] = GPairT{0.0, 0.0};
     }

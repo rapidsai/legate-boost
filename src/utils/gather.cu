@@ -42,10 +42,10 @@ struct gather_fn {
     auto stream = context.get_task_stream();
 
     // we can retrieve sample ids via argument(host) or legate_store(device)
-    const int64_t* sample_row_ptr;
-    int64_t n_samples = 0;
-    const int64_t* sample_row_host_ptr;
-    bool host_samples = context.scalars().size() > 0;
+    const int64_t* sample_row_ptr      = nullptr;
+    int64_t n_samples                  = 0;
+    const int64_t* sample_row_host_ptr = nullptr;
+    bool host_samples                  = context.scalars().size() > 0;
     if (host_samples) {
       auto sample_rows_span = context.scalar(0).values<int64_t>();
       n_samples             = sample_rows_span.size();

@@ -27,7 +27,7 @@ template <typename T>
 struct Matrix {
   T* data;
   std::shared_ptr<legate::Buffer<T, 2>> buffer;
-  std::array<int64_t, 2> extent;
+  std::array<int64_t, 2> extent{};
 
   Matrix(T* data, std::array<int64_t, 2> extent) : data(data)
   {
@@ -73,7 +73,7 @@ struct Matrix {
   {
     auto shape = store.shape<3>();
     auto data  = store.read_accessor<T, 3, true>().ptr(shape.lo);
-    std::array<int64_t, 2> extent;
+    std::array<int64_t, 2> extent{};
     if (broadcast_dimension == 0) {
       extent = {shape.hi[1] - shape.lo[1] + 1, shape.hi[2] - shape.lo[2] + 1};
     } else if (broadcast_dimension == 1) {

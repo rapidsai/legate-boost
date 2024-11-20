@@ -14,6 +14,7 @@
  */
 #pragma once
 
+#include <math.h>
 #include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator
 #include <thrust/for_each.h>                    // for for_each_n
 #include <legate/task/task_context.h>           // for TaskContext
@@ -82,7 +83,7 @@ __host__ __device__ inline double calc_digamma(double x)
     // accurate than tan(pi * x). While these operations are mathematically equivalent
     // since both x and r are in radians and tan() has a periodicity of pi, in practice
     // the computation of pi * x is a source of error (when |x| > 1).
-    double q, r;
+    double q = NAN, r = NAN;
     r = std::modf(x, &q);
     return calc_digamma(1 - x) - m_PI / std::tan(m_PI * r);
   }
@@ -139,7 +140,7 @@ __host__ __device__ inline float calc_digamma(float x)
     // accurate than tan(pi * x). While these operations are mathematically equivalent
     // since both x and r are in radians and tan() has a periodicity of pi, in practice
     // the computation of pi * x is a source of error (when |x| > 1).
-    double q, r;
+    double q = NAN, r = NAN;
     r                      = std::modf(x, &q);
     float pi_over_tan_pi_x = static_cast<float>(m_PI / std::tan(m_PI * r));
     return calc_digamma(1 - x) - pi_over_tan_pi_x;
@@ -199,8 +200,8 @@ __host__ __device__ inline double zeta(double x, double q)
     -7.1661652561756670113e18  /*1.6938241367317436694528e27/236364091 */
   };
 
-  int i;
-  double a, b, k, s, t, w;
+  int i    = 0;
+  double a = NAN, b = NAN, k = NAN, s = NAN, t = NAN, w = NAN;
 
   if (x == 1.0) { return std::numeric_limits<double>::infinity(); }
 

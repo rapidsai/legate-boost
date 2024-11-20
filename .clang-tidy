@@ -1,4 +1,4 @@
-Checks:          'performance-*'
+Checks:          'performance-*,cppcoreguidelines-*' #,clang-analyzer-*,readability-*,modernize-*,misc-*,bugprone-*,cert-*,hicpp-*,portability-*'
 WarningsAsErrors: true
 HeaderFilterRegex: '.*'
 FormatStyle:     google

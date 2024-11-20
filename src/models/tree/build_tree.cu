@@ -455,11 +455,11 @@ template <typename T, std::int32_t kBlockThreads = 1024, std::int32_t kItemsPerT
 struct HistogramKernel {
   const std::int32_t kItemsPerTile = kBlockThreads * kItemsPerThread;
   legate::Buffer<int> feature_groups;
-  int num_groups;
+  int num_groups{};
   int maximum_blocks_for_occupancy;
   HistogramKernel(const SparseSplitProposals<T>& split_proposals, cudaStream_t stream)
   {
-    int device;
+    int device = 0;
     CHECK_CUDA(cudaGetDevice(&device));
     std::int32_t n_mps = 0;
     CHECK_CUDA(cudaDeviceGetAttribute(&n_mps, cudaDevAttrMultiProcessorCount, device));

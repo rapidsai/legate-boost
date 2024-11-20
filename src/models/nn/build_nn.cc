@@ -37,9 +37,8 @@ class NNContext {
   NNContext(legate::TaskContext context,
             const std::vector<Matrix<T>>& coefficients,
             const std::vector<Matrix<T>>& bias)
-    : legate_context(context)
+    : num_parameters(0), legate_context(context)
   {
-    num_parameters = 0;
     for (const auto& c : coefficients) {
       coefficient_extents.push_back(c.extent);
       num_parameters += c.size();
