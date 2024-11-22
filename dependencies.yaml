@@ -12,6 +12,7 @@ files:
       - py_version
       - run
       - test
+      - clang_tidy
   py_build:
     output: pyproject
     pyproject_dir: .

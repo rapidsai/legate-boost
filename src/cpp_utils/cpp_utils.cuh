@@ -87,7 +87,7 @@ inline void LaunchN(size_t n, cudaStream_t stream, const L& lambda)
 }
 
 template <typename T>
-void AllReduce(legate::TaskContext context, T* x, int count, ncclRedOp_t op, cudaStream_t stream)
+void AllReduce(legate::TaskContext context, tcb::span<T> x, ncclRedOp_t op, cudaStream_t stream)
 {
   const auto& domain = context.get_launch_domain();
   size_t num_ranks   = domain.get_volume();
@@ -99,13 +99,13 @@ void AllReduce(legate::TaskContext context, T* x, int count, ncclRedOp_t op, cud
 
   if (num_ranks > 1) {
     if (std::is_same<T, float>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclFloat, op, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclFloat, op, *nccl_comm, stream));
     } else if (std::is_same<T, double>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclDouble, op, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclDouble, op, *nccl_comm, stream));
     } else if (std::is_same<T, int64_t>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclInt64, op, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclInt64, op, *nccl_comm, stream));
     } else if (std::is_same<T, int32_t>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclInt, op, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclInt, op, *nccl_comm, stream));
     } else {
       EXPECT(false, "Unsupported type for all reduce.");
     }
@@ -114,9 +114,9 @@ void AllReduce(legate::TaskContext context, T* x, int count, ncclRedOp_t op, cud
 }
 
 template <typename T>
-void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t stream)
+void SumAllReduce(legate::TaskContext context, tcb::span<T> x, cudaStream_t stream)
 {
-  AllReduce(context, x, count, ncclSum, stream);
+  AllReduce(context, x, ncclSum, stream);
 }
 
 #if THRUST_VERSION >= 101600

@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <memory>
 #include <limits>
+#include <tcb/span.hpp>
 #include "../../cpp_utils/cpp_utils.h"
 #include "legate_library.h"
 #include "legateboost.h"
@@ -25,14 +26,16 @@ namespace legateboost {
 
 template <typename T>
 struct Matrix {
-  T* data;
-  std::shared_ptr<legate::Buffer<T, 2>> buffer;
   std::array<int64_t, 2> extent{};
+  tcb::span<T> data;
+  std::shared_ptr<legate::Buffer<T, 2>> buffer;
 
-  Matrix(T* data, std::array<int64_t, 2> extent) : data(data)
+  Matrix(tcb::span<T> data, std::array<int64_t, 2> extent)
+    : extent({std::max(extent[0], 0L), std::max(extent[1], 0L)}), data(data)
   {
-    this->extent[0] = std::max(extent[0], 0L);
-    this->extent[1] = std::max(extent[1], 0L);
+    if (extent[0] * extent[1] != data.size()) {
+      throw std::runtime_error("Matrix extent does not match data size");
+    }
   }
 
   __host__ __device__ std::int64_t size() const { return extent[0] * extent[1]; }
@@ -48,23 +51,24 @@ struct Matrix {
     T* data    = store.read_accessor<T, 1, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
+
   static Matrix<T> From1dOutputStore(const legate::PhysicalStore& store)
   {
     auto shape = store.shape<1>();
-    T* data    = store.read_write_accessor<T, 1, true>().ptr(shape.lo);
+    tcb::span<T> data(store.read_write_accessor<T, 1, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
 
   static Matrix<T> From2dStore(legate::PhysicalStore store)
   {
     auto shape = store.shape<2>();
-    T* data    = store.read_accessor<T, 2, true>().ptr(shape.lo);
+    tcb::span<T> data(store.read_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
   static Matrix<T> From2dOutputStore(const legate::PhysicalStore& store)
   {
     auto shape = store.shape<2>();
-    T* data    = store.read_write_accessor<T, 2, true>().ptr(shape.lo);
+    tcb::span<T> data(store.read_write_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
 
@@ -81,7 +85,7 @@ struct Matrix {
     } else {
       extent = {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1};
     }
-    return Matrix<T>(const_cast<T*>(data), extent);
+    return Matrix<T>({const_cast<T*>(data), narrow<std::size_t>(extent[0] * extent[1])}, extent);
   }
 
   static Matrix<T> Create(std::array<int64_t, 2> extent)
@@ -93,7 +97,7 @@ struct Matrix {
     std::shared_ptr<legate::Buffer<T, 2>> buffer(
       new legate::Buffer<T, 2>(legate::create_buffer<T>(legate::Point<2>{extent[0], extent[1]})),
       deleter);
-    auto t   = Matrix<T>(buffer->ptr({0, 0}), extent);
+    auto t   = Matrix<T>({buffer->ptr({0, 0}), narrow<std::size_t>(extent[0] * extent[1])}, extent);
     t.buffer = buffer;
     return t;
   }
@@ -121,26 +125,27 @@ class LearningMonitor {
     old_cost               = cost;
 
     if (verbose && iteration % verbose == 0) {
-      logger.print() << "L-BFGS Iteration: " << iteration << " Cost: " << cost
-                     << " Grad Norm: " << grad_norm;
+      GetLogger().print() << "L-BFGS Iteration: " << iteration << " Cost: " << cost
+                          << " Grad Norm: " << grad_norm;
     }
 
     if (iteration >= max_iter) {
-      if (verbose) { logger.print() << "L-BFGS: Maximum number of iterations reached."; }
+      if (verbose) { GetLogger().print() << "L-BFGS: Maximum number of iterations reached."; }
       return true;
     }
 
     if (iterations_no_progress >= max_iterations_no_progress) {
       if (verbose) {
-        logger.print() << "No progress in " << max_iterations_no_progress
-                       << " iterations. Stopping.";
+        GetLogger().print() << "No progress in " << max_iterations_no_progress
+                            << " iterations. Stopping.";
       }
       return true;
     }
 
     if (grad_norm < gtol) {
       if (verbose) {
-        if (verbose) logger.print() << "Gradient norm below tolerance " << gtol << ". Stopping.";
+        if (verbose)
+          GetLogger().print() << "Gradient norm below tolerance " << gtol << ". Stopping.";
       }
       return true;
     }

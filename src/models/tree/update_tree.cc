@@ -78,7 +78,8 @@ struct update_tree_fn {
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       int pos = 0;
       // Use a max depth of 100 to avoid infinite loops
-      for (int depth = 0; depth < 100; depth++) {
+      const int max_depth = 100;
+      for (int depth = 0; depth < max_depth; depth++) {
         for (int k = 0; k < num_outputs; k++) {
           new_gradient[{pos, k}] += g_accessor[{i, 0, k}];
           new_hessian[{pos, k}] += h_accessor[{i, 0, k}];
@@ -90,8 +91,8 @@ struct update_tree_fn {
     }
 
     // Sync the new statistics
-    SumAllReduce(context, new_gradient.ptr({0, 0}), num_nodes * num_outputs);
-    SumAllReduce(context, new_hessian.ptr({0, 0}), num_nodes * num_outputs);
+    SumAllReduce(context, tcb::span<double>(new_gradient.ptr({0, 0}), num_nodes * num_outputs));
+    SumAllReduce(context, tcb::span<double>(new_hessian.ptr({0, 0}), num_nodes * num_outputs));
 
     // Update tree
     for (int i = 0; i < num_nodes; i++) {

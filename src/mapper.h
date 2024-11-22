@@ -27,7 +27,9 @@ class LegateboostMapper : public legate::mapping::Mapper {
 
  private:
   LegateboostMapper(const LegateboostMapper& rhs)            = delete;
+  LegateboostMapper(LegateboostMapper&& rhs)                 = delete;
   LegateboostMapper& operator=(const LegateboostMapper& rhs) = delete;
+  LegateboostMapper& operator=(LegateboostMapper&& rhs)      = delete;
 
   // Legate mapping functions
  public:

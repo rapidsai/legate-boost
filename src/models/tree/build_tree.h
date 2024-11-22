@@ -173,9 +173,9 @@ class Histogram {
 
  private:
   legate::Buffer<GPairT, 3> buffer_;  // Nodes, outputs, bins
-  int node_begin_{} {};
-  int node_end_{} {};
-  std::size_t size_{} {};
+  int node_begin_{};
+  int node_end_{};
+  std::size_t size_{};
 
  public:
 #ifdef __CUDACC__

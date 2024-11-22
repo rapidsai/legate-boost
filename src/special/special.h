@@ -30,6 +30,10 @@
 #include "../cpp_utils/cpp_utils.h"
 
 namespace legateboost {
+
+// Don't make any changes to imported math functions
+// NOLINTBEGIN
+
 /*
  * Code from PyTorch, which comes from cephes. See thirdparty/LICENSES/LICENSE.pytorch
  */
@@ -258,6 +262,8 @@ __host__ __device__ inline double zeta(double x, double q)
   }
   return s;
 }
+
+// NOLINTEND
 
 struct ErfOp {
   using ArgsT = std::tuple<>;

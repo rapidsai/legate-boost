@@ -47,7 +47,8 @@ struct predict_fn {
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       int pos = 0;
       // Use a max depth of 100 to avoid infinite loops
-      for (int depth = 0; depth < 100; depth++) {
+      const int max_depth = 100;
+      for (int depth = 0; depth < max_depth; depth++) {
         if (feature[pos] == -1) break;
         auto x = X_accessor[{i, feature[pos], 0}];
         pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;

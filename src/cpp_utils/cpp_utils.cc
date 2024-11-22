@@ -16,6 +16,11 @@
 #include "cpp_utils/cpp_utils.h"
 
 namespace legateboost {
-Legion::Logger logger("legateboost");
+
+Legion::Logger& GetLogger()
+{
+  static Legion::Logger logger("legateboost");
+  return logger;
+}
 
 }  // namespace legateboost

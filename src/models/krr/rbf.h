@@ -27,7 +27,7 @@ struct RbfOp {
   template <typename T>
   __host__ __device__ T operator()(T const& v) const
   {
-    return std::exp(-v / (2.0 * sigma * sigma));
+    return std::exp(-v / (2.0 * sigma * sigma));  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   }
 };
 

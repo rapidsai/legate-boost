@@ -84,7 +84,10 @@ class GradientQuantiser {
     CHECK_CUDA(cudaMemcpyAsync(
       local_abs_sum_device.ptr(0), &local_abs_sum, sizeof(GPair), cudaMemcpyHostToDevice, stream));
     // Take the max of the local sums
-    AllReduce(context, reinterpret_cast<double*>(local_abs_sum_device.ptr(0)), 2, ncclMax, stream);
+    AllReduce(context,
+              tcb::span<double>{reinterpret_cast<double*>(local_abs_sum_device.ptr(0)), 2},
+              ncclMax,
+              stream);
     CHECK_CUDA(cudaMemcpyAsync(
       &local_abs_sum, local_abs_sum_device.ptr(0), sizeof(GPair), cudaMemcpyDeviceToHost, stream));
     CHECK_CUDA(cudaStreamSynchronize(stream));
@@ -852,7 +855,8 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
   });
 
   // Sum reduce over all workers
-  SumAllReduce(context, draft_proposals.ptr({0, 0}), num_features * split_samples, stream);
+  SumAllReduce(
+    context, tcb::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples), stream);
 
   CHECK_CUDA_STREAM(stream);
 
@@ -1031,11 +1035,12 @@ struct TreeBuilder {
                                     stream);
     CHECK_CUDA_STREAM(stream);
 
-    SumAllReduce(context,
-                 reinterpret_cast<Histogram<IntegerGPair>::value_type::value_type*>(
-                   histogram.Ptr(batch.node_idx_begin)),
-                 batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2,
-                 stream);
+    using ReduceT = Histogram<IntegerGPair>::value_type::value_type;
+    SumAllReduce(
+      context,
+      tcb::span<ReduceT>(reinterpret_cast<ReduceT*>(histogram.Ptr(batch.node_idx_begin)),
+                         batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2),
+      stream);
 
     const int kScanBlockThreads  = 256;
     const size_t warps_needed    = num_features * batch.NodesInBatch();
@@ -1087,7 +1092,9 @@ struct TreeBuilder {
     CHECK_CUDA_STREAM(stream);
 
     SumAllReduce(
-      context, reinterpret_cast<int64_t*>(tree.node_sums.ptr({0, 0})), num_outputs * 2, stream);
+      context,
+      tcb::span<int64_t>(reinterpret_cast<int64_t*>(tree.node_sums.ptr({0, 0})), num_outputs * 2),
+      stream);
     LaunchN(num_outputs,
             stream,
             [            =,

@@ -149,7 +149,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
       draft_proposals[{j, i}] = has_data ? X[{row, j, 0}] : T(0);
     }
   }
-  SumAllReduce(context, draft_proposals.ptr({0, 0}), num_features * split_samples);
+  SumAllReduce(context, tcb::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples));
 
   // Sort samples
   std::vector<T> split_proposals_tmp;
@@ -225,9 +225,10 @@ struct TreeBuilder {
       }
     }
 
-    SumAllReduce(context,
-                 reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
-                 batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2);
+    SumAllReduce(
+      context,
+      tcb::span<double>(reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
+                        batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2));
     this->Scan(histogram, batch, tree);
   }
 
@@ -413,7 +414,9 @@ struct TreeBuilder {
         tree.node_sums[{0, j}] += {g_accessor[{i, 0, j}], h_accessor[{i, 0, j}]};
       }
     }
-    SumAllReduce(context, reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})), num_outputs * 2);
+    SumAllReduce(
+      context,
+      tcb::span<double>(reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})), num_outputs * 2));
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = tree.node_sums[{0, i}];
       tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, alpha);

@@ -27,16 +27,41 @@
 #include <tuple>
 #include "legate_library.h"
 #include "legate/comm/coll.h"
+#include <tcb/span.hpp>
 
 namespace legateboost {
 
-extern Legion::Logger logger;
+Legion::Logger& GetLogger();
 
+// Narrow function as per GSL and cppcoreguidelines
+// Throws if narrowing would lose information
+
+namespace detail {
+template <class T, class U>
+struct is_same_signedness
+  : public std::integral_constant<bool, std::is_signed<T>::value == std::is_signed<U>::value> {};
+}  // namespace detail
+
+template <class T, class U>
+T narrow(U u) noexcept(false)
+{
+  T t = static_cast<T>(u);
+  auto message =
+    "narrowing error: " + std::to_string(u) + " cannot be represented as " + typeid(T).name();
+  if (static_cast<U>(t) != u) throw std::runtime_error(message);
+  if (!detail::is_same_signedness<T, U>::value && ((t < T{}) != (u < U{})))
+    throw std::runtime_error(message);
+  return t;
+}
+
+// These macros can be replaced with the C++20 std::source_location when this code base moves to
+// C++20 The nolint can then be removed
 inline void expect(bool condition, const std::string& message, const std::string& file, int line)
 {
   if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }
 }
-#define EXPECT(condition, message) (expect(condition, message, __FILE__, __LINE__))
+#define EXPECT(condition, message) \
+  (expect(condition, message, __FILE__, __LINE__))  // NOLINT(cppcoreguidelines-macro-usage)
 
 template <int AXIS, typename ShapeAT, typename ShapeBT>
 void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, const std::string& file, int line)
@@ -47,8 +72,8 @@ void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, const std::string& 
          line);
 }
 #define EXPECT_AXIS_ALIGNED(axis, shape_a, shape_b) \
-  (expect_axis_aligned<axis>(shape_a, shape_b, __FILE__, __LINE__))
-
+  (expect_axis_aligned<axis>(                       \
+    shape_a, shape_b, __FILE__, __LINE__))  // NOLINT(cppcoreguidelines-macro-usage)
 template <int DIM>
 void expect_is_broadcast(const legate::Rect<DIM>& shape, const std::string& file, int line)
 {
@@ -58,7 +83,8 @@ void expect_is_broadcast(const legate::Rect<DIM>& shape, const std::string& file
     expect(shape.lo[i] == 0, ss.str(), file, line);
   }
 }
-#define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
+#define EXPECT_IS_BROADCAST(shape) \
+  (expect_is_broadcast(shape, __FILE__, __LINE__))  // NOLINT(cppcoreguidelines-macro-usage)
 
 template <typename T, int NDIM, bool assert_row_major = true>
 std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
@@ -70,7 +96,10 @@ std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM
 }
 
 template <typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr decltype(auto) type_dispatch_impl(
+  legate::Type::Code code,
+  Functor&& f,
+  Fnargs&&... args)  // NOLINT(cppcoreguidelines-missing-std-forward)
 {
   throw std::runtime_error("Unsupported type.");
 }
@@ -91,6 +120,7 @@ void expect_dense_row_major(const AccessorT& accessor,
          std::move(file),
          line);
 }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define EXPECT_DENSE_ROW_MAJOR(accessor, shape) \
   (expect_dense_row_major(accessor, shape, __FILE__, __LINE__))
 
@@ -100,31 +130,33 @@ constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f
   if (code == legate::type_code_of_v<T>) {
     return f.template operator()<T>(std::forward<Fnargs>(args)...);
   }
-  return type_dispatch_impl<Types...>(code, f, std::forward<Fnargs>(args)...);
+  return type_dispatch_impl<Types...>(
+    code, std::forward<Functor>(f), std::forward<Fnargs>(args)...);
 }
 
 template <typename... Types, typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
-  return type_dispatch_impl<Types...>(code, f, std::forward<Fnargs>(args)...);
+  return type_dispatch_impl<Types...>(
+    code, std::forward<Functor>(f), std::forward<Fnargs>(args)...);
 }
 
 template <typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
-  type_dispatch<float, double>(code, f, std::forward<Fnargs>(args)...);
+  type_dispatch<float, double>(code, std::forward<Functor>(f), std::forward<Fnargs>(args)...);
 }
 
 template <typename T, typename OpT>
-void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
+void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
 {
   const auto& domain = context.get_launch_domain();
   size_t num_ranks   = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a CPU communicator for multi-rank task.");
-  if (count == 0 || context.num_communicators() == 0) return;
+  if (x.size() == 0 || context.num_communicators() == 0) return;
   const auto& comm = context.communicator(0);
-  legate::comm::coll::CollDataType type;
+  legate::comm::coll::CollDataType type{};
   if (std::is_same<T, float>::value)
     type = legate::comm::coll::CollDataType::CollFloat;
   else if (std::is_same<T, double>::value)
@@ -133,9 +165,9 @@ void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
     EXPECT(false, "Unsupported type.");
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
-  size_t items_per_rank = (count + num_ranks - 1) / num_ranks;
+  size_t items_per_rank = (x.size() + num_ranks - 1) / num_ranks;
   std::vector<T> data(items_per_rank * num_ranks);
-  std::copy(x, x + count, data.begin());
+  std::copy(x.begin(), x.end(), data.begin());
   std::vector<T> recvbuf(items_per_rank * num_ranks);
 
   legate::comm::coll::collAlltoall(data.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
@@ -150,13 +182,13 @@ void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
 
   legate::comm::coll::collAllgather(
     partials.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
-  std::copy(recvbuf.begin(), recvbuf.begin() + count, x);
+  std::copy(recvbuf.begin(), recvbuf.begin() + x.size(), x.begin());
 }
 
 template <typename T>
-void SumAllReduce(legate::TaskContext context, T* x, int count)
+void SumAllReduce(legate::TaskContext context, tcb::span<T> x)
 {
-  AllReduce(context, x, count, std::plus<T>());
+  AllReduce(context, x, std::plus<T>());
 }
 
 /**

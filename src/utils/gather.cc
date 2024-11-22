@@ -40,31 +40,26 @@ struct gather_fn {
     auto n_features = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
 
     // we can retrieve sample ids via argument(host) or legate store (host)
-    const int64_t* sample_row_ptr = nullptr;
-    int64_t n_samples             = 0;
+    tcb::span<const int64_t> sample_rows{};
     if (context.scalars().size() > 0) {
-      auto sample_rows_span = context.scalar(0).values<int64_t>();
-      n_samples             = sample_rows_span.size();
-      sample_row_ptr        = &sample_rows_span[0];
+      auto legate_span = context.scalar(0).values<int64_t>();
+      sample_rows      = {legate_span.ptr(), legate_span.size()};
     } else {
-      auto sample_rows       = context.input(1).data();
-      auto sample_rows_shape = sample_rows.shape<1>();
-      EXPECT_IS_BROADCAST(sample_rows_shape);
-      auto sample_rows_accessor = sample_rows.read_accessor<int64_t, 1>();
-      n_samples                 = sample_rows_shape.hi[0] - sample_rows_shape.lo[0] + 1;
-      sample_row_ptr            = sample_rows_accessor.ptr(0);
+      auto [store, shape, accessor] = GetInputStore<int64_t, 1>(context.input(1).data());
+      EXPECT_IS_BROADCAST(shape);
+      sample_rows = {accessor.ptr(shape.lo), shape.volume()};
     }
 
-    for (int i = 0; i < n_samples; i++) {
-      auto row      = sample_row_ptr[i];
+    for (auto i = 0; i < sample_rows.size(); i++) {
+      auto row      = sample_rows[i];
       bool has_data = row >= X_shape.lo[0] && row <= X_shape.hi[0];
       for (int j = 0; j < n_features; j++) {
         split_proposals_accessor[{i, j}] = has_data ? X_accessor[{row, j}] : T(0);
       }
     }
 
-    SumAllReduce(
-      context, reinterpret_cast<T*>(split_proposals_accessor.ptr({0, 0})), n_samples * n_features);
+    SumAllReduce(context,
+                 tcb::span(split_proposals_accessor.ptr({0, 0}), sample_rows.size() * n_features));
   }
 };
 

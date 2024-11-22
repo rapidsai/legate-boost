@@ -72,7 +72,7 @@ class NNContext {
     CUBLAS_ERROR(cublasSetStream(handle, stream));
     cublasStatus_t status = cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
     if (status != CUBLAS_STATUS_SUCCESS) {
-      logger.print() << "WARNING: cuBLAS does not support Tensor cores!";
+      GetLogger().print() << "WARNING: cuBLAS does not support Tensor cores!";
     }
     num_parameters = 0;
     for (const auto& c : coefficients) {
@@ -92,11 +92,15 @@ class NNContext {
     std::vector<Matrix<T>> biases;
     std::size_t offset = 0;
     for (int i = 0; i < coefficient_extents.size(); i++) {
-      coefficients.push_back(Matrix<T>(x.data + offset, coefficient_extents.at(i)));
-      offset += coefficients.back().size();
+      auto size = narrow<std::size_t>(coefficient_extents.at(i)[0] * coefficient_extents.at(i)[1]);
+      // cannot use subspan due to legate issues/1525
+      coefficients.push_back(Matrix<T>({&x.data[offset], size}, coefficient_extents.at(i)));
+      offset += size;
     }
     for (int i = 0; i < bias_extents.size(); i++) {
-      biases.push_back(Matrix<T>(x.data + offset, bias_extents.at(i)));
+      auto size = narrow<std::size_t>(bias_extents.at(i)[0] * bias_extents.at(i)[1]);
+      // cannot use subspan due to legate issues/1525
+      biases.push_back(Matrix<T>({&x.data[offset], size}, bias_extents.at(i)));
       offset += biases.back().size();
     }
     return std::make_tuple(coefficients, biases);
@@ -138,12 +142,12 @@ void dot(NNContext* context, Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
                              n,
                              k,
                              &alpha,
-                             B.data,
+                             B.data.data(),
                              lda_B,
-                             A.data,
+                             A.data.data(),
                              lda_A,
                              &beta,
-                             C.data,
+                             C.data.data(),
                              lda_C));
   } else {
     CUBLAS_ERROR(cublasSgemm(context->handle,
@@ -153,12 +157,12 @@ void dot(NNContext* context, Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
                              n,
                              k,
                              &alpha,
-                             B.data,
+                             B.data.data(),
                              lda_B,
-                             A.data,
+                             A.data.data(),
                              lda_A,
                              &beta,
-                             C.data,
+                             C.data.data(),
                              lda_C));
   }
 }
@@ -168,7 +172,7 @@ void print(Matrix<T>& A, int64_t n)
 {
   CHECK_CUDA(cudaDeviceSynchronize());
   std::vector<T> host_data(A.size());
-  cudaMemcpy(host_data.data(), A.data, A.size() * sizeof(T), cudaMemcpyDeviceToHost);
+  cudaMemcpy(host_data.data(), A.data.data(), A.size() * sizeof(T), cudaMemcpyDeviceToHost);
   for (int i = 0; i < std::min(n, A.size()); i++) { std::cout << host_data[i] << " "; }
   std::cout << '\n';
 }
@@ -177,9 +181,8 @@ template <typename T>
 Matrix<T> multiply(Matrix<T>& A, T scalar, cudaStream_t stream)
 {
   auto result = Matrix<T>::Create(A.extent);
-  auto out    = result.data;
-  auto in     = A.data;
-  LaunchN(A.size(), stream, [=] __device__(int64_t idx) { out[idx] = in[idx] * scalar; });
+  LaunchN(
+    A.size(), stream, [=] __device__(int64_t idx) { result.data[idx] = A.data[idx] * scalar; });
   return result;
 }
 
@@ -187,18 +190,19 @@ template <typename T>
 Matrix<T> subtract(const Matrix<T>& A, const Matrix<T>& B, cudaStream_t stream)
 {
   EXPECT(A.extent == B.extent, "Matrix dimensions must match");
-  auto result     = Matrix<T>::Create(A.extent);
-  auto in         = A.data;
-  auto out        = result.data;
-  auto other_data = B.data;
-  LaunchN(A.size(), stream, [=] __device__(int64_t idx) { out[idx] = in[idx] - other_data[idx]; });
+  auto result = Matrix<T>::Create(A.extent);
+  LaunchN(A.size(), stream, [=] __device__(int64_t idx) {
+    result.data[idx] = A.data[idx] - B.data[idx];
+  });
   return result;
 }
 
 template <typename T, typename T2>
 void fill(Matrix<T>& A, T2 val, cudaStream_t stream)
 {
-  LaunchN(A.size(), stream, [=] __device__(int64_t idx) { A.data[idx] = val; });
+  // Cannot use tcb::span in kernel
+  auto ptr = A.data.data();
+  LaunchN(A.size(), stream, [=] __device__(int64_t idx) { ptr[idx] = val; });
 }
 
 template <typename T>
@@ -207,9 +211,9 @@ T vector_norm(NNContext* context, Matrix<T>& A)
   T result = 0.0;
   if (A.size() == 0) return result;
   if constexpr (std::is_same<T, double>::value) {
-    CUBLAS_ERROR(cublasDnrm2(context->handle, A.size(), A.data, 1, &result));
+    CUBLAS_ERROR(cublasDnrm2(context->handle, A.size(), A.data.data(), 1, &result));
   } else {
-    CUBLAS_ERROR(cublasSnrm2(context->handle, A.size(), A.data, 1, &result));
+    CUBLAS_ERROR(cublasSnrm2(context->handle, A.size(), A.data.data(), 1, &result));
   }
   CHECK_CUDA(cudaStreamSynchronize(context->stream));
   return result;
@@ -221,9 +225,11 @@ T vector_dot(NNContext* context, Matrix<T>& A, Matrix<T>& B)
   T result = 0.0;
   if (A.size() == 0) return result;
   if constexpr (std::is_same<T, double>::value) {
-    CUBLAS_ERROR(cublasDdot(context->handle, A.size(), A.data, 1, B.data, 1, &result));
+    CUBLAS_ERROR(
+      cublasDdot(context->handle, A.size(), A.data.data(), 1, B.data.data(), 1, &result));
   } else {
-    CUBLAS_ERROR(cublasSdot(context->handle, A.size(), A.data, 1, B.data, 1, &result));
+    CUBLAS_ERROR(
+      cublasSdot(context->handle, A.size(), A.data.data(), 1, B.data.data(), 1, &result));
   }
   CHECK_CUDA(cudaStreamSynchronize(context->stream));
   return result;
@@ -275,30 +281,27 @@ T eval_cost(NNContext* context,
   Matrix<T> cost_array = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
   EXPECT(pred.extent == h.extent, "Preds not equal to gradient size");
-
   LaunchN(pred.size(), context->stream, [=] __device__(int64_t idx) {
-    T p                  = pred.data[idx];
-    T g_val              = g.data[idx];
-    T h_val              = h.data[idx];
-    cost_array.data[idx] = (p * (g_val + 0.5 * h_val * p) / (total_rows * pred.extent[1]));
+    cost_array.data[idx] = (pred.data[idx] * (g.data[idx] + 0.5 * h.data[idx] * pred.data[idx]) /
+                            (total_rows * pred.extent[1]));
   });
 
   auto result               = legate::create_buffer<T>(1);
   size_t temp_storage_bytes = 0;
   cub::DeviceReduce::Sum(nullptr,
                          temp_storage_bytes,
-                         cost_array.data,
+                         cost_array.data.data(),
                          result.ptr(0),
                          cost_array.size(),
                          context->stream);
   auto temp_storage = legate::create_buffer<int8_t>(temp_storage_bytes);
   cub::DeviceReduce::Sum(temp_storage.ptr(0),
                          temp_storage_bytes,
-                         cost_array.data,
+                         cost_array.data.data(),
                          result.ptr(0),
                          cost_array.size(),
                          context->stream);
-  SumAllReduce(context->legate_context, result.ptr(0), 1, context->stream);
+  SumAllReduce(context->legate_context, tcb::span<T>(result.ptr(0), 1), context->stream);
 
   T cost;
   cudaMemcpyAsync(&cost, result.ptr(0), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
@@ -320,10 +323,7 @@ Matrix<T> eval_cost_prime(NNContext* context, Matrix<T>& pred, Matrix<double>& g
   EXPECT(pred.extent == h.extent, "Preds not equal to gradient size");
 
   LaunchN(pred.extent[0] * pred.extent[1], context->stream, [=] __device__(int64_t idx) {
-    T p                  = pred.data[idx];
-    T g_val              = g.data[idx];
-    T h_val              = h.data[idx];
-    cost_prime.data[idx] = g_val + h_val * p;
+    cost_prime.data[idx] = g.data[idx] + h.data[idx] * pred.data[idx];
   });
   return cost_prime;
 }
@@ -386,7 +386,8 @@ Matrix<T> backward(NNContext* nn_context,
   }
 
   // Scale and allreduce gradients
-  SumAllReduce(nn_context->legate_context, grads.data, grads.size(), nn_context->stream);
+  SumAllReduce(nn_context->legate_context, grads.data, nn_context->stream);
+  // Cannot use tcb::span in kernel
   LaunchN(grads.size(), nn_context->stream, [=] __device__(int64_t idx) {
     grads.data[idx] /= total_rows;
   });
@@ -491,8 +492,8 @@ class LBfgs {
     for (int i = 0; i < s.size(); i++) {
       auto s_i = s.at(i);
       EXPECT(b.extent[1] == s_i.size(), "s_i size does not match");
-      CHECK_CUDA(cudaMemcpyAsync(b.data + offset,
-                                 s_i.data,
+      CHECK_CUDA(cudaMemcpyAsync(&b.data[offset],
+                                 s_i.data.data(),
                                  s_i.size() * sizeof(T),
                                  cudaMemcpyDeviceToDevice,
                                  context->stream));
@@ -501,15 +502,15 @@ class LBfgs {
     for (int i = 0; i < y.size(); i++) {
       auto y_i = y.at(i);
       EXPECT(b.extent[1] == y_i.size(), "y_i size does not match");
-      CHECK_CUDA(cudaMemcpyAsync(b.data + offset,
-                                 y_i.data,
+      CHECK_CUDA(cudaMemcpyAsync(&b.data[offset],
+                                 y_i.data.data(),
                                  y_i.size() * sizeof(T),
                                  cudaMemcpyDeviceToDevice,
                                  context->stream));
       offset += b.extent[1];
     }
-    CHECK_CUDA(cudaMemcpyAsync(b.data + offset,
-                               grad.data,
+    CHECK_CUDA(cudaMemcpyAsync(&b.data[offset],
+                               grad.data.data(),
                                grad.size() * sizeof(T),
                                cudaMemcpyDeviceToDevice,
                                context->stream));

@@ -31,13 +31,13 @@ class NNContext {
  public:
   std::vector<std::array<int64_t, 2>> coefficient_extents;
   std::vector<std::array<int64_t, 2>> bias_extents;
-  int64_t num_parameters;
+  int64_t num_parameters{};
   legate::TaskContext legate_context;
   template <typename T>
   NNContext(legate::TaskContext context,
             const std::vector<Matrix<T>>& coefficients,
             const std::vector<Matrix<T>>& bias)
-    : num_parameters(0), legate_context(context)
+    : legate_context(context)
   {
     for (const auto& c : coefficients) {
       coefficient_extents.push_back(c.extent);
@@ -55,11 +55,13 @@ class NNContext {
     std::vector<Matrix<T>> biases;
     std::size_t offset = 0;
     for (int i = 0; i < coefficient_extents.size(); i++) {
-      coefficients.push_back(Matrix<T>(x.data + offset, coefficient_extents.at(i)));
-      offset += coefficients.back().size();
+      auto size = narrow<std::size_t>(coefficient_extents.at(i)[0] * coefficient_extents.at(i)[1]);
+      coefficients.push_back(Matrix<T>(x.data.subspan(offset, size), coefficient_extents.at(i)));
+      offset += size;
     }
     for (int i = 0; i < bias_extents.size(); i++) {
-      biases.push_back(Matrix<T>(x.data + offset, bias_extents.at(i)));
+      auto size = narrow<std::size_t>(bias_extents.at(i)[0] * bias_extents.at(i)[1]);
+      biases.push_back(Matrix<T>(x.data.subspan(offset, size), bias_extents.at(i)));
       offset += biases.back().size();
     }
     return std::make_tuple(coefficients, biases);
@@ -91,11 +93,35 @@ void dot(Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
   int lda_C = m;
 
   if constexpr (std::is_same<T, double>::value) {
-    cblas_dgemm(
-      CblasColMajor, op_B, op_A, m, n, k, alpha, B.data, lda_B, A.data, lda_A, beta, C.data, lda_C);
+    cblas_dgemm(CblasColMajor,
+                op_B,
+                op_A,
+                m,
+                n,
+                k,
+                alpha,
+                B.data.data(),
+                lda_B,
+                A.data.data(),
+                lda_A,
+                beta,
+                C.data.data(),
+                lda_C);
   } else {
-    cblas_sgemm(
-      CblasColMajor, op_B, op_A, m, n, k, alpha, B.data, lda_B, A.data, lda_A, beta, C.data, lda_C);
+    cblas_sgemm(CblasColMajor,
+                op_B,
+                op_A,
+                m,
+                n,
+                k,
+                alpha,
+                B.data.data(),
+                lda_B,
+                A.data.data(),
+                lda_A,
+                beta,
+                C.data.data(),
+                lda_C);
   }
 }
 
@@ -126,7 +152,7 @@ Matrix<T> subtract(const Matrix<T>& A, const Matrix<T>& B)
 template <typename T, typename T2>
 void fill(Matrix<T>& A, T2 val)
 {
-  for (int i = 0; i < A.size(); i++) A.data[i] = val;
+  for (auto& a : A.data) a = val;
 }
 
 template <typename T>
@@ -135,9 +161,9 @@ T vector_norm(Matrix<T>& A)
   T result = 0.0;
   if (A.size() == 0) return result;
   if constexpr (std::is_same<T, double>::value) {
-    result = cblas_dnrm2(A.size(), A.data, 1);
+    result = cblas_dnrm2(A.size(), A.data.data(), 1);
   } else {
-    result = cblas_snrm2(A.size(), A.data, 1);
+    result = cblas_snrm2(A.size(), A.data.data(), 1);
   }
   return result;
 }
@@ -148,9 +174,9 @@ T vector_dot(Matrix<T>& A, Matrix<T>& B)
   T result = 0.0;
   if (A.size() == 0) return result;
   if constexpr (std::is_same<T, double>::value) {
-    result = cblas_ddot(A.size(), A.data, 1, B.data, 1);
+    result = cblas_ddot(A.size(), A.data.data(), 1, B.data.data(), 1);
   } else {
-    result = cblas_sdot(A.size(), A.data, 1, B.data, 1);
+    result = cblas_sdot(A.size(), A.data.data(), 1, B.data.data(), 1);
   }
   return result;
 }
@@ -204,7 +230,7 @@ T eval_cost(NNContext* context,
 
   sum /= total_rows * pred.extent[1];
 
-  SumAllReduce(context->legate_context, &sum, 1);
+  SumAllReduce(context->legate_context, tcb::span<double>(&sum, 1));
 
   if (alpha > 0.0) {
     T L2 = 0.0;
@@ -285,8 +311,8 @@ Matrix<T> backward(NNContext* nn_context,
   }
 
   // Scale and allreduce gradients
-  SumAllReduce(nn_context->legate_context, grads.data, grads.size());
-  for (int i = 0; i < grads.size(); i++) grads.data[i] /= total_rows;
+  SumAllReduce(nn_context->legate_context, grads.data);
+  for (auto& grad : grads.data) grad /= total_rows;
   return grads;
 }
 

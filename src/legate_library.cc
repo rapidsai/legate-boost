@@ -18,8 +18,6 @@ namespace legateboost {
 
 static const char* const library_name = "legateboost";
 
-Legion::Logger log_legateboost(library_name);
-
 /*static*/ legate::TaskRegistrar& Registry::get_registrar()
 {
   static legate::TaskRegistrar registrar;

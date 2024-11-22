@@ -78,10 +78,8 @@ struct gather_fn {
     });
 
     // use NCCL for reduction
-    SumAllReduce(context,
-                 reinterpret_cast<T*>(split_proposals_accessor.ptr({0, 0})),
-                 n_features * n_samples,
-                 stream);
+    SumAllReduce(
+      context, tcb::span<T>(split_proposals_accessor.ptr({0, 0}), n_features * n_samples), stream);
 
     CHECK_CUDA_STREAM(stream);
   }

@@ -6,9 +6,12 @@ channels:
 - conda-forge
 - nvidia
 dependencies:
+- clang-tools>=19.0
+- clangxx>=19.0
 - cmake>=3.24.0,!=3.30.0
 - cuda-cudart-dev
 - cuda-nvcc
+- cuda-toolkit
 - cuda-version>=12.2
 - cunumeric==25.01.*,>=0.0.0.dev0
 - hypothesis>=6
