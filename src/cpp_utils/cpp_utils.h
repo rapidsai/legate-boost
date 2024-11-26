@@ -48,8 +48,8 @@ constexpr T narrow(U u) noexcept(false)
 {
   T t = static_cast<T>(u);
 #if __CUDA_ARCH__
-  assert(static_cast<U>(t) == u);
-  assert((detail::is_same_signedness<T, U>::value || ((t < T{}) == (u < U{}))));
+  if (static_cast<U>(t) != u) { __trap(); }
+  if (!detail::is_same_signedness<T, U>::value && ((t < T{}) != (u < U{}))) { __trap(); }
 #else
   auto message =
     "narrowing error: " + std::to_string(u) + " cannot be represented as " + typeid(T).name();

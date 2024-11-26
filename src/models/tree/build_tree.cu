@@ -227,17 +227,16 @@ struct HistogramAgent {
       if (current_node == kImpureTile) return;
       __syncthreads();
 
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      auto src_ptr = reinterpret_cast<SharedMemoryHistogramType::value_type*>(data);
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      auto dest_ptr = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+        &histogram[{current_node, output, begin_idx}]);
+
       for (int i = narrow_cast<int>(threadIdx.x); i < (end_idx - begin_idx) * 2;
            i += kBlockThreads) {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        auto addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
-                             // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-                             &histogram[{current_node, output, begin_idx + i / 2}]) +
-                           i % 2;
-
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        auto ptr = reinterpret_cast<SharedMemoryHistogramType::value_type*>(data);
-        atomicAdd(addPosition, ptr[i]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        atomicAdd(&dest_ptr[i],
+                  src_ptr[i]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       }
     }
     __device__ void LazyInit(int node_id, Histogram<IntegerGPair>& histogram, int output)
