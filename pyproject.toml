@@ -1,7 +1,7 @@
 [build-system]
 requires = [
     "cmake>=3.24.0,!=3.30.0",
-    "legate==24.11.*",
+    "legate==24.11.01*",
     "ninja>=1.11.1.1",
     "scikit-build>=0.18.0",
     "setuptools>=70.0",
@@ -24,8 +24,8 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "cupynumeric==24.11.*",
-    "legate==24.11.*",
+    "cupynumeric==24.11.01*",
+    "legate==24.11.01*",
     "numpy",
     "scikit-learn",
     "typing-extensions>=4.0",
