@@ -6,6 +6,11 @@ import legateboost as lb
 __all__: list[str] = []
 
 
+# return a tuple of all possible base models with default params
+def all_base_models():
+    return tuple(m() for m in lb.models.BaseModel.__subclasses__())
+
+
 def non_increasing(x, tol=1e-3):
     return all(x - y > -tol for x, y in zip(x, x[1:]))
 

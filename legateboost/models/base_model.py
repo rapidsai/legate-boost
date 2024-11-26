@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 
@@ -94,9 +95,15 @@ class BaseModel(PicklecupynumericMixin, ABC):
     def __str__(self) -> str:
         pass
 
-    @abstractmethod
     def __eq__(self, other: object) -> bool:
-        pass
+        return str(self) == str(other)
 
     @abstractmethod
     def clear(self) -> None: ...  # noqa: E704
+
+    @abstractmethod
+    def __mul__(self, scalar: Any) -> "BaseModel":
+        pass
+
+    def __hash__(self) -> int:
+        return hash(str(self))

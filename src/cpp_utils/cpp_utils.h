@@ -15,25 +15,31 @@
  */
 
 #pragma once
-#include "legate_library.h"
-#include <legate/type/type_info.h>
-#include "legate/comm/coll.h"
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
-#include <thrust/execution_policy.h>  // for host
+#include <thrust/execution_policy.h>
+#include <legate/type/type_info.h>
+#include <string>
+#include <utility>
+#include <vector>
+#include <algorithm>
+#include <functional>
+#include <tuple>
+#include "legate_library.h"
+#include "legate/comm/coll.h"
 
 namespace legateboost {
 
 extern Legion::Logger logger;
 
-inline void expect(bool condition, std::string message, std::string file, int line)
+inline void expect(bool condition, const std::string& message, const std::string& file, int line)
 {
   if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }
 }
 #define EXPECT(condition, message) (expect(condition, message, __FILE__, __LINE__))
 
 template <int AXIS, typename ShapeAT, typename ShapeBT>
-void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, std::string file, int line)
+void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, const std::string& file, int line)
 {
   expect((a.lo[AXIS] == b.lo[AXIS]) && (a.hi[AXIS] == b.hi[AXIS]),
          "Inconsistent axis alignment.",
@@ -44,7 +50,7 @@ void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, std::string file, i
   (expect_axis_aligned<axis>(shape_a, shape_b, __FILE__, __LINE__))
 
 template <int DIM>
-void expect_is_broadcast(const legate::Rect<DIM>& shape, std::string file, int line)
+void expect_is_broadcast(const legate::Rect<DIM>& shape, const std::string& file, int line)
 {
   for (int i = 0; i < DIM; i++) {
     std::stringstream ss;
@@ -56,7 +62,7 @@ void expect_is_broadcast(const legate::Rect<DIM>& shape, std::string file, int l
 
 template <typename T, int NDIM, bool assert_row_major = true>
 std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
-  legate::PhysicalStore store)
+  const legate::PhysicalStore& store)
 {
   auto shape    = store.shape<NDIM>();
   auto accessor = store.read_accessor<T, NDIM, true>();
@@ -72,7 +78,7 @@ constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f
 template <typename AccessorT, int N, typename T>
 void expect_dense_row_major(const AccessorT& accessor,
                             const legate::Rect<N, T>& shape,
-                            std::string file,
+                            const std::string& file,
                             int line)
 {
   // workaround to check 'row-major' for more than 2 dimensions, with
@@ -82,7 +88,7 @@ void expect_dense_row_major(const AccessorT& accessor,
 
   expect(shape_mod.empty() || accessor.is_dense_row_major(shape_mod),
          "Expected a dense row major store",
-         file,
+         std::move(file),
          line);
 }
 #define EXPECT_DENSE_ROW_MAJOR(accessor, shape) \
@@ -112,12 +118,12 @@ constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor&& 
 template <typename T, typename OpT>
 void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
 {
-  auto domain      = context.get_launch_domain();
-  size_t num_ranks = domain.get_volume();
+  const auto& domain = context.get_launch_domain();
+  size_t num_ranks   = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a CPU communicator for multi-rank task.");
   if (count == 0 || context.num_communicators() == 0) return;
-  auto comm = context.communicator(0);
+  const auto& comm = context.communicator(0);
   legate::comm::coll::CollDataType type;
   if (std::is_same<T, float>::value)
     type = legate::comm::coll::CollDataType::CollFloat;
@@ -276,6 +282,6 @@ class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
 
 }  // namespace legateboost
 
-#if __CUDACC__
+#ifdef __CUDACC__
 #include "../cpp_utils/cpp_utils.cuh"
 #endif

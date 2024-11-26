@@ -40,5 +40,19 @@ repos:
       hooks:
         - id: rapids-dependency-file-generator
           args: ["--clean"]
+    - repo: https://github.com/cpplint/cpplint.git
+      rev: '2.0.0'
+      hooks:
+        - id: cpplint
+          # match the line length to the one used by clang-format
+          # disable whitespace checks as they are already covered by clang-format
+          # runtime/references is disabled as this is a more controversial check in the google style guide
+          # include_subdir is disabled as it gives false postiives for top level includes
+          # readability/nolint is disabled as it interferes with clang-tidy
+          args: [
+            "--linelength=100",
+            "--filter=-whitespace,-runtime/references,-build/include_subdir,-readability/nolint",
+          ]
+
 default_language_version:
     python: python3

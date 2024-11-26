@@ -1,7 +1,28 @@
+/* Copyright 2024 NVIDIA Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
 #include "build_nn.h"
 #include <thrust/device_vector.h>
-#include "cublas_v2.h"
 #include <deque>
+#include <cstdio>
+#include <iostream>
+#include <vector>
+#include <utility>
+#include <tuple>
+#include <algorithm>
+#include "cublas_v2.h"
 
 namespace legateboost {
 
@@ -16,10 +37,10 @@ namespace {
 
 void SyncCPU(legate::TaskContext context)
 {
-  auto domain      = context.get_launch_domain();
-  size_t num_ranks = domain.get_volume();
+  const auto& domain = context.get_launch_domain();
+  size_t num_ranks   = domain.get_volume();
   if (num_ranks == 1) return;
-  auto comm = context.communicator(1);
+  const auto& comm = context.communicator(1);
   std::vector<float> gather_result(num_ranks);
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
@@ -148,7 +169,7 @@ void print(Matrix<T>& A, int64_t n)
   std::vector<T> host_data(A.size());
   cudaMemcpy(host_data.data(), A.data, A.size() * sizeof(T), cudaMemcpyDeviceToHost);
   for (int i = 0; i < std::min(n, A.size()); i++) { std::cout << host_data[i] << " "; }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T>
@@ -269,7 +290,7 @@ T eval_cost(NNContext* context,
                          result.ptr(0),
                          cost_array.size(),
                          context->stream);
-  auto temp_storage = legate::create_buffer<int8_t>({temp_storage_bytes});
+  auto temp_storage = legate::create_buffer<int8_t>(temp_storage_bytes);
   cub::DeviceReduce::Sum(temp_storage.ptr(0),
                          temp_storage_bytes,
                          cost_array.data,
@@ -464,7 +485,7 @@ class LBfgs {
     */
     if (s.size() == 0) { return multiply(grad, T(-1.0), context->stream); }
     // Form a matrix
-    auto b             = Matrix<T>::Create({int64_t(s.size() + y.size() + 1), grad.size()});
+    auto b = Matrix<T>::Create({static_cast<int64_t>(s.size() + y.size() + 1), grad.size()});
     std::size_t offset = 0;
     for (int i = 0; i < s.size(); i++) {
       auto s_i = s.at(i);
@@ -533,8 +554,7 @@ class LBfgs {
     T t = vector_dot(context, grad, direction);
     if (t >= 0) {
       if (verbose)
-        std::cout << "Search direction is not a descent direction. Resetting LBFGS search."
-                  << std::endl;
+        std::cout << "Search direction is not a descent direction. Resetting LBFGS search." << '\n';
       s.clear();
       y.clear();
       return multiply(grad, T(-1.0), context->stream);

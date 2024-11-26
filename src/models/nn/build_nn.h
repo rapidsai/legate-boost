@@ -14,6 +14,9 @@
  *
  */
 #pragma once
+#include <algorithm>
+#include <memory>
+#include <limits>
 #include "../../cpp_utils/cpp_utils.h"
 #include "legate_library.h"
 #include "legateboost.h"
@@ -45,7 +48,7 @@ struct Matrix {
     T* data    = store.read_accessor<T, 1, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
-  static Matrix<T> From1dOutputStore(legate::PhysicalStore store)
+  static Matrix<T> From1dOutputStore(const legate::PhysicalStore& store)
   {
     auto shape = store.shape<1>();
     T* data    = store.read_write_accessor<T, 1, true>().ptr(shape.lo);
@@ -58,7 +61,7 @@ struct Matrix {
     T* data    = store.read_accessor<T, 2, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
-  static Matrix<T> From2dOutputStore(legate::PhysicalStore store)
+  static Matrix<T> From2dOutputStore(const legate::PhysicalStore& store)
   {
     auto shape = store.shape<2>();
     T* data    = store.read_write_accessor<T, 2, true>().ptr(shape.lo);
@@ -66,7 +69,7 @@ struct Matrix {
   }
 
   // Take a 3d store, remove a broadcast dimension and return a 2d Matrix
-  static Matrix<T> Project3dStore(legate::PhysicalStore store, int broadcast_dimension)
+  static Matrix<T> Project3dStore(const legate::PhysicalStore& store, int broadcast_dimension)
   {
     auto shape = store.shape<3>();
     auto data  = store.read_accessor<T, 3, true>().ptr(shape.lo);

@@ -11,6 +11,7 @@
  */
 
 #include "legate_library.h"
+#include <memory>
 #include "mapper.h"
 
 namespace legateboost {

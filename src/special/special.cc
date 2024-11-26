@@ -12,7 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "special.h"
+#include "special/special.h"
 namespace  // unnamed
 {
 #ifndef LEGATEBOOST_USE_CUDA

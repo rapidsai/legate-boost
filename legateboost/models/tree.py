@@ -1,3 +1,4 @@
+import copy
 from enum import IntEnum
 from typing import Any
 
@@ -40,16 +41,6 @@ class Tree(BaseModel):
     split_value: cn.ndarray
     gain: cn.ndarray
     hessian: cn.ndarray
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Tree):
-            return NotImplemented
-        eq = [cn.all(self.leaf_value == other.leaf_value)]
-        eq.append(cn.all(self.feature == other.feature))
-        eq.append(cn.all(self.split_value == other.split_value))
-        eq.append(cn.all(self.gain == other.gain))
-        eq.append(cn.all(self.hessian == other.hessian))
-        return all(eq)
 
     def __init__(
         self,
@@ -249,3 +240,8 @@ class Tree(BaseModel):
             return text
 
         return recurse_print(0, 0)
+
+    def __mul__(self, scalar: Any) -> "Tree":
+        new = copy.deepcopy(self)
+        new.leaf_value *= scalar
+        return new
