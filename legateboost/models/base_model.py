@@ -5,10 +5,10 @@ import numpy as np
 
 import cupynumeric as cn
 
-from ..utils import PicklecupynumericMixin
+from ..utils import PickleCupynumericMixin
 
 
-class BaseModel(PicklecupynumericMixin, ABC):
+class BaseModel(PickleCupynumericMixin, ABC):
     """Base class for all models in LegateBoost.
 
     Defines the interface for fitting, updating, and predicting a model,
