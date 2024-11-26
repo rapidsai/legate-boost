@@ -92,7 +92,9 @@ struct Matrix {
   {
     auto deleter = [](legate::Buffer<T, 2>* ptr) {
       ptr->destroy();
-      delete ptr;
+      // Clang tidy suggests not deleting a pointer and using a smart pointer instead
+      // But this is a deleter for a smart pointer anyway
+      delete ptr;  // NOLINT(cppcoreguidelines-owning-memory)
     };
     std::shared_ptr<legate::Buffer<T, 2>> buffer(
       new legate::Buffer<T, 2>(legate::create_buffer<T>(legate::Point<2>{extent[0], extent[1]})),
@@ -104,10 +106,11 @@ struct Matrix {
 };
 
 class LearningMonitor {
-  const int max_iter;
-  const int max_iterations_no_progress = 5;
-  const int verbose;
-  const double gtol;
+  static constexpr int max_iterations_no_progress = 5;
+  static constexpr double min_progress            = 1e-16;
+  int max_iter;
+  int verbose;
+  double gtol;
   int iteration              = 0;
   int iterations_no_progress = 0;
   double old_cost            = std::numeric_limits<double>::max();
@@ -121,7 +124,7 @@ class LearningMonitor {
   template <typename T>
   bool IsConverged(T cost, T grad_norm)
   {
-    iterations_no_progress = old_cost - cost < 1e-16 ? iterations_no_progress + 1 : 0;
+    iterations_no_progress = old_cost - cost < min_progress ? iterations_no_progress + 1 : 0;
     old_cost               = cost;
 
     if (verbose && iteration % verbose == 0) {

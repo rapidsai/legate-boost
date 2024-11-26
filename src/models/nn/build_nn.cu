@@ -28,13 +28,17 @@
 namespace legateboost {
 
 namespace {
-#define CUBLAS_ERROR(x)                                                            \
-  do {                                                                             \
-    if ((x) != CUBLAS_STATUS_SUCCESS) {                                            \
-      printf("Error %s at %s:%d\n", cublasGetStatusString(x), __FILE__, __LINE__); \
-      exit(EXIT_FAILURE);                                                          \
-    }                                                                              \
-  } while (0)
+__host__ inline void check_cublas(cublasStatus_t status, const char* file, int line)
+{
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    std::stringstream ss;
+    ss << "Internal cublas failure with error " << cublasGetStatusString(status) << " in file "
+       << file << " at line " << line;
+    throw std::runtime_error(ss.str());
+  }
+}
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define CUBLAS_ERROR(x) check_cublas(x, __FILE__, __LINE__)
 
 void SyncCPU(legate::TaskContext context)
 {
@@ -84,6 +88,10 @@ class NNContext {
       num_parameters += b.size();
     }
   }
+  NNContext(const NNContext&)            = delete;
+  NNContext(NNContext&&)                 = delete;
+  NNContext& operator=(const NNContext&) = delete;
+  NNContext& operator=(NNContext&&)      = delete;
   ~NNContext() { CUBLAS_ERROR(cublasDestroy(handle)); }
   template <typename T>
   std::tuple<std::vector<Matrix<T>>, std::vector<Matrix<T>>> Unpack(Matrix<T>& x)
@@ -200,9 +208,7 @@ Matrix<T> subtract(const Matrix<T>& A, const Matrix<T>& B, cudaStream_t stream)
 template <typename T, typename T2>
 void fill(Matrix<T>& A, T2 val, cudaStream_t stream)
 {
-  // Cannot use tcb::span in kernel
-  auto ptr = A.data.data();
-  LaunchN(A.size(), stream, [=] __device__(int64_t idx) { ptr[idx] = val; });
+  LaunchN(A.size(), stream, [=] __device__(int64_t idx) { A.data[idx] = val; });
 }
 
 template <typename T>
@@ -282,6 +288,7 @@ T eval_cost(NNContext* context,
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
   EXPECT(pred.extent == h.extent, "Preds not equal to gradient size");
   LaunchN(pred.size(), context->stream, [=] __device__(int64_t idx) {
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     cost_array.data[idx] = (pred.data[idx] * (g.data[idx] + 0.5 * h.data[idx] * pred.data[idx]) /
                             (total_rows * pred.extent[1]));
   });
@@ -309,7 +316,7 @@ T eval_cost(NNContext* context,
   if (alpha > 0.0) {
     T L2 = 0.0;
     for (auto& c : coefficients) { L2 += vector_dot(context, c, c); }
-    L2 = (0.5 * alpha) * L2 / total_rows;
+    L2 = (0.5 * alpha) * L2 / total_rows;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
     cost += L2;
   }
   return cost;
@@ -436,10 +443,10 @@ std::tuple<T, T> line_search(NNContext* nn_context,
                              T cost,
                              double alpha)
 {
-  T lr  = 1.0;
-  T rho = 0.1;
-  T c   = 1e-4;
-  T t   = -c * vector_dot(nn_context, grad, direction);
+  T lr        = 1.0;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  const T rho = 0.1;
+  const T c   = 1e-4;
+  const T t   = -c * vector_dot(nn_context, grad, direction);
   EXPECT(t >= 0, "Search direction is not a descent direction");
   auto coeff_proposal_storage = Matrix<T>::Create({nn_context->num_parameters, 1});
   fill(coeff_proposal_storage, 0.0, nn_context->stream);
@@ -450,7 +457,8 @@ std::tuple<T, T> line_search(NNContext* nn_context,
   T new_cost =
     eval_cost(nn_context, activations.back(), g, h, coefficient_proposals, total_rows, alpha);
 
-  while (cost - new_cost < lr * t && lr * rho > 1e-15) {
+  const double eps = 1e-15;
+  while (cost - new_cost < lr * t && lr * rho > eps) {
     lr *= rho;
     update_coefficients(
       nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, lr);
@@ -476,8 +484,8 @@ class LBfgs {
       s.pop_front();
       y.pop_front();
     }
-    s.push_back(x_diff);
-    y.push_back(grad_diff);
+    s.push_back(std::move(x_diff));
+    y.push_back(std::move(grad_diff));
   }
   Matrix<T> GetDirection(NNContext* context, Matrix<T>& grad)
   {
@@ -519,10 +527,11 @@ class LBfgs {
     dot<false, true>(context, b, b, B);
 
     // Clip values away from 0
+    const double eps = 1e-15;
     LaunchN(B.size(), context->stream, [=] __device__(int64_t idx) {
       auto& val = B.data[idx];
-      if (val >= 0.0 && val < 1e-15) { val = 1e-15; }
-      if (val < 0.0 && val > -1e-15) { val = -1e-15; }
+      if (val >= 0.0 && val < eps) { val = eps; }
+      if (val < 0.0 && val > -eps) { val = -eps; }
     });
 
     auto delta = Matrix<T>::Create({B.extent[0], 1});
@@ -578,12 +587,14 @@ struct build_nn_fn {
 
     auto stream = context.get_task_stream();
 
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
     auto total_rows  = context.scalar(0).value<int64_t>();
     double gtol      = context.scalar(1).value<double>();
     int32_t verbose  = context.scalar(2).value<int32_t>();
     int32_t m        = context.scalar(3).value<int32_t>();
     int32_t max_iter = context.scalar(4).value<int32_t>();
     double alpha     = context.scalar(5).value<double>();
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
 
     std::vector<Matrix<T>> coefficients;
     std::vector<Matrix<T>> bias;

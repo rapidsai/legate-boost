@@ -21,6 +21,7 @@
 #endif
 #include <utility>
 #include <tuple>
+#include <tcb/span.hpp>
 
 namespace legateboost {
 
@@ -203,9 +204,8 @@ class Histogram {
     static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
                   "Unexpected size of GPairT");
 
-    for (std::size_t i = 0; i < size_; i++) {
-      buffer_.ptr(legate::Point<3>::ZEROES())[i] = GPairT{0.0, 0.0};
-    }
+    tcb::span<GPairT> span(buffer_.ptr(legate::Point<3>::ZEROES()), size_);
+    for (auto& g : span) g = GPairT{0.0, 0.0};
   }
 #endif
   Histogram() = default;

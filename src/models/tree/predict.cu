@@ -56,7 +56,8 @@ struct predict_fn {
       legate::Point<3> x_point = {X_shape.lo[0] + static_cast<int64_t>(idx), 0, 0};
 
       // Use a max depth of 100 to avoid infinite loops
-      for (int depth = 0; depth < 100; depth++) {
+      const int max_depth = 100;
+      for (int depth = 0; depth < max_depth; depth++) {
         if (feature[pos] == -1) break;
         x_point[1]   = feature[pos];
         double X_val = X_accessor[x_point];

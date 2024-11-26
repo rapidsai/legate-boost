@@ -29,12 +29,10 @@ namespace legateboost {
 __host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
 {
   if (error != ncclSuccess) {
-    fprintf(stderr,
-            "Internal NCCL failure with error %s in file %s at line %d\n",
-            ncclGetErrorString(error),
-            file,
-            line);
-    exit(error);
+    std::stringstream ss;
+    ss << "Internal NCCL failure with error " << ncclGetErrorString(error) << " in file " << file
+       << " at line " << line;
+    throw std::runtime_error(ss.str());
   }
 }
 
@@ -49,23 +47,28 @@ inline void throw_on_cuda_error(cudaError_t code, const char* file, int line)
   }
 }
 
+// Can't remove these macros until we have std::source_location in c++20
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_CUDA(expr) throw_on_cuda_error(expr, __FILE__, __LINE__)
 
 #ifdef DEBUG
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_CUDA_STREAM(stream)              \
-  do {                                         \
+  {                                            \
     CHECK_CUDA(cudaStreamSynchronize(stream)); \
     CHECK_CUDA(cudaPeekAtLastError());         \
-  } while (false)
+  }
 #else
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_CUDA_STREAM(stream) CHECK_CUDA(cudaPeekAtLastError())
 #endif
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_NCCL(expr)                    \
-  do {                                      \
+  {                                         \
     ncclResult_t result = (expr);           \
     check_nccl(result, __FILE__, __LINE__); \
-  } while (false)
+  }
 
 template <typename L, int BLOCK_THREADS>
 __global__ void __launch_bounds__(BLOCK_THREADS)
@@ -76,7 +79,8 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
   }
 }
 
-template <int ITEMS_PER_THREAD = 8, typename L>
+constexpr int kDefaultItemsPerThread = 8;
+template <int ITEMS_PER_THREAD = kDefaultItemsPerThread, typename L>
 inline void LaunchN(size_t n, cudaStream_t stream, const L& lambda)
 {
   if (n == 0) { return; }
@@ -125,13 +129,15 @@ void SumAllReduce(legate::TaskContext context, tcb::span<T> x, cudaStream_t stre
 #define DEFAULT_POLICY thrust::cuda::par
 #endif
 
-__device__ inline uint32_t ballot(bool inFlag, uint32_t mask = 0xffffffffu)
+constexpr uint32_t kFullBitMask = 0xffffffffu;
+constexpr uint32_t kWarpSize    = 32;
+__device__ inline uint32_t ballot(bool inFlag, uint32_t mask = kFullBitMask)
 {
   return __ballot_sync(mask, inFlag);
 }
 
 template <typename T>
-__device__ inline T shfl(T val, int srcLane, int width = 32, uint32_t mask = 0xffffffffu)
+__device__ inline T shfl(T val, int srcLane, int width = kWarpSize, uint32_t mask = kFullBitMask)
 {
   return __shfl_sync(mask, val, srcLane, width);
 }

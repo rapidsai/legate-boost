@@ -15,6 +15,7 @@
  */
 
 #pragma once
+#include <assert.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/execution_policy.h>
@@ -43,15 +44,26 @@ struct is_same_signedness
 }  // namespace detail
 
 template <class T, class U>
-T narrow(U u) noexcept(false)
+constexpr T narrow(U u) noexcept(false)
 {
   T t = static_cast<T>(u);
+#if __CUDA_ARCH__
+  assert(static_cast<U>(t) == u);
+  assert((detail::is_same_signedness<T, U>::value || ((t < T{}) == (u < U{}))));
+#else
   auto message =
     "narrowing error: " + std::to_string(u) + " cannot be represented as " + typeid(T).name();
   if (static_cast<U>(t) != u) throw std::runtime_error(message);
   if (!detail::is_same_signedness<T, U>::value && ((t < T{}) != (u < U{})))
     throw std::runtime_error(message);
+#endif
   return t;
+}
+
+template <class T, class U>
+constexpr T narrow_cast(U&& u) noexcept
+{
+  return static_cast<T>(std::forward<U>(u));
 }
 
 // These macros can be replaced with the C++20 std::source_location when this code base moves to
@@ -60,8 +72,8 @@ inline void expect(bool condition, const std::string& message, const std::string
 {
   if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }
 }
-#define EXPECT(condition, message) \
-  (expect(condition, message, __FILE__, __LINE__))  // NOLINT(cppcoreguidelines-macro-usage)
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define EXPECT(condition, message) (expect(condition, message, __FILE__, __LINE__))
 
 template <int AXIS, typename ShapeAT, typename ShapeBT>
 void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, const std::string& file, int line)
@@ -71,9 +83,9 @@ void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, const std::string& 
          file,
          line);
 }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define EXPECT_AXIS_ALIGNED(axis, shape_a, shape_b) \
-  (expect_axis_aligned<axis>(                       \
-    shape_a, shape_b, __FILE__, __LINE__))  // NOLINT(cppcoreguidelines-macro-usage)
+  (expect_axis_aligned<axis>(shape_a, shape_b, __FILE__, __LINE__))
 template <int DIM>
 void expect_is_broadcast(const legate::Rect<DIM>& shape, const std::string& file, int line)
 {
@@ -83,8 +95,8 @@ void expect_is_broadcast(const legate::Rect<DIM>& shape, const std::string& file
     expect(shape.lo[i] == 0, ss.str(), file, line);
   }
 }
-#define EXPECT_IS_BROADCAST(shape) \
-  (expect_is_broadcast(shape, __FILE__, __LINE__))  // NOLINT(cppcoreguidelines-macro-usage)
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
 
 template <typename T, int NDIM, bool assert_row_major = true>
 std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
@@ -97,9 +109,10 @@ std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM
 
 template <typename Functor, typename... Fnargs>
 constexpr decltype(auto) type_dispatch_impl(
+  // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
   legate::Type::Code code,
   Functor&& f,
-  Fnargs&&... args)  // NOLINT(cppcoreguidelines-missing-std-forward)
+  Fnargs&&... args)
 {
   throw std::runtime_error("Unsupported type.");
 }

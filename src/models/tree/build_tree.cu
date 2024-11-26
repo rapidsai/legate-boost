@@ -21,7 +21,6 @@
 #include <thrust/sort.h>
 #include <thrust/random.h>
 #include <thrust/unique.h>
-#include <cooperative_groups.h>
 #include <numeric>
 #include <limits>
 #include <vector>
@@ -32,19 +31,14 @@
 #include "../../cpp_utils/cpp_utils.cuh"
 #include "legate/comm/coll.h"
 #include "build_tree.h"
-namespace cg = cooperative_groups;
 
 namespace legateboost {
 
 struct NodeBatch {
-  int32_t node_idx_begin;
-  int32_t node_idx_end;
-  cuda::std::tuple<int32_t, int32_t>* instances_begin;
-  cuda::std::tuple<int32_t, int32_t>* instances_end;
-  __host__ __device__ std::size_t InstancesInBatch() const
-  {
-    return instances_end - instances_begin;
-  }
+  int32_t node_idx_begin{};
+  int32_t node_idx_end{};
+  tcb::span<cuda::std::tuple<int32_t, int32_t>> instances{};
+  __host__ __device__ std::size_t InstancesInBatch() const { return instances.size(); }
   __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
 };
 
@@ -74,9 +68,10 @@ class GradientQuantiser {
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
     auto counting     = thrust::make_counting_iterator(0);
-    int num_outputs   = g_shape.hi[2] - g_shape.lo[2] + 1;
-    std::size_t n     = (g_shape.hi[0] - g_shape.lo[0] + 1) * num_outputs;
-    auto zip_gpair    = thrust::make_transform_iterator(counting, GetAbsGPair{num_outputs, g, h});
+    auto num_outputs  = g_shape.hi[2] - g_shape.lo[2] + 1;
+    auto n            = (g_shape.hi[0] - g_shape.lo[0] + 1) * num_outputs;
+    auto zip_gpair =
+      thrust::make_transform_iterator(counting, GetAbsGPair{narrow<int>(num_outputs), g, h});
     GPair local_abs_sum =
       thrust::reduce(policy, zip_gpair, zip_gpair + n, GPair{0.0, 0.0}, thrust::plus<GPair>());
 
@@ -85,6 +80,7 @@ class GradientQuantiser {
       local_abs_sum_device.ptr(0), &local_abs_sum, sizeof(GPair), cudaMemcpyHostToDevice, stream));
     // Take the max of the local sums
     AllReduce(context,
+              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
               tcb::span<double>{reinterpret_cast<double*>(local_abs_sum_device.ptr(0)), 2},
               ncclMax,
               stream);
@@ -94,8 +90,8 @@ class GradientQuantiser {
 
     // We will quantise values between -max_int and max_int
     int64_t max_int    = std::numeric_limits<int32_t>::max();
-    scale.grad         = local_abs_sum.grad == 0 ? 1 : max_int / local_abs_sum.grad;
-    scale.hess         = local_abs_sum.hess == 0 ? 1 : max_int / local_abs_sum.hess;
+    scale.grad         = local_abs_sum.grad == 0 ? 1 : narrow<double>(max_int) / local_abs_sum.grad;
+    scale.hess         = local_abs_sum.hess == 0 ? 1 : narrow<double>(max_int) / local_abs_sum.hess;
     inverse_scale.grad = 1.0 / scale.grad;
     inverse_scale.hess = 1.0 / scale.hess;
   }
@@ -110,20 +106,26 @@ class GradientQuantiser {
   {
     thrust::default_random_engine eng(seed);
     thrust::uniform_real_distribution<double> dist(0.0, 1.0);
-    auto scaled_grad                        = value.grad * scale.grad;
-    auto scaled_hess                        = value.hess * scale.hess;
-    double grad_remainder                   = scaled_grad - floor(scaled_grad);
-    double hess_remainder                   = scaled_hess - floor(scaled_hess);
+    auto scaled_grad      = value.grad * scale.grad;
+    auto scaled_hess      = value.hess * scale.hess;
+    double grad_remainder = scaled_grad - floor(scaled_grad);
+    double hess_remainder = scaled_hess - floor(scaled_hess);
+    // We won't check for overflow here as this is performance critical
+    // If our calculation of the scale factor is correct we should never overflow
+    // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
     IntegerGPair::value_type grad_quantised = floor(scaled_grad) + (dist(eng) < grad_remainder);
     IntegerGPair::value_type hess_quantised = floor(scaled_hess) + (dist(eng) < hess_remainder);
+    // NOLINTEND(cppcoreguidelines-narrowing-conversions)
     return IntegerGPair{grad_quantised, hess_quantised};
   }
 
   __device__ GPair Dequantise(IntegerGPair value) const
   {
     GPair result;
+    // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
     result.grad = value.grad * inverse_scale.grad;
     result.hess = value.hess * inverse_scale.hess;
+    // NOLINTEND(cppcoreguidelines-narrowing-conversions)
     return result;
   }
 };
@@ -131,11 +133,14 @@ class GradientQuantiser {
 // Hash function fmix64 from MurmurHash3
 __device__ int64_t hash(int64_t k)
 {
+  // We will assume murmurhash is correct here and ignore clang-tidy warnings
+  // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,cppcoreguidelines-narrowing-conversions)
   k ^= k >> 33;
   k *= 0xff51afd7ed558ccd;
   k ^= k >> 33;
   k *= 0xc4ceb9fe1a85ec53;
   k ^= k >> 33;
+  // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,cppcoreguidelines-narrowing-conversions)
   return k;
 }
 
@@ -146,6 +151,7 @@ __device__ int64_t hash_combine(int64_t seed) { return seed; }
 template <typename... Rest>
 __device__ int64_t hash_combine(int64_t seed, const int64_t& v, Rest... rest)
 {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
   seed ^= hash(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
   return hash_combine(seed, rest...);
 }
@@ -165,7 +171,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   typedef cub::BlockReduce<IntegerGPair, BLOCK_THREADS> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage;
 
-  int32_t output = blockIdx.y;
+  auto output = blockIdx.y;
 
   int64_t sample_id = threadIdx.x + blockDim.x * blockIdx.x;
 
@@ -178,12 +184,15 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   IntegerGPair blocksum = BlockReduce(temp_storage).Sum(quantised);
 
   if (threadIdx.x == 0) {
+    // Need to reinterpret cast here because cuda has no atomicAdd for int64_t, only unsigned long
+    // long NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
     atomicAdd(
       reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(&node_sums[{0, output}].grad),
       blocksum.grad);
     atomicAdd(
       reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(&node_sums[{0, output}].hess),
       blocksum.hess);
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
   }
 }
 // NOLINTEND(performance-unnecessary-value-param)
@@ -204,9 +213,9 @@ struct HistogramAgent {
   struct SharedMemoryHistogram {
     SharedMemoryHistogramType* data;
     // -1 means no node is currently being processed
-    int current_node    = kImpureTile;
-    const int begin_idx = 0;
-    const int end_idx   = 0;
+    int current_node = kImpureTile;
+    int begin_idx    = 0;
+    int end_idx      = 0;
 
     __device__ SharedMemoryHistogram(SharedMemoryHistogramType* shared, int begin_idx, int end_idx)
       : data(shared), begin_idx(begin_idx), end_idx(end_idx)
@@ -218,13 +227,17 @@ struct HistogramAgent {
       if (current_node == kImpureTile) return;
       __syncthreads();
 
-      for (int i = threadIdx.x; i < (end_idx - begin_idx) * 2; i += kBlockThreads) {
+      for (int i = narrow_cast<int>(threadIdx.x); i < (end_idx - begin_idx) * 2;
+           i += kBlockThreads) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         auto addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+                             // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                              &histogram[{current_node, output, begin_idx + i / 2}]) +
                            i % 2;
 
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         auto ptr = reinterpret_cast<SharedMemoryHistogramType::value_type*>(data);
-        atomicAdd(addPosition, ptr[i]);
+        atomicAdd(addPosition, ptr[i]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       }
     }
     __device__ void LazyInit(int node_id, Histogram<IntegerGPair>& histogram, int output)
@@ -234,49 +247,54 @@ struct HistogramAgent {
       current_node = node_id;
       __syncthreads();
       // Zero data
-      for (int i = threadIdx.x; i < end_idx - begin_idx; i += kBlockThreads) {
-        data[i] = SharedMemoryHistogramType{0, 0};
+      for (int i = narrow_cast<int>(threadIdx.x); i < end_idx - begin_idx; i += kBlockThreads) {
+        data[i] = SharedMemoryHistogramType{
+          0, 0};  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       }
       __syncthreads();
     }
     __device__ void Add(int bin_idx, IntegerGPair gpair)
     {
-      auto* addPosition = reinterpret_cast<typename SharedMemoryHistogramType::value_type*>(
-        data + (bin_idx - begin_idx));
-      atomicAdd(addPosition, gpair.grad);
-      atomicAdd(addPosition + 1, gpair.hess);
+      using AddType = typename SharedMemoryHistogramType::value_type;
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-type-reinterpret-cast)
+      auto* addPosition = reinterpret_cast<AddType*>(data + (bin_idx - begin_idx));
+      // These gradients will not overflow as they are quantised such that the sum cannot exceed
+      // int32_t max
+      atomicAdd(addPosition, narrow_cast<AddType>(gpair.grad));
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      atomicAdd(addPosition + 1, narrow_cast<AddType>(gpair.hess));
     }
   };
 
-  const legate::AccessorRO<T, 3> X;
-  const int64_t sample_offset;
-  const legate::AccessorRO<double, 3> g;
-  const legate::AccessorRO<double, 3> h;
-  const size_t n_outputs;
-  const SparseSplitProposals<T> split_proposals;
-  const NodeBatch batch;
+  const legate::AccessorRO<T, 3>& X;
+  const int64_t& sample_offset;
+  const legate::AccessorRO<double, 3>& g;
+  const legate::AccessorRO<double, 3>& h;
+  const size_t& n_outputs;
+  const SparseSplitProposals<T>& split_proposals;
+  const NodeBatch& batch;
   Histogram<IntegerGPair>& histogram;
-  const legate::Buffer<IntegerGPair, 2> node_sums;
-  const GradientQuantiser quantiser;
-  const int64_t seed;
-  const int output;
+  const legate::Buffer<IntegerGPair, 2>& node_sums;
+  const GradientQuantiser& quantiser;
+  const int64_t& seed;
+  int output;
   int feature_begin;
   int feature_end;
   int feature_stride;
   SharedMemoryHistogram shared_histogram;
 
   __device__ HistogramAgent(const legate::AccessorRO<T, 3>& X,
-                            int64_t sample_offset,
+                            const int64_t& sample_offset,
                             const legate::AccessorRO<double, 3>& g,
                             const legate::AccessorRO<double, 3>& h,
-                            size_t n_outputs,
+                            const size_t& n_outputs,
                             const SparseSplitProposals<T>& split_proposals,
-                            NodeBatch batch,
+                            const NodeBatch& batch,
                             Histogram<IntegerGPair>& histogram,
                             const legate::Buffer<IntegerGPair, 2>& node_sums,
-                            GradientQuantiser quantiser,
+                            const GradientQuantiser& quantiser,
                             const legate::Buffer<int>& feature_groups,
-                            int64_t seed,
+                            const int64_t& seed,
                             SharedMemoryHistogramType* shared_memory)
     : X(X),
       sample_offset(sample_offset),
@@ -289,15 +307,21 @@ struct HistogramAgent {
       node_sums(node_sums),
       quantiser(quantiser),
       seed(seed),
-      output(blockIdx.z),
+      feature_begin(feature_groups[blockIdx.y]),
+      feature_end(feature_groups[blockIdx.y + 1]),
+      feature_stride(feature_end - feature_begin),
+      output(narrow_cast<int>(blockIdx.z)),
       shared_histogram(shared_memory,
                        split_proposals.row_pointers[feature_groups[blockIdx.y]],
                        split_proposals.row_pointers[feature_groups[blockIdx.y + 1]])
   {
-    feature_begin  = feature_groups[blockIdx.y];
-    feature_end    = feature_groups[blockIdx.y + 1];
-    feature_stride = feature_end - feature_begin;
   }
+
+  HistogramAgent(const HistogramAgent&)            = delete;
+  HistogramAgent(HistogramAgent&&)                 = delete;
+  HistogramAgent& operator=(const HistogramAgent&) = delete;
+  HistogramAgent& operator=(HistogramAgent&&)      = delete;
+  ~HistogramAgent()                                = default;
 
   __device__ void ProcessPartialTileGlobal(std::size_t offset, std::size_t end)
   {
@@ -305,7 +329,7 @@ struct HistogramAgent {
       uint32_t row_index                   = idx / feature_stride;
       int feature                          = feature_begin + idx % feature_stride;
       auto [sample_node, local_sample_idx] = (row_index < batch.InstancesInBatch())
-                                               ? batch.instances_begin[row_index]
+                                               ? batch.instances[row_index]
                                                : cuda::std::make_tuple(-1, -1);
 
       const bool computeHistogram =
@@ -321,13 +345,17 @@ struct HistogramAgent {
       legate::Point<3> p = {sample_offset + local_sample_idx, 0, output};
       auto gpair_quantised =
         quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       auto* addPosition = reinterpret_cast<typename IntegerGPair::value_type*>(
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         &histogram[{sample_node, output, bin_idx}]);
 
       if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         auto addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
           &histogram[{sample_node, output, bin_idx}]);
         atomicAdd(addPosition, gpair_quantised.grad);
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         atomicAdd(addPosition + 1, gpair_quantised.hess);
       }
     }
@@ -335,6 +363,9 @@ struct HistogramAgent {
 
   __device__ void ProcessTileShared(std::size_t offset, int node_id)
   {
+    // Disable this check as cuda loop unrolling is fairly standard and safe
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
+
     // If this whole tile has a node that we don't need to compute
     // Early exit
     if (!ComputeHistogramBin(
@@ -344,29 +375,29 @@ struct HistogramAgent {
 
     shared_histogram.LazyInit(node_id, histogram, output);
 
-    int sample_node[kItemsPerThread];
-    int local_sample_idx[kItemsPerThread];
-    int feature[kItemsPerThread];
+    std::array<int, kItemsPerThread> sample_node{};
+    std::array<int, kItemsPerThread> local_sample_idx{};
+    std::array<int, kItemsPerThread> feature{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
       auto idx           = offset + i * kBlockThreads + threadIdx.x;
       uint32_t row_index = idx / feature_stride;
       feature[i]         = feature_begin + idx % feature_stride;
-      cuda::std::tie(sample_node[i], local_sample_idx[i]) = batch.instances_begin[row_index];
+      cuda::std::tie(sample_node[i], local_sample_idx[i]) = batch.instances[row_index];
     }
 
-    T x[kItemsPerThread];
+    std::array<T, kItemsPerThread> x{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
       x[i] = X[{sample_offset + local_sample_idx[i], feature[i], 0}];
     }
 
-    int bin_idx[kItemsPerThread];
+    std::array<int, kItemsPerThread> bin_idx{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
       bin_idx[i] = split_proposals.FindBin(x[i], feature[i]);
     }
-    IntegerGPair gpair[kItemsPerThread];
+    std::array<IntegerGPair, kItemsPerThread> gpair{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
       legate::Point<3> p = {sample_offset + local_sample_idx[i], 0, output};
@@ -381,6 +412,7 @@ struct HistogramAgent {
         shared_histogram.Add(bin_idx[i], gpair[i]);
       }
     }
+    // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
   }
 
   __device__ int GetTileNode(std::size_t offset)
@@ -388,8 +420,8 @@ struct HistogramAgent {
     // Check the first and last element here and see if they are in the same node
     int begin_ridx                  = offset / feature_stride;
     int end_ridx                    = (offset + kItemsPerTile - 1) / feature_stride;
-    auto [begin_node, begin_sample] = batch.instances_begin[begin_ridx];
-    auto [end_node, end_sample]     = batch.instances_begin[end_ridx];
+    auto [begin_node, begin_sample] = batch.instances[begin_ridx];
+    auto [end_node, end_sample]     = batch.instances[end_ridx];
     return begin_node == end_node ? begin_node : kImpureTile;
   }
 
@@ -433,8 +465,11 @@ __global__ static void __launch_bounds__(kBlockThreads)
                         legate::Buffer<int> feature_groups,
                         int64_t seed)
 {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
   __shared__ char shared_char[kMaxSharedBins * sizeof(SharedMemoryHistogramType)];
+  // Allocate as char and then cast to type. This is because we dont want to initialise the type.
   SharedMemoryHistogramType* shared_memory =
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     reinterpret_cast<SharedMemoryHistogramType*>(shared_char);
   HistogramAgent<T, kBlockThreads, kItemsPerThread> agent(X,
                                                           sample_offset,
@@ -454,9 +489,10 @@ __global__ static void __launch_bounds__(kBlockThreads)
 // NOLINTEND(performance-unnecessary-value-param)
 
 // Manage the launch parameters for histogram kernel
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
 template <typename T, std::int32_t kBlockThreads = 1024, std::int32_t kItemsPerThread = 4>
 struct HistogramKernel {
-  const std::int32_t kItemsPerTile = kBlockThreads * kItemsPerThread;
+  static const std::int32_t kItemsPerTile = kBlockThreads * kItemsPerThread;
   legate::Buffer<int> feature_groups;
   int num_groups{};
   int maximum_blocks_for_occupancy;
@@ -500,7 +536,7 @@ struct HistogramKernel {
       current_bins_in_group += bins_in_feature;
     }
     feature_groups.push_back(split_proposals.num_features);
-    num_groups = feature_groups.size() - 1;
+    num_groups = narrow<int>(feature_groups.size() - 1);
     EXPECT(num_groups * kMaxSharedBins >= split_proposals.histogram_size, "Too few feature groups");
     this->feature_groups = legate::create_buffer<int>(num_groups + 1);
     CHECK_CUDA(cudaMemcpyAsync(this->feature_groups.ptr(0),
@@ -544,6 +580,8 @@ struct HistogramKernel {
   }
 };
 
+// The only way to achieve this AFAIK is with reinterpret cast
+// NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
 __device__ IntegerGPair vectorised_load(const IntegerGPair* ptr)
 {
   static_assert(sizeof(IntegerGPair) == sizeof(int4), "size inconsistent");
@@ -557,6 +595,7 @@ __device__ void vectorised_store(IntegerGPair* ptr, IntegerGPair value)
   auto store = reinterpret_cast<int4*>(ptr);
   *store     = *reinterpret_cast<int4*>(&value);
 }
+// NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
 // NOLINTBEGIN(performance-unnecessary-value-param)
 template <typename T, int BLOCK_THREADS>
@@ -568,39 +607,42 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
               NodeBatch batch)
 
 {
-  auto warp      = cg::tiled_partition<32>(cg::this_thread_block());
-  int rank       = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
-  auto num_nodes = batch.NodesInBatch();
-  int i          = rank / num_nodes;
-  int j          = rank % num_nodes;
-  int output     = blockIdx.y;
+  const int kWarpThreads = 32;
+  const int lane_idx     = narrow_cast<int>(threadIdx.x % kWarpThreads);
+  int rank               = narrow<int>((blockIdx.x * blockDim.x + threadIdx.x) / kWarpThreads);
+  int num_nodes          = narrow<int>(batch.NodesInBatch());
+  int i                  = rank / num_nodes;
+  int j                  = rank % num_nodes;
+  int output             = narrow_cast<int>(blockIdx.y);
 
   // Specialize WarpScan for type int
   typedef cub::WarpScan<IntegerGPair> WarpScan;
 
-  __shared__ typename WarpScan::TempStorage temp_storage[BLOCK_THREADS / 32];
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
+  __shared__ typename WarpScan::TempStorage temp_storage[BLOCK_THREADS / kWarpThreads];
 
   int scan_node_idx = batch.node_idx_begin + j;
   int parent        = BinaryTree::Parent(scan_node_idx);
   // Exit if we didn't compute this histogram
-  if (node_sums[{scan_node_idx, output}].hess <= 0.0) return;
+  if (node_sums[{scan_node_idx, output}].hess <= 0) return;
   if (!ComputeHistogramBin(scan_node_idx, node_sums, histogram.ContainsNode(parent))) return;
   if (i >= n_features || scan_node_idx >= batch.node_idx_end) return;
 
   const int feature_idx             = i;
   auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature_idx);
   const int num_bins                = feature_end - feature_begin;
-  const int num_tiles               = (num_bins + warp.num_threads() - 1) / warp.num_threads();
+  const int num_tiles               = (num_bins + kWarpThreads - 1) / kWarpThreads;
 
   IntegerGPair aggregate;
   // Scan left side
   for (int tile_idx = 0; tile_idx < num_tiles; tile_idx++) {
-    const int bin_idx        = feature_begin + tile_idx * warp.num_threads() + warp.thread_rank();
+    const int bin_idx        = feature_begin + tile_idx * kWarpThreads + lane_idx;
     bool thread_participates = bin_idx < feature_end;
     auto e = thread_participates ? vectorised_load(&histogram[{scan_node_idx, output, bin_idx}])
                                  : IntegerGPair{0, 0};
     IntegerGPair tile_aggregate;
-    WarpScan(temp_storage[threadIdx.x / warp.num_threads()]).InclusiveSum(e, e, tile_aggregate);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+    WarpScan(temp_storage[threadIdx.x / kWarpThreads]).InclusiveSum(e, e, tile_aggregate);
     e += aggregate;
     // Skip write if data is 0
     // This actually helps quite a bit at deeper tree levels where we have a lot of empty bins
@@ -619,8 +661,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   // Do the subtraction trick using the histogram we just computed in the previous step
   if (!ComputeHistogramBin(sibling_node_idx, node_sums, histogram.ContainsNode(parent))) {
     // Infer right side
-    for (int bin_idx = feature_begin + warp.thread_rank(); bin_idx < feature_end;
-         bin_idx += warp.num_threads()) {
+    for (int bin_idx = feature_begin + lane_idx; bin_idx < feature_end; bin_idx += kWarpThreads) {
       auto scanned_sum = vectorised_load(&histogram[{scan_node_idx, output, bin_idx}]);
       auto parent_sum =
         vectorised_load(&histogram[{BinaryTree::Parent(scan_node_idx), output, bin_idx}]);
@@ -635,13 +676,18 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
 struct GainFeaturePair {
   double gain;
   int bin_idx;
-
-  __device__ void operator=(const GainFeaturePair& other)
-  {
-    gain    = other.gain;
-    bin_idx = other.bin_idx;
-  }
-
+  /*
+    // Clang-tidy wants us to define the below because we defined an assignment operator
+    ~GainFeaturePair() = default;
+    GainFeaturePair(const GainFeaturePair&) = default;
+    GainFeaturePair(GainFeaturePair&&) = delete;
+    void operator=(GainFeaturePair&& other) = delete;
+    __device__ void operator=(const GainFeaturePair& other)
+    {
+      gain    = other.gain;
+      bin_idx = other.bin_idx;
+    }
+  */
   __device__ bool operator==(const GainFeaturePair& other) const
   {
     return gain == other.gain && bin_idx == other.bin_idx;
@@ -670,7 +716,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
                      GradientQuantiser quantiser)
 {
   // using one block per (level) node to have blockwise reductions
-  int node_id = batch.node_idx_begin + blockIdx.x;
+  int node_id = narrow<int>(batch.node_idx_begin + blockIdx.x);
   // Early exit if this node has no samples
   if (vectorised_load(&node_sums[{node_id, 0}]).hess <= 0) return;
 
@@ -683,14 +729,14 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   double thread_best_gain = 0;
   int thread_best_bin_idx = -1;
 
-  for (int bin_idx = threadIdx.x; bin_idx < split_proposals.histogram_size;
+  for (int bin_idx = narrow_cast<int>(threadIdx.x); bin_idx < split_proposals.histogram_size;
        bin_idx += BLOCK_THREADS) {
     double gain = 0;
     for (int output = 0; output < n_outputs; ++output) {
       auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
       auto left_sum  = vectorised_load(&histogram[{node_id, output, bin_idx}]);
       auto right_sum = node_sum - left_sum;
-      if (left_sum.hess <= 0.0 || right_sum.hess <= 0.0) {
+      if (left_sum.hess <= 0 || right_sum.hess <= 0) {
         gain = 0;
         break;
       }
@@ -704,7 +750,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
       auto [G_R, H_R] = quantiser.Dequantise(right_sum);
       gain += (G_R * G_R) / (H_R + reg);
     }
-    gain *= 0.5;
+    gain *= 0.5;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
     if (gain > thread_best_gain) {
       thread_best_gain    = gain;
       thread_best_bin_idx = bin_idx;
@@ -723,7 +769,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
 
   if (node_best_gain > eps) {
     int node_best_feature = split_proposals.FindFeature(node_best_bin_idx);
-    for (int output = threadIdx.x; output < n_outputs; output += BLOCK_THREADS) {
+    for (int output = narrow_cast<int>(threadIdx.x); output < n_outputs; output += BLOCK_THREADS) {
       auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
       auto left_sum  = vectorised_load(&histogram[{node_id, output, node_best_bin_idx}]);
       auto right_sum = node_sum - left_sum;
@@ -758,6 +804,8 @@ struct Tree {
     split_value = legate::create_buffer<double, 1>(max_nodes);
     gain        = legate::create_buffer<double, 1>(max_nodes);
     node_sums   = legate::create_buffer<IntegerGPair, 2>({max_nodes, num_outputs});
+    // Legate doesn't provide a convenient way to do this other than pointers
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     thrust::fill(thrust_exec_policy,
                  leaf_value.ptr({0, 0}),
                  leaf_value.ptr({0, 0}) + max_nodes * num_outputs,
@@ -769,6 +817,7 @@ struct Tree {
                  node_sums.ptr({0, 0}),
                  node_sums.ptr({0, 0}) + max_nodes * num_outputs,
                  IntegerGPair{0, 0});
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
 
   template <typename T, int DIM, typename ThrustPolicyT>
@@ -807,6 +856,12 @@ struct Tree {
     CHECK_CUDA_STREAM(stream);
   }
 
+  ~Tree()                      = default;
+  Tree(const Tree&)            = delete;
+  Tree(Tree&&)                 = delete;
+  Tree& operator=(const Tree&) = delete;
+  Tree& operator=(Tree&&)      = delete;
+
   legate::Buffer<double, 2> leaf_value;
   legate::Buffer<int32_t, 1> feature;
   legate::Buffer<double, 1> split_value;
@@ -832,7 +887,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
 {
   auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
   auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
-  int num_features  = X_shape.hi[1] - X_shape.lo[1] + 1;
+  auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
   // Randomly choose split_samples rows
   auto row_samples = legate::create_buffer<int64_t, 1>(split_samples);
   auto counting    = thrust::make_counting_iterator(0);
@@ -890,15 +945,20 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
   auto row_pointers = legate::create_buffer<int32_t, 1>(num_features + 1);
   CHECK_CUDA(cudaMemsetAsync(row_pointers.ptr(0), 0, (num_features + 1) * sizeof(int32_t), stream));
 
+  tcb::span<int32_t> out_keys_span(out_keys.ptr(0), num_features * split_samples);
+  auto unique_keys_span = out_keys_span.subspan(0, n_unique);
   thrust::reduce_by_key(policy,
-                        out_keys.ptr(0),
-                        out_keys.ptr(0) + n_unique,
+                        unique_keys_span.begin(),
+                        unique_keys_span.end(),
                         thrust::make_constant_iterator(1),
                         thrust::make_discard_iterator(),
                         row_pointers.ptr(1));
   // Scan the counts to get the row pointers for a CSR matrix
-  thrust::inclusive_scan(
-    policy, row_pointers.ptr(1), row_pointers.ptr(1) + num_features, row_pointers.ptr(1));
+  tcb::span<int32_t> row_pointers_span(row_pointers.ptr(0), num_features + 1);
+  thrust::inclusive_scan(policy,
+                         row_pointers_span.begin() + 1,
+                         row_pointers_span.begin() + 1 + num_features,
+                         row_pointers_span.begin() + 1);
 
   CHECK_CUDA(cudaStreamSynchronize(stream));
   row_samples.destroy();
@@ -912,8 +972,8 @@ void FillPositions(const legate::Buffer<cuda::std::tuple<int32_t, int32_t>>& sor
                    std::size_t num_rows,
                    cudaStream_t stream)
 {
-  LaunchN(num_rows, stream, [=] __device__(std::size_t idx) {
-    sorted_positions[idx] = cuda::std::make_tuple(0, idx);
+  LaunchN(num_rows, stream, [=] __device__(int64_t idx) {
+    sorted_positions[idx] = cuda::std::make_tuple(0, narrow<int32_t>(idx));
   });
 }
 
@@ -943,7 +1003,7 @@ struct TreeBuilder {
     // User a fixed reasonable upper bound on memory usage
     // CAUTION: all workers MUST have the same max_batch_size
     // Therefore we don't try to calculate this based on available memory
-    const std::size_t max_bytes      = std::pow(10, 9);  // 1 GB
+    const std::size_t max_bytes      = 1000000000;  // 1 GB
     const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
     const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
     int depth                             = 0;
@@ -956,32 +1016,41 @@ struct TreeBuilder {
     max_batch_size = max_histogram_nodes;
   }
 
+  TreeBuilder(const TreeBuilder&)            = delete;
+  TreeBuilder(TreeBuilder&&)                 = delete;
+  TreeBuilder& operator=(const TreeBuilder&) = delete;
+  TreeBuilder& operator=(TreeBuilder&&)      = delete;
+  ~TreeBuilder()                             = default;
+
   template <typename TYPE>
   void UpdatePositions(Tree& tree, const legate::AccessorRO<TYPE, 3>& X, legate::Rect<3> X_shape)
   {
-    auto tree_split_value_ptr = tree.split_value.ptr(0);
-    auto tree_feature_ptr     = tree.feature.ptr(0);
-    auto max_nodes_           = this->max_nodes;
+    tcb::span<int32_t> tree_feature_span(tree.feature.ptr(0), max_nodes);
+    tcb::span<double> tree_split_value_span(tree.split_value.ptr(0), max_nodes);
+    auto max_nodes_ = this->max_nodes;
 
-    LaunchN(
-      num_rows, stream, [=, sorted_positions = this->sorted_positions] __device__(size_t idx) {
-        auto [pos, row] = sorted_positions[idx];
+    LaunchN(num_rows,
+            stream,
+            [=, sorted_positions = this->sorted_positions] __device__(std::int64_t idx) {
+              auto [pos, row] = sorted_positions[idx];
 
-        if (pos < 0 || pos >= max_nodes_ || tree_feature_ptr[pos] == -1) {
-          sorted_positions[idx] = cuda::std::make_tuple(-1, row);
-          return;
-        }
-        double x_value = X[{X_shape.lo[0] + static_cast<int64_t>(row), tree_feature_ptr[pos], 0}];
-        bool left      = x_value <= tree_split_value_ptr[pos];
-        pos            = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
-        sorted_positions[idx] = cuda::std::make_tuple(pos, row);
-      });
+              if (pos < 0 || pos >= max_nodes_ || tree_feature_span[pos] == -1) {
+                sorted_positions[idx] = cuda::std::make_tuple(-1, row);
+                return;
+              }
+              double x_value =
+                X[{X_shape.lo[0] + static_cast<int64_t>(row), tree_feature_span[pos], 0}];
+              bool left = x_value <= tree_split_value_span[pos];
+              pos       = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
+              sorted_positions[idx] = cuda::std::make_tuple(pos, row);
+            });
     CHECK_CUDA_STREAM(stream);
 
     auto decomposer = cuda::proclaim_return_type<cuda::std::tuple<int32_t&>>(
       [] __device__(auto& a) { return cuda::std::tuple<int32_t&>{cuda::std::get<0>(a)}; });
     auto sorted_out           = legate::create_buffer<cuda::std::tuple<int32_t, int32_t>>(num_rows);
     size_t temp_storage_bytes = 0;
+    const int bits_per_key    = sizeof(int32_t) * 8;
     cub::DeviceRadixSort::SortKeys(nullptr,
                                    temp_storage_bytes,
                                    sorted_positions.ptr(0),
@@ -989,9 +1058,9 @@ struct TreeBuilder {
                                    num_rows,
                                    decomposer,
                                    0,
-                                   32,
+                                   bits_per_key,
                                    stream);
-    auto temp_storage = legate::create_buffer<char, 1>(temp_storage_bytes);
+    auto temp_storage = legate::create_buffer<char, 1>(narrow<int64_t>(temp_storage_bytes));
     cub::DeviceRadixSort::SortKeys(temp_storage.ptr(0),
                                    temp_storage_bytes,
                                    sorted_positions.ptr(0),
@@ -999,7 +1068,7 @@ struct TreeBuilder {
                                    num_rows,
                                    decomposer,
                                    0,
-                                   32,
+                                   bits_per_key,
                                    stream);
 
     CHECK_CUDA(cudaMemcpyAsync(sorted_positions.ptr(0),
@@ -1038,6 +1107,7 @@ struct TreeBuilder {
     using ReduceT = Histogram<IntegerGPair>::value_type::value_type;
     SumAllReduce(
       context,
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       tcb::span<ReduceT>(reinterpret_cast<ReduceT*>(histogram.Ptr(batch.node_idx_begin)),
                          batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2),
       stream);
@@ -1093,6 +1163,7 @@ struct TreeBuilder {
 
     SumAllReduce(
       context,
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       tcb::span<int64_t>(reinterpret_cast<int64_t*>(tree.node_sums.ptr({0, 0})), num_outputs * 2),
       stream);
     LaunchN(num_outputs,
@@ -1127,23 +1198,23 @@ struct TreeBuilder {
   template <typename PolicyT>
   std::vector<NodeBatch> PrepareBatches(int depth, PolicyT& policy)
   {
+    tcb::span<cuda::std::tuple<int32_t, int32_t>> sorted_positions_span(sorted_positions.ptr(0),
+                                                                        num_rows);
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
       // All instances are in batch
-      return {NodeBatch{BinaryTree::LevelBegin(depth),
-                        BinaryTree::LevelEnd(depth),
-                        sorted_positions.ptr(0),
-                        sorted_positions.ptr(0) + num_rows}};
+      return {NodeBatch{
+        BinaryTree::LevelBegin(depth), BinaryTree::LevelEnd(depth), sorted_positions_span}};
     }
 
     // Launch a kernel where each thread computes the range of instances for a batch using binary
     // search
     const int num_batches = (BinaryTree::NodesInLevel(depth) + max_batch_size - 1) / max_batch_size;
     auto batches          = legate::create_buffer<NodeBatch, 1>(num_batches);
+    auto batches_span     = tcb::span<NodeBatch>(batches.ptr(0), num_batches);
     LaunchN(num_batches,
             stream,
             [                     =,
-             batches_ptr          = batches.ptr(0),
              sorted_positions_ptr = this->sorted_positions.ptr(0),
              num_rows             = this->num_rows,
              max_batch_size       = this->max_batch_size] __device__(int batch_idx) {
@@ -1153,18 +1224,19 @@ struct TreeBuilder {
                 return cuda::std::get<0>(a) < cuda::std::get<0>(b);
               };  // NOLINT(readability/braces)
 
-              auto lower             = thrust::lower_bound(thrust::seq,
-                                               sorted_positions_ptr,
-                                               sorted_positions_ptr + num_rows,
+              auto lower = thrust::lower_bound(thrust::seq,
+                                               sorted_positions_span.begin(),
+                                               sorted_positions_span.end(),
                                                cuda::std::tuple(batch_begin, 0),
                                                comp);
-              auto upper             = thrust::upper_bound(thrust::seq,
+              auto upper = thrust::upper_bound(thrust::seq,
                                                lower,
-                                               sorted_positions_ptr + num_rows,
+                                               sorted_positions_span.end(),
                                                cuda::std::tuple(batch_end - 1, 0),
                                                comp);
-              batches_ptr[batch_idx] = {
-                cuda::std::get<0>(*lower), cuda::std::get<0>(*(upper - 1)) + 1, lower, upper};
+              tcb::span<cuda::std::tuple<int32_t, int32_t>> span(lower, upper);
+              batches_span[batch_idx] = {
+                cuda::std::get<0>(span.front()), cuda::std::get<0>(span.back()) + 1, span};
             });
 
     std::vector<NodeBatch> result(num_batches);
@@ -1214,12 +1286,14 @@ struct build_tree_fn {
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
     // Scalars
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
     auto max_depth     = context.scalars().at(0).value<int>();
     auto max_nodes     = context.scalars().at(1).value<int>();
     auto alpha         = context.scalars().at(2).value<double>();
     auto split_samples = context.scalars().at(3).value<int>();
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
 
     auto stream             = context.get_task_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);

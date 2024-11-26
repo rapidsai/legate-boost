@@ -28,16 +28,12 @@ namespace legateboost {
 namespace {
 
 struct NodeBatch {
-  int32_t node_idx_begin;
-  int32_t node_idx_end;
-  std::tuple<int32_t, int32_t>* instances_begin;
-  std::tuple<int32_t, int32_t>* instances_end;
-  auto begin() const { return instances_begin; }
-  auto end() const { return instances_end; }
-  __host__ __device__ std::size_t InstancesInBatch() const
-  {
-    return instances_end - instances_begin;
-  }
+  int32_t node_idx_begin{};
+  int32_t node_idx_end{};
+  tcb::span<std::tuple<int32_t, int32_t>> instances{};
+  auto begin() const { return instances.begin(); }
+  auto end() const { return instances.end(); }
+  __host__ __device__ std::size_t InstancesInBatch() const { return instances.size(); }
   __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
 };
 
@@ -83,7 +79,7 @@ struct Tree {
   std::vector<double> split_value;
   std::vector<double> gain;
   legate::Buffer<GPair, 2> node_sums;
-  const int num_outputs;
+  int num_outputs;
 };
 
 template <typename T>
@@ -100,7 +96,7 @@ void WriteOutput(const legate::PhysicalStore& out, const legate::Buffer<T, 2>& x
   auto shape = out.shape<2>();
   auto write = out.write_accessor<T, 2>();
   for (auto i = shape.lo[0]; i <= shape.hi[0]; ++i) {
-    for (int j = shape.lo[1]; j <= shape.hi[1]; ++j) { write[{i, j}] = x[{i, j}]; }
+    for (auto j = shape.lo[1]; j <= shape.hi[1]; ++j) { write[{i, j}] = x[{i, j}]; }
   }
 }
 
@@ -114,7 +110,7 @@ void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
   const legate::Rect<2> hessian_shape = hessian.shape<2>();
   auto hessian_acc                    = hessian.write_accessor<double, 2>();
   for (auto i = hessian_shape.lo[0]; i <= hessian_shape.hi[0]; ++i) {
-    for (int j = hessian_shape.lo[1]; j <= hessian_shape.hi[1]; ++j) {
+    for (auto j = hessian_shape.lo[1]; j <= hessian_shape.hi[1]; ++j) {
       hessian_acc[{i, j}] = tree.node_sums[{i, j}].hess;
     }
   }
@@ -140,7 +136,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
     return dist(eng);
   });
 
-  int num_features     = X_shape.hi[1] - X_shape.lo[1] + 1;
+  auto num_features    = X_shape.hi[1] - X_shape.lo[1] + 1;
   auto draft_proposals = legate::create_buffer<T, 2>({num_features, split_samples});
   for (int i = 0; i < split_samples; i++) {
     auto row      = row_samples[i];
@@ -158,7 +154,8 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
   row_pointers[0]   = 0;
   for (int j = 0; j < num_features; j++) {
     auto ptr = draft_proposals.ptr({j, 0});
-    std::set<T> unique(ptr, ptr + split_samples);
+    tcb::span<T> feature_proposals(draft_proposals.ptr({j, 0}), split_samples);
+    std::set<T> unique(feature_proposals.begin(), feature_proposals.end());
     row_pointers[j + 1] = row_pointers[j] + unique.size();
     split_proposals_tmp.insert(split_proposals_tmp.end(), unique.begin(), unique.end());
   }
@@ -185,7 +182,7 @@ struct TreeBuilder {
   {
     sorted_positions = legate::create_buffer<std::tuple<int32_t, int32_t>>(num_rows);
     for (auto i = 0; i < num_rows; ++i) { sorted_positions[i] = {0, i}; }
-    const std::size_t max_bytes      = std::pow(10, 9);  // 1 GB
+    const std::size_t max_bytes      = 1000000000;  // 1 GB
     const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
     const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
     int depth                             = 0;
@@ -225,8 +222,10 @@ struct TreeBuilder {
       }
     }
 
+    // NCCL cannot allreduce custom types, need to reinterpret as double
     SumAllReduce(
       context,
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       tcb::span<double>(reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
                         batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2));
     this->Scan(histogram, batch, tree);
@@ -297,7 +296,7 @@ struct TreeBuilder {
             auto G_R        = G - G_L;
             auto H_R        = H - H_L;
             double reg      = std::max(eps, alpha);  // Regularisation term
-            gain +=
+            gain +=  // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               0.5 * ((G_L * G_L) / (H_L + reg) + (G_R * G_R) / (H_R + reg) - (G * G) / (H + reg));
           }
           if (gain > best_gain) {
@@ -365,18 +364,19 @@ struct TreeBuilder {
 
   std::vector<NodeBatch> PrepareBatches(int depth)
   {
+    tcb::span<std::tuple<int32_t, int32_t>> sorted_positions_span(sorted_positions.ptr(0),
+                                                                  num_rows);
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
       // All instances are in batch
-      return {NodeBatch{BinaryTree::LevelBegin(depth),
-                        BinaryTree::LevelEnd(depth),
-                        sorted_positions.ptr(0),
-                        sorted_positions.ptr(0) + num_rows}};
+      return {NodeBatch{
+        BinaryTree::LevelBegin(depth), BinaryTree::LevelEnd(depth), sorted_positions_span}};
     }
 
-    std::sort(sorted_positions.ptr(0),
-              sorted_positions.ptr(0) + num_rows,
-              [] __device__(auto a, auto b) { return std::get<0>(a) < std::get<0>(b); });
+    std::sort(
+      sorted_positions_span.begin(),
+      sorted_positions_span.end(),
+      [] __device__(const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
 
     const int num_batches = (BinaryTree::NodesInLevel(depth) + max_batch_size - 1) / max_batch_size;
     std::vector<NodeBatch> batches(num_batches);
@@ -388,13 +388,13 @@ struct TreeBuilder {
         return std::get<0>(a) < std::get<0>(b);
       };  // NOLINT(readability/braces)
 
-      auto lower = std::lower_bound(sorted_positions.ptr(0),
-                                    sorted_positions.ptr(0) + num_rows,
+      auto lower = std::lower_bound(sorted_positions_span.begin(),
+                                    sorted_positions_span.end(),
                                     std::tuple(batch_begin, 0),
                                     comp);
-      auto upper = std::upper_bound(
-        lower, sorted_positions.ptr(0) + num_rows, std::tuple(batch_end - 1, 0), comp);
-      batches[batch_idx] = {batch_begin, batch_end, lower, upper};
+      auto upper =
+        std::upper_bound(lower, sorted_positions_span.end(), std::tuple(batch_end - 1, 0), comp);
+      batches[batch_idx] = {batch_begin, batch_end, {lower, upper}};
     }
     batches.erase(std::remove_if(batches.begin(),
                                  batches.end(),
@@ -414,8 +414,10 @@ struct TreeBuilder {
         tree.node_sums[{0, j}] += {g_accessor[{i, 0, j}], h_accessor[{i, 0, j}]};
       }
     }
+    // NCCL cannot allreduce custom types, need to reinterpret as double
     SumAllReduce(
       context,
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       tcb::span<double>(reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})), num_outputs * 2));
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = tree.node_sums[{0, i}];
@@ -424,10 +426,10 @@ struct TreeBuilder {
   }
 
   legate::Buffer<std::tuple<int32_t, int32_t>, 1> sorted_positions;
-  const int32_t num_rows;
-  const int32_t num_features;
-  const int32_t num_outputs;
-  const int32_t max_nodes;
+  int32_t num_rows;
+  int32_t num_features;
+  int32_t num_outputs;
+  int32_t max_nodes;
   int max_batch_size;
   SparseSplitProposals<T> split_proposals;
   Histogram<GPair> histogram;
@@ -450,14 +452,16 @@ struct build_tree_fn {
     EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
     // Scalars
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
     auto max_depth     = context.scalars().at(0).value<int>();
     auto max_nodes     = context.scalars().at(1).value<int>();
     auto alpha         = context.scalars().at(2).value<double>();
     auto split_samples = context.scalars().at(3).value<int>();
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
 
-    Tree tree(max_nodes, num_outputs);
+    Tree tree(max_nodes, narrow<int>(num_outputs));
     SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
 

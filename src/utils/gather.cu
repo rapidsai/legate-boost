@@ -42,44 +42,42 @@ struct gather_fn {
     auto stream = context.get_task_stream();
 
     // we can retrieve sample ids via argument(host) or legate_store(device)
-    const int64_t* sample_row_ptr      = nullptr;
-    int64_t n_samples                  = 0;
-    const int64_t* sample_row_host_ptr = nullptr;
-    bool host_samples                  = context.scalars().size() > 0;
+    tcb::span<const int64_t> sample_rows{};
+    tcb::span<const int64_t> sample_rows_host{};
+    bool host_samples = context.scalars().size() > 0;
     if (host_samples) {
       auto sample_rows_span = context.scalar(0).values<int64_t>();
-      n_samples             = sample_rows_span.size();
-      sample_row_host_ptr   = &sample_rows_span[0];
+      sample_rows_host      = {sample_rows_span.ptr(), sample_rows_span.size()};
     }
-    auto samples_buffer = legate::create_buffer<int64_t, 1>(n_samples);
+    auto samples_buffer =
+      legate::create_buffer<int64_t, 1>(narrow<int64_t>(sample_rows_host.size()));
     if (host_samples) {
       CHECK_CUDA(cudaMemcpyAsync(samples_buffer.ptr(0),
-                                 sample_row_host_ptr,
-                                 n_samples * sizeof(int64_t),
+                                 sample_rows_host.data(),
+                                 sample_rows_host.size() * sizeof(int64_t),
                                  cudaMemcpyHostToDevice,
                                  stream));
-      sample_row_ptr = samples_buffer.ptr(0);
+      sample_rows = {samples_buffer.ptr(0), sample_rows_host.size()};
     } else {
-      auto sample_rows       = context.input(1).data();
-      auto sample_rows_shape = sample_rows.shape<1>();
-      EXPECT_IS_BROADCAST(sample_rows_shape);
-      auto sample_rows_accessor = sample_rows.read_accessor<int64_t, 1>();
-      n_samples                 = sample_rows_shape.hi[0] - sample_rows_shape.lo[0] + 1;
-      sample_row_ptr            = sample_rows_accessor.ptr(0);
+      auto [store, shape, accessor] = GetInputStore<int64_t, 1>(context.input(1).data());
+      EXPECT_IS_BROADCAST(shape);
+      sample_rows = {accessor.ptr(shape.lo), shape.volume()};
     }
 
     // fill with local data
-    LaunchN(n_features * n_samples, stream, [=] __device__(auto idx) {
+    LaunchN(n_features * sample_rows.size(), stream, [=] __device__(auto idx) {
       auto i                           = idx / n_features;
       auto j                           = idx % n_features;
-      auto row                         = sample_row_ptr[i];
+      auto row                         = sample_rows[i];
       bool has_data                    = row >= X_shape.lo[0] && row <= X_shape.hi[0];
       split_proposals_accessor[{i, j}] = has_data ? X_accessor[{row, j}] : T(0);
     });
 
     // use NCCL for reduction
     SumAllReduce(
-      context, tcb::span<T>(split_proposals_accessor.ptr({0, 0}), n_features * n_samples), stream);
+      context,
+      tcb::span<T>(split_proposals_accessor.ptr({0, 0}), n_features * sample_rows.size()),
+      stream);
 
     CHECK_CUDA_STREAM(stream);
   }

@@ -225,7 +225,7 @@ T eval_cost(NNContext* context,
     T p     = pred.data[i];
     T g_val = g.data[i];
     T h_val = h.data[i];
-    sum += p * (g_val + 0.5 * h_val * p);
+    sum += p * (g_val + 0.5 * h_val * p);  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   }
 
   sum /= total_rows * pred.extent[1];
@@ -235,7 +235,8 @@ T eval_cost(NNContext* context,
   if (alpha > 0.0) {
     T L2 = 0.0;
     for (auto& c : coefficients) { L2 += vector_dot(c, c); }
-    L2 = (0.5 * alpha) * L2 / total_rows;
+    L2 = (0.5 * alpha) * L2 / total_rows;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+
     sum += L2;
   }
 
@@ -358,10 +359,10 @@ std::tuple<T, T> line_search(NNContext* nn_context,
                              T cost,
                              double alpha)
 {
-  T lr  = 1.0;
-  T rho = 0.1;
-  T c   = 1e-4;
-  T t   = -c * vector_dot(grad, direction);
+  T lr        = 1.0;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  const T rho = 0.1;
+  const T c   = 1e-4;
+  const T t   = -c * vector_dot(grad, direction);
   EXPECT(t >= 0, "Search direction is not a descent direction");
   auto coeff_proposal_storage = Matrix<T>::Create({nn_context->num_parameters, 1});
   fill(coeff_proposal_storage, 0.0);
@@ -372,7 +373,8 @@ std::tuple<T, T> line_search(NNContext* nn_context,
   T new_cost =
     eval_cost(nn_context, activations.back(), g, h, coefficient_proposals, total_rows, alpha);
 
-  while (cost - new_cost < lr * t && lr * rho > 1e-15) {
+  const double eps = 1e-15;
+  while (cost - new_cost < lr * t && lr * rho > eps) {
     lr *= rho;
     update_coefficients(
       nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, lr);
@@ -398,8 +400,8 @@ class LBfgs {
       s.pop_front();
       y.pop_front();
     }
-    s.push_back(x_diff);
-    y.push_back(grad_diff);
+    s.push_back(std::move(x_diff));
+    y.push_back(std::move(grad_diff));
   }
   Matrix<T> GetDirection(Matrix<T>& grad)
   {
@@ -429,10 +431,11 @@ class LBfgs {
     dot<false, true>(b, b, B);
 
     // Clip values away from 0
+    const double eps = 1e-15;
     for (int i = 0; i < B.size(); i++) {
       auto& val = B.data[i];
-      if (val >= 0.0 && val < 1e-15) { val = 1e-15; }
-      if (val < 0.0 && val > -1e-15) { val = -1e-15; }
+      if (val >= 0.0 && val < eps) { val = eps; }
+      if (val < 0.0 && val > -eps) { val = -eps; }
     }
 
     auto delta = Matrix<T>::Create({B.extent[0], 1});
@@ -486,12 +489,14 @@ struct build_nn_fn {
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
     auto total_rows  = context.scalar(0).value<int64_t>();
     double gtol      = context.scalar(1).value<double>();
     int32_t verbose  = context.scalar(2).value<int32_t>();
     int32_t m        = context.scalar(3).value<int32_t>();
     int32_t max_iter = context.scalar(4).value<int32_t>();
     double alpha     = context.scalar(5).value<double>();
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
 
     std::vector<Matrix<T>> coefficients;
     std::vector<Matrix<T>> bias;
