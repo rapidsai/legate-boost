@@ -4,7 +4,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 sns.set()

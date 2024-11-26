@@ -2,7 +2,7 @@ import numpy as np
 from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 from sklearn.preprocessing import StandardScaler
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 from legate.core import TaskTarget, get_legate_runtime
 from legateboost.testing.utils import non_increasing, sanity_check_models

@@ -110,7 +110,7 @@ jobs:
       - conda-python-build
     strategy:
       fail-fast: false
-      # As of the last time this was updated, legate / cunumeric packages were published for only:
+      # As of the last time this was updated, legate / cupynumeric packages were published for only:
       #
       #  * architectures: amd64 only
       #  * CUDA: >=12.2

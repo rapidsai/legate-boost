@@ -17,7 +17,7 @@ from __future__ import annotations
 from enum import IntEnum
 from typing import List
 
-import cunumeric as cn
+import cupynumeric as cn
 from legate.core import get_legate_runtime, types as ty
 
 from .library import user_context, user_lib

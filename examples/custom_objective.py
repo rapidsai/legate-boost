@@ -1,4 +1,4 @@
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 

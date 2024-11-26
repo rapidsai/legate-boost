@@ -2,7 +2,7 @@ import copy
 from enum import IntEnum
 from typing import Any
 
-import cunumeric as cn
+import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
 
 from ..library import user_context, user_lib

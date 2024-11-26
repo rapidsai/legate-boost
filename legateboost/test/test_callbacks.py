@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from sklearn.datasets import make_regression
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 
