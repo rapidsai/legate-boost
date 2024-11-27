@@ -5,7 +5,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 

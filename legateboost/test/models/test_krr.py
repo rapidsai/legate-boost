@@ -3,7 +3,7 @@ import pytest
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.metrics import mean_squared_error
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 from legateboost.testing.utils import non_increasing
 

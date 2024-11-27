@@ -12,7 +12,7 @@ from matplotlib.figure import Figure
 from scipy.stats import gamma, norm
 from sklearn.datasets import fetch_california_housing
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 sns.set()

@@ -1,7 +1,7 @@
 import copy
 from typing import Any, List, Tuple
 
-import cunumeric as cn
+import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
 
 from ..library import user_context, user_lib

@@ -13,7 +13,7 @@
 #  '*_cpu' for CPU-only
 #  '*_gpu' for systems with CUDA
 #
-# this mirrors the approach used by cunumeric / legate
+# this mirrors the approach used by cupynumeric / legate
 {% if gpu_enabled == "true" %}
   {% set gpu_enabled_bool = true %}
 {% elif gpu_enabled == "false" %}
@@ -58,6 +58,8 @@ build:
   ignore_run_exports_from:
     {% if gpu_enabled_bool %}
     - {{ compiler('cuda') }}
+    - cuda-cudart-dev
+    - libcublas-dev
     {% endif %}
   {% if not gpu_enabled_bool %}
   # The CPU-only packages having more track_features than the GPU builds helps
@@ -79,11 +81,11 @@ requirements:
     {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
     - cuda-cudart-dev
-    - cunumeric {{ cunumeric_version }} =*_gpu*
+    - cupynumeric {{ cupynumeric_version }} =*_gpu*
     - legate {{ legate_version }} =*_gpu*
     - libcublas-dev
     {% else %}
-    - cunumeric {{ cunumeric_version }} =*_cpu*
+    - cupynumeric {{ cupynumeric_version }} =*_cpu*
     - legate {{ legate_version }} =*_cpu*
     {% endif %}
     - openblas
@@ -98,10 +100,12 @@ requirements:
     {% if gpu_enabled_bool %}
     # cuda-version is used to constrain __cuda
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
+    - cuda-cudart
+    - libcublas
     - __cuda
-    - cunumeric {{ cunumeric_version }} =*_gpu*
+    - cupynumeric {{ cupynumeric_version }} =*_gpu*
     {% else %}
-    - cunumeric {{ cunumeric_version }} =*_cpu*
+    - cupynumeric {{ cupynumeric_version }} =*_cpu*
     {% endif %}
     # Relying on run_exports from legate to pin an appropriate range of versions and
     # GPU vs. CPU selector.

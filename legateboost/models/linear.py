@@ -1,7 +1,7 @@
 import copy
 from typing import Any, Tuple
 
-import cunumeric as cn
+import cupynumeric as cn
 
 from ..utils import lbfgs, solve_singular
 from .base_model import BaseModel

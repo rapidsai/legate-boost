@@ -3,6 +3,7 @@
 channels:
 - legate
 - legate/label/experimental
+- legate/label/rc
 - conda-forge
 - nvidia
 dependencies:
@@ -13,9 +14,9 @@ dependencies:
 - cuda-nvcc
 - cuda-toolkit
 - cuda-version>=12.2
-- cunumeric==25.01.*,>=0.0.0.dev0
+- cupynumeric==24.11.*
 - hypothesis>=6
-- legate==25.01.*,>=0.0.0.dev0
+- legate==24.11.01.*
 - libcublas-dev
 - make
 - matplotlib>=3.9

@@ -4,7 +4,7 @@ from typing import Tuple
 from scipy.stats import norm
 from typing_extensions import TypeAlias, override
 
-import cunumeric as cn
+import cupynumeric as cn
 
 from . import special
 from .metrics import (
@@ -440,7 +440,7 @@ class QuantileObjective(BaseObjective):
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
     ) -> cn.ndarray:
         assert y.shape[1] == 1, "Quantile loss does not support multi-output"
-        # We don't have a way to calculate weighted quantiles easily in cunumeric.
+        # We don't have a way to calculate weighted quantiles easily in cupynumeric.
         # In any case, it would require slow global sort.
         # Instead fit a normal distribution to the data and use that
         # to estimate quantiles.

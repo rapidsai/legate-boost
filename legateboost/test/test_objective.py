@@ -1,6 +1,6 @@
 import pytest
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 from legateboost.testing.utils import non_increasing
 

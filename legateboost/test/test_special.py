@@ -5,7 +5,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 from hypothesis.extra.numpy import array_shapes
 
-import cunumeric as cn
+import cupynumeric as cn
 from legateboost import special
 
 

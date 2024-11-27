@@ -8,7 +8,7 @@ from sklearn.datasets import fetch_openml, make_regression
 from sklearn.model_selection import train_test_split
 from sklearn.utils import gen_even_slices
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 sns.set()
@@ -27,7 +27,7 @@ training_params = {
     "random_state": random_state,
 }
 
-# Fetch the data, create a train test split and convert to cunumeric arrays
+# Fetch the data, create a train test split and convert to cupynumeric arrays
 if os.environ.get("CI"):
     X, y = make_regression(random_state=2)
 else:

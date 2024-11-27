@@ -4,7 +4,7 @@ from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import log_loss
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 
 

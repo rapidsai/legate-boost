@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.base import is_regressor
 from sklearn.utils.validation import check_random_state
 
-import cunumeric as cn
+import cupynumeric as cn
 
 from .metrics import BaseMetric
 
@@ -39,7 +39,7 @@ def global_shapley_attributions(
     v_b = cn.empty((X.shape[1] + 1, n_samples))
 
     def eval_sample(p: cn.array, v: cn.array) -> None:
-        # cunumeric has no shuffle as of writing
+        # cupynumeric has no shuffle as of writing
         # with replacement should be fine
         X_temp = X[gen.integers(0, X.shape[0], X.shape[0])]
         null_loss = metric.metric(y, predict_fn(X_temp), w)

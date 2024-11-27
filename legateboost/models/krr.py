@@ -6,7 +6,7 @@ from typing import Any, Set, Tuple
 import numpy as np
 from scipy.special import lambertw
 
-import cunumeric as cn
+import cupynumeric as cn
 from legate.core import get_legate_runtime, types
 
 from ..library import user_context, user_lib

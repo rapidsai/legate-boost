@@ -1,6 +1,6 @@
 import common
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 from legate.core import get_legate_runtime
 

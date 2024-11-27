@@ -4,7 +4,7 @@ from sklearn.datasets import make_regression
 from sklearn.model_selection import train_test_split
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
-import cunumeric as cn
+import cupynumeric as cn
 import legateboost as lb
 from legateboost.testing.utils import non_increasing, sanity_check_models
 
