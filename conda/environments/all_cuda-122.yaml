@@ -10,7 +10,7 @@ dependencies:
 - cuda-cudart-dev
 - cuda-nvcc
 - cuda-version>=12.2
-- cunumeric==25.01.*,>=0.0.0.dev0
+- cupynumeric==25.01.*,>=0.0.0.dev0
 - hypothesis>=6
 - legate==25.01.*,>=0.0.0.dev0
 - libcublas-dev
