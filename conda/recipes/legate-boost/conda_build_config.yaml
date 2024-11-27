@@ -25,7 +25,7 @@ gpu_enabled:
   - true
   - false
 
-cunumeric_version:
+cupynumeric_version:
   - "=25.01.*,>=0.0.0.dev0"
 legate_version:
   - "=25.01.*,>=0.0.0.dev0"
