@@ -17,7 +17,7 @@
 namespace legateboost {
 
 struct Registry {
-  static legate::TaskRegistrar& get_registrar();
+  static auto get_registrar() -> legate::TaskRegistrar&;
 };
 
 template <typename T, int ID>

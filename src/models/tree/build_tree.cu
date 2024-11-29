@@ -40,8 +40,11 @@ struct NodeBatch {
   int32_t node_idx_begin{};
   int32_t node_idx_end{};
   tcb::span<cuda::std::tuple<int32_t, int32_t>> instances{};
-  __host__ __device__ std::size_t InstancesInBatch() const { return instances.size(); }
-  __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
+  __host__ __device__ auto InstancesInBatch() const -> std::size_t { return instances.size(); }
+  __host__ __device__ auto NodesInBatch() const -> std::size_t
+  {
+    return node_idx_end - node_idx_begin;
+  }
 };
 
 class GradientQuantiser {
@@ -53,7 +56,7 @@ class GradientQuantiser {
     int num_outputs;
     legate::AccessorRO<double, 3> g;
     legate::AccessorRO<double, 3> h;
-    __device__ GPair operator()(int n) const
+    __device__ auto operator()(int n) const -> GPair
     {
       legate::Point<3> const p = {n / num_outputs, 0, n % num_outputs};
       return GPair{abs(g[p]), abs(h[p])};
@@ -104,7 +107,7 @@ class GradientQuantiser {
   // Vs. O(1/n) for round nearest
   // The seed here should be unique for each gpair over each boosting iteration
   // Use a hash combine function to generate the seed
-  __device__ IntegerGPair QuantiseStochasticRounding(GPair value, int64_t seed) const
+  __device__ auto QuantiseStochasticRounding(GPair value, int64_t seed) const -> IntegerGPair
   {
     thrust::default_random_engine eng(seed);
     thrust::uniform_real_distribution<double> dist(0.0, 1.0);
@@ -123,7 +126,7 @@ class GradientQuantiser {
     return IntegerGPair{grad_quantised, hess_quantised};
   }
 
-  __device__ GPair Dequantise(IntegerGPair value) const
+  __device__ auto Dequantise(IntegerGPair value) const -> GPair
   {
     GPair result;
     // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
@@ -135,7 +138,7 @@ class GradientQuantiser {
 };
 
 // Hash function fmix64 from MurmurHash3
-__device__ int64_t hash(int64_t k)
+__device__ auto hash(int64_t k) -> int64_t
 {
   // We will assume murmurhash is correct here and ignore clang-tidy warnings
   // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
@@ -148,12 +151,12 @@ __device__ int64_t hash(int64_t k)
   return k;
 }
 
-__device__ int64_t hash_combine(int64_t seed) { return seed; }
+__device__ auto hash_combine(int64_t seed) -> int64_t { return seed; }
 
 // Hash combine from boost
 // This function is used to combine several random seeds e.g. a 3d index
 template <typename... Rest>
-__device__ int64_t hash_combine(int64_t seed, const int64_t& v, Rest... rest)
+__device__ auto hash_combine(int64_t seed, const int64_t& v, Rest... rest) -> int64_t
 {
   seed ^= hash(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
   return hash_combine(seed, rest...);
@@ -170,7 +173,7 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
                    GradientQuantiser quantiser,
                    int64_t seed)
 {
-  typedef cub::BlockReduce<IntegerGPair, BLOCK_THREADS> BlockReduce;
+  using BlockReduce = cub::BlockReduce<IntegerGPair, BLOCK_THREADS>;
   __shared__ typename BlockReduce::TempStorage temp_storage;
 
   auto output = blockIdx.y;
@@ -318,11 +321,11 @@ struct HistogramAgent {
   {
   }
 
-  HistogramAgent(const HistogramAgent&)            = delete;
-  HistogramAgent(HistogramAgent&&)                 = delete;
-  HistogramAgent& operator=(const HistogramAgent&) = delete;
-  HistogramAgent& operator=(HistogramAgent&&)      = delete;
-  ~HistogramAgent()                                = default;
+  HistogramAgent(const HistogramAgent&)                    = delete;
+  HistogramAgent(HistogramAgent&&)                         = delete;
+  auto operator=(const HistogramAgent&) -> HistogramAgent& = delete;
+  auto operator=(HistogramAgent&&) -> HistogramAgent&      = delete;
+  ~HistogramAgent()                                        = default;
 
   __device__ void ProcessPartialTileGlobal(std::size_t offset, std::size_t end)
   {
@@ -416,7 +419,7 @@ struct HistogramAgent {
     // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
   }
 
-  __device__ int GetTileNode(std::size_t offset)
+  __device__ auto GetTileNode(std::size_t offset) -> int
   {
     // Check the first and last element here and see if they are in the same node
     int const begin_ridx            = offset / feature_stride;
@@ -466,10 +469,10 @@ __global__ void __launch_bounds__(kBlockThreads)
                         legate::Buffer<int> feature_groups,
                         int64_t seed)
 {
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
   __shared__ char shared_char[kMaxSharedBins * sizeof(SharedMemoryHistogramType)];
   // Allocate as char and then cast to type. This is because we dont want to initialise the type.
-  SharedMemoryHistogramType* shared_memory =
+  auto* shared_memory =
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     reinterpret_cast<SharedMemoryHistogramType*>(shared_char);
   HistogramAgent<T, kBlockThreads, kItemsPerThread> agent(X,
@@ -584,7 +587,7 @@ struct HistogramKernel {
 
 // The only way to achieve this AFAIK is with reinterpret cast
 // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
-__device__ IntegerGPair vectorised_load(const IntegerGPair* ptr)
+__device__ auto vectorised_load(const IntegerGPair* ptr) -> IntegerGPair
 {
   static_assert(sizeof(IntegerGPair) == sizeof(int4), "size inconsistent");
   auto load = *reinterpret_cast<const int4*>(ptr);
@@ -618,9 +621,9 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   int const output       = narrow_cast<int>(blockIdx.y);
 
   // Specialize WarpScan for type int
-  typedef cub::WarpScan<IntegerGPair> WarpScan;
+  using WarpScan = cub::WarpScan<IntegerGPair>;
 
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
   __shared__ typename WarpScan::TempStorage temp_storage[BLOCK_THREADS / kWarpThreads];
 
   int const scan_node_idx = batch.node_idx_begin + j;
@@ -678,7 +681,10 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
 struct GainFeaturePair {
   double gain;
   int bin_idx;
-  __device__ bool operator>(const GainFeaturePair& other) const { return gain > other.gain; }
+  __device__ auto operator>(const GainFeaturePair& other) const -> bool
+  {
+    return gain > other.gain;
+  }
 };
 
 // NOLINTBEGIN(performance-unnecessary-value-param)
@@ -702,7 +708,7 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
   // Early exit if this node has no samples
   if (vectorised_load(&node_sums[{node_id, 0}]).hess <= 0) return;
 
-  typedef cub::BlockReduce<GainFeaturePair, BLOCK_THREADS> BlockReduce;
+  using BlockReduce = cub::BlockReduce<GainFeaturePair, BLOCK_THREADS>;
   __shared__ typename BlockReduce::TempStorage temp_storage;
 
   __shared__ double node_best_gain;
@@ -838,11 +844,11 @@ struct Tree {
     CHECK_CUDA_STREAM(stream);
   }
 
-  ~Tree()                      = default;
-  Tree(const Tree&)            = delete;
-  Tree(Tree&&)                 = delete;
-  Tree& operator=(const Tree&) = delete;
-  Tree& operator=(Tree&&)      = delete;
+  ~Tree()                              = default;
+  Tree(const Tree&)                    = delete;
+  Tree(Tree&&)                         = delete;
+  auto operator=(const Tree&) -> Tree& = delete;
+  auto operator=(Tree&&) -> Tree&      = delete;
 
   legate::Buffer<double, 2> leaf_value;
   legate::Buffer<int32_t, 1> feature;
@@ -859,13 +865,13 @@ struct Tree {
 // Remove any duplicates
 // Return sparse matrix of split samples for each feature
 template <typename T>
-static SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
-                                                  const legate::AccessorRO<T, 3>& X,
-                                                  legate::Rect<3> X_shape,
-                                                  int split_samples,
-                                                  int seed,
-                                                  int64_t dataset_rows,
-                                                  cudaStream_t stream)
+static auto SelectSplitSamples(legate::TaskContext context,
+                               const legate::AccessorRO<T, 3>& X,
+                               legate::Rect<3> X_shape,
+                               int split_samples,
+                               int seed,
+                               int64_t dataset_rows,
+                               cudaStream_t stream) -> SparseSplitProposals<T>
 {
   auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
   auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
@@ -1001,11 +1007,11 @@ struct TreeBuilder {
     max_batch_size = max_histogram_nodes;
   }
 
-  TreeBuilder(const TreeBuilder&)            = delete;
-  TreeBuilder(TreeBuilder&&)                 = delete;
-  TreeBuilder& operator=(const TreeBuilder&) = delete;
-  TreeBuilder& operator=(TreeBuilder&&)      = delete;
-  ~TreeBuilder()                             = default;
+  TreeBuilder(const TreeBuilder&)                    = delete;
+  TreeBuilder(TreeBuilder&&)                         = delete;
+  auto operator=(const TreeBuilder&) -> TreeBuilder& = delete;
+  auto operator=(TreeBuilder&&) -> TreeBuilder&      = delete;
+  ~TreeBuilder()                                     = default;
 
   template <typename TYPE>
   void UpdatePositions(Tree& tree, const legate::AccessorRO<TYPE, 3>& X, legate::Rect<3> X_shape)
@@ -1165,7 +1171,7 @@ struct TreeBuilder {
 
   // Create a new histogram for this batch if we need to
   // Destroy the old one
-  Histogram<IntegerGPair> GetHistogram(NodeBatch batch)
+  auto GetHistogram(NodeBatch batch) -> Histogram<IntegerGPair>
   {
     if (histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) { return histogram; }
 
@@ -1180,7 +1186,7 @@ struct TreeBuilder {
   }
 
   template <typename PolicyT>
-  std::vector<NodeBatch> PrepareBatches(int depth, PolicyT& /*policy*/)
+  auto PrepareBatches(int depth, PolicyT& /*policy*/) -> std::vector<NodeBatch>
   {
     tcb::span<cuda::std::tuple<int32_t, int32_t>> const sorted_positions_span(
       sorted_positions.ptr(0), num_rows);

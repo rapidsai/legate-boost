@@ -18,7 +18,7 @@
 
 namespace legateboost {
 
-Legion::Logger& GetLogger()
+auto GetLogger() -> Legion::Logger&
 {
   static Legion::Logger logger("legateboost");
   return logger;

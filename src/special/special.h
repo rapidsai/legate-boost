@@ -268,7 +268,7 @@ __host__ __device__ inline double zeta(double x, double q)
 struct ErfOp {
   using ArgsT = std::tuple<>;
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return std::erf(v);
   }
@@ -277,7 +277,7 @@ struct ErfOp {
 struct LgammaOp {
   using ArgsT = std::tuple<>;
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return std::lgamma(v);
   }
@@ -286,7 +286,7 @@ struct LgammaOp {
 struct TgammaOp {
   using ArgsT = std::tuple<>;
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return std::tgamma(v);
   }
@@ -295,7 +295,7 @@ struct TgammaOp {
 struct DigammaOp {
   using ArgsT = std::tuple<>;
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return calc_digamma(v);
   }
@@ -308,7 +308,7 @@ struct ZetaOp {
   explicit ZetaOp(double x) : x{x} {}
 
   template <typename T>
-  __host__ __device__ T operator()(T const& q) const
+  __host__ __device__ auto operator()(T const& q) const -> T
   {
     return zeta(x, q);
   }

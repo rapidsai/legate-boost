@@ -19,7 +19,7 @@ namespace legateboost {
 
 static const char* const library_name = "legateboost";
 
-/*static*/ legate::TaskRegistrar& Registry::get_registrar()
+/*static*/ auto Registry::get_registrar() -> legate::TaskRegistrar&
 {
   static legate::TaskRegistrar registrar;
   return registrar;

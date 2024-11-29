@@ -32,7 +32,7 @@
 
 namespace legateboost {
 
-Legion::Logger& GetLogger();
+auto GetLogger() -> Legion::Logger&;
 
 // Narrow function as per GSL and cppcoreguidelines
 // Throws if narrowing would lose information
@@ -40,16 +40,18 @@ Legion::Logger& GetLogger();
 namespace detail {
 template <class T, class U>
 struct is_same_signedness
-  : public std::integral_constant<bool, std::is_signed<T>::value == std::is_signed<U>::value> {};
+  : public std::integral_constant<bool, std::is_signed_v<T> == std::is_signed_v<U>> {};
 }  // namespace detail
 
 template <class T, class U>
-constexpr T narrow(U u) noexcept(false)
+constexpr auto narrow(U u) noexcept(false) -> T
 {
   T t = static_cast<T>(u);
 #if __CUDA_ARCH__
   if (static_cast<U>(t) != u) { __trap(); }
-  if (!detail::is_same_signedness<T, U>::value && ((t < T{}) != (u < U{}))) { __trap(); }
+  const bool t_negative = std::is_signed_v<T> && (t < T{});
+  const bool u_negative = std::is_signed_v<U> && (u < U{});
+  if (!detail::is_same_signedness<T, U>::value && (t_negative != u_negative)) { __trap(); }
 #else
   auto message =
     "narrowing error: " + std::to_string(u) + " cannot be represented as " + typeid(T).name();
@@ -61,7 +63,7 @@ constexpr T narrow(U u) noexcept(false)
 }
 
 template <class T, class U>
-constexpr T narrow_cast(U&& u) noexcept
+constexpr auto narrow_cast(U&& u) noexcept -> T
 {
   return static_cast<T>(std::forward<U>(u));
 }
@@ -99,8 +101,8 @@ void expect_is_broadcast(const legate::Rect<DIM>& shape, const std::string& file
 #define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
 
 template <typename T, int NDIM, bool assert_row_major = true>
-std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
-  const legate::PhysicalStore& store)
+auto GetInputStore(const legate::PhysicalStore& store)
+  -> std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>>
 {
   auto shape    = store.shape<NDIM>();
   auto accessor = store.read_accessor<T, NDIM, true>();
@@ -109,7 +111,8 @@ std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM
 
 // NOLINTBEGIN(misc-unused-parameters,cppcoreguidelines-missing-std-forward)
 template <typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr auto type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+  -> decltype(auto)
 {
   throw std::runtime_error("Unsupported type.");
 }
@@ -136,7 +139,8 @@ void expect_dense_row_major(const AccessorT& accessor,
   (expect_dense_row_major(accessor, shape, __FILE__, __LINE__))
 
 template <typename T, typename... Types, typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr auto type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+  -> decltype(auto)
 {
   if (code == legate::type_code_of_v<T>) {
     return f.template operator()<T>(std::forward<Fnargs>(args)...);
@@ -146,14 +150,16 @@ constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f
 }
 
 template <typename... Types, typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr auto type_dispatch(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+  -> decltype(auto)
 {
   return type_dispatch_impl<Types...>(
     code, std::forward<Functor>(f), std::forward<Fnargs>(args)...);
 }
 
 template <typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr auto type_dispatch_float(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+  -> decltype(auto)
 {
   type_dispatch<float, double>(code, std::forward<Functor>(f), std::forward<Fnargs>(args)...);
 }
@@ -168,9 +174,9 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
   if (x.size() == 0 || context.num_communicators() == 0) return;
   const auto& comm = context.communicator(0);
   legate::comm::coll::CollDataType type{};
-  if (std::is_same<T, float>::value)
+  if (std::is_same_v<T, float>)
     type = legate::comm::coll::CollDataType::CollFloat;
-  else if (std::is_same<T, double>::value)
+  else if (std::is_same_v<T, double>)
     type = legate::comm::coll::CollDataType::CollDouble;
   else
     EXPECT(false, "Unsupported type.");
@@ -213,7 +219,7 @@ __host__ __device__ auto UnravelIndex(std::size_t idx,
   for (std::int32_t dim = 0; dim < D; dim++) { extent[dim] += 1; }
   // First find the point in sub-rectangle
   legate::Point<D, legate::coord_t> sub_p;
-  static_assert(std::is_signed<decltype(D)>::value,
+  static_assert(std::is_signed_v<decltype(D)>,
                 "Don't change the type without changing the for loop.");
   for (std::int32_t dim = D; --dim > 0;) {
     auto s     = extent[dim];
@@ -241,19 +247,19 @@ class UnravelIter {
 
  public:
   __host__ __device__ UnravelIter(legate::Rect<DIM, legate::coord_t> shape) : shape_(shape) {}
-  __host__ __device__ UnravelIter& operator++()
+  __host__ __device__ auto operator++() -> UnravelIter&
   {
     current_++;
     return *this;
   }
   template <typename DistanceT>
-  __host__ __device__ UnravelIter& operator+=(DistanceT n)
+  __host__ __device__ auto operator+=(DistanceT n) -> UnravelIter&
   {
     current_ += n;
     return *this;
   }
   template <typename DistanceT>
-  __host__ __device__ UnravelIter operator+(DistanceT n)
+  __host__ __device__ auto operator+(DistanceT n) -> UnravelIter
   {
     UnravelIter copy = *this;
     copy += n;
@@ -261,12 +267,15 @@ class UnravelIter {
   }
 
   template <typename DistanceT>
-  __host__ __device__ value_type operator[](DistanceT n) const
+  __host__ __device__ auto operator[](DistanceT n) const -> value_type
   {
     return UnravelIndex(current_ + n, shape_);
   }
 
-  __host__ __device__ value_type operator*() const { return UnravelIndex(current_, shape_); }
+  __host__ __device__ auto operator*() const -> value_type
+  {
+    return UnravelIndex(current_, shape_);
+  }
 };
 
 template <size_t I = 0, typename... Tp>

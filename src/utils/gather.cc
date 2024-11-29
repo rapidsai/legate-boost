@@ -75,7 +75,7 @@ struct gather_fn {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks(void)
+static void __attribute__((constructor)) register_tasks()
 {
   legateboost::GatherTask::register_variants();
 }

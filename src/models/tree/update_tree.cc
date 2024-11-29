@@ -130,7 +130,7 @@ class UpdateTreeTask : public Task<UpdateTreeTask, UPDATE_TREE> {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks(void)
+static void __attribute__((constructor)) register_tasks()
 {
   legateboost::UpdateTreeTask::register_variants();
 }

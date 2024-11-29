@@ -31,10 +31,16 @@ struct NodeBatch {
   int32_t node_idx_begin{};
   int32_t node_idx_end{};
   tcb::span<std::tuple<int32_t, int32_t>> instances{};
-  auto begin() const { return instances.begin(); }
-  auto end() const { return instances.end(); }
-  __host__ __device__ std::size_t InstancesInBatch() const { return instances.size(); }
-  __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
+  [[nodiscard]] auto begin() const { return instances.begin(); }
+  [[nodiscard]] auto end() const { return instances.end(); }
+  __host__ __device__ [[nodiscard]] auto InstancesInBatch() const -> std::size_t
+  {
+    return instances.size();
+  }
+  __host__ __device__ [[nodiscard]] auto NodesInBatch() const -> std::size_t
+  {
+    return node_idx_end - node_idx_begin;
+  }
 };
 
 struct Tree {
@@ -72,7 +78,7 @@ struct Tree {
       this->leaf_value[{BinaryTree::RightChild(node_id), output}] = right_leaf_value[output];
     }
   }
-  bool IsLeaf(int node_id) const { return feature[node_id] == -1; }
+  [[nodiscard]] auto IsLeaf(int node_id) const -> bool { return feature[node_id] == -1; }
 
   legate::Buffer<double, 2> leaf_value;
   std::vector<int32_t> feature;
@@ -121,12 +127,12 @@ void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
 // Remove any duplicates
 // Return sparse matrix of split samples for each feature
 template <typename T>
-SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
-                                           const legate::AccessorRO<T, 3>& X,
-                                           legate::Rect<3> X_shape,
-                                           int split_samples,
-                                           int seed,
-                                           int64_t dataset_rows)
+auto SelectSplitSamples(legate::TaskContext context,
+                        const legate::AccessorRO<T, 3>& X,
+                        legate::Rect<3> X_shape,
+                        int split_samples,
+                        int seed,
+                        int64_t dataset_rows) -> SparseSplitProposals<T>
 {
   std::vector<int64_t> row_samples(split_samples);
 
@@ -352,7 +358,7 @@ struct TreeBuilder {
 
   // Create a new histogram for this batch if we need to
   // Destroy the old one
-  Histogram<GPair> GetHistogram(NodeBatch batch)
+  auto GetHistogram(NodeBatch batch) -> Histogram<GPair>
   {
     if (histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) { return histogram; }
 
@@ -362,7 +368,7 @@ struct TreeBuilder {
     return histogram;
   }
 
-  std::vector<NodeBatch> PrepareBatches(int depth)
+  auto PrepareBatches(int depth) -> std::vector<NodeBatch>
   {
     tcb::span<std::tuple<int32_t, int32_t>> const sorted_positions_span(sorted_positions.ptr(0),
                                                                         num_rows);
@@ -498,7 +504,7 @@ struct build_tree_fn {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks(void)
+static void __attribute__((constructor)) register_tasks()
 {
   legateboost::BuildTreeTask::register_variants();
 }

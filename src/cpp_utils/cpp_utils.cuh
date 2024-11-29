@@ -101,17 +101,17 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, ncclRedOp_t op, cuda
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a GPU communicator for multi-rank task.");
   if (context.num_communicators() == 0) return;
-  const auto& comm      = context.communicator(0);
-  ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();
+  const auto& comm = context.communicator(0);
+  auto* nccl_comm  = comm.get<ncclComm_t*>();
 
   if (num_ranks > 1) {
-    if (std::is_same<T, float>::value) {
+    if (std::is_same_v<T, float>) {
       CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclFloat, op, *nccl_comm, stream));
-    } else if (std::is_same<T, double>::value) {
+    } else if (std::is_same_v<T, double>) {
       CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclDouble, op, *nccl_comm, stream));
-    } else if (std::is_same<T, int64_t>::value) {
+    } else if (std::is_same_v<T, int64_t>) {
       CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclInt64, op, *nccl_comm, stream));
-    } else if (std::is_same<T, int32_t>::value) {
+    } else if (std::is_same_v<T, int32_t>) {
       CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclInt, op, *nccl_comm, stream));
     } else {
       EXPECT(false, "Unsupported type for all reduce.");
@@ -134,13 +134,14 @@ void SumAllReduce(legate::TaskContext context, tcb::span<T> x, cudaStream_t stre
 
 constexpr uint32_t kFullBitMask = 0xffffffffu;
 constexpr uint32_t kWarpSize    = 32;
-__device__ inline uint32_t ballot(bool inFlag, uint32_t mask = kFullBitMask)
+__device__ inline auto ballot(bool inFlag, uint32_t mask = kFullBitMask) -> uint32_t
 {
   return __ballot_sync(mask, inFlag);
 }
 
 template <typename T>
-__device__ inline T shfl(T val, int srcLane, int width = kWarpSize, uint32_t mask = kFullBitMask)
+__device__ inline auto shfl(T val, int srcLane, int width = kWarpSize, uint32_t mask = kFullBitMask)
+  -> T
 {
   return __shfl_sync(mask, val, srcLane, width);
 }
@@ -151,7 +152,7 @@ class ThrustAllocator : public legate::ScopedAllocator {
 
   explicit ThrustAllocator(legate::Memory::Kind kind) : legate::ScopedAllocator(kind) {}
 
-  char* allocate(size_t num_bytes)
+  auto allocate(size_t num_bytes) -> char*
   {
     return static_cast<char*>(ScopedAllocator::allocate(num_bytes));
   }

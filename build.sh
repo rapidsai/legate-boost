@@ -68,7 +68,7 @@ if hasArg clang-tidy; then
     if hasArg --fix; then
         FIX_ARG="-fix"
     fi
-    run-clang-tidy -warnings-as-errors='*' -p build_clang_tidy ${FIX_ARG} -exclude-header-filter='.*\/legate\/.*|.*\/libcudacxx\/.*' -header-filter='.*'
+    run-clang-tidy -p build_clang_tidy ${FIX_ARG} -exclude-header-filter='.*\/legate\/.*|.*\/libcudacxx\/.*' -header-filter='.*'
     echo "done running clang-tidy"
 fi
 

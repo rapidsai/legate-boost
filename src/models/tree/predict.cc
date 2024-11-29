@@ -72,7 +72,7 @@ struct predict_fn {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks(void)
+static void __attribute__((constructor)) register_tasks()
 {
   legateboost::PredictTask::register_variants();
 }

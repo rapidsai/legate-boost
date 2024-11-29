@@ -22,21 +22,23 @@
 
 namespace legateboost {
 
-LegateboostMapper::LegateboostMapper() {}
+LegateboostMapper::LegateboostMapper() = default;
 
-legate::mapping::TaskTarget LegateboostMapper::task_target(
-  const legate::mapping::Task& /*task*/, const std::vector<legate::mapping::TaskTarget>& options)
+auto LegateboostMapper::task_target(const legate::mapping::Task& /*task*/,
+                                    const std::vector<legate::mapping::TaskTarget>& options)
+  -> legate::mapping::TaskTarget
 {
   return *options.begin();
 }
 
-legate::Scalar LegateboostMapper::tunable_value(legate::TunableID /*tunable_id*/)
+auto LegateboostMapper::tunable_value(legate::TunableID /*tunable_id*/) -> legate::Scalar
 {
   return legate::Scalar{};
 }
 
-std::vector<legate::mapping::StoreMapping> LegateboostMapper::store_mappings(
-  const legate::mapping::Task& task, const std::vector<legate::mapping::StoreTarget>& options)
+auto LegateboostMapper::store_mappings(const legate::mapping::Task& task,
+                                       const std::vector<legate::mapping::StoreTarget>& options)
+  -> std::vector<legate::mapping::StoreMapping>
 {
   auto task_id = task.task_id();
   // Enforce c-ordering for these tasks

@@ -33,7 +33,7 @@ struct GPairBase {
   T grad           = 0.0;
   T hess           = 0.0;
 
-  __host__ __device__ GPairBase<T>& operator+=(const GPairBase<T>& b)
+  __host__ __device__ auto operator+=(const GPairBase<T>& b) -> GPairBase<T>&
   {
     this->grad += b.grad;
     this->hess += b.hess;
@@ -42,13 +42,15 @@ struct GPairBase {
 };
 
 template <typename T>
-inline __host__ __device__ GPairBase<T> operator-(const GPairBase<T>& a, const GPairBase<T>& b)
+inline __host__ __device__ auto operator-(const GPairBase<T>& a, const GPairBase<T>& b)
+  -> GPairBase<T>
 {
   return GPairBase<T>{a.grad - b.grad, a.hess - b.hess};
 }
 
 template <typename T>
-inline __host__ __device__ GPairBase<T> operator+(const GPairBase<T>& a, const GPairBase<T>& b)
+inline __host__ __device__ auto operator+(const GPairBase<T>& a, const GPairBase<T>& b)
+  -> GPairBase<T>
 {
   return GPairBase<T>{a.grad + b.grad, a.hess + b.hess};
 }
@@ -59,21 +61,22 @@ using IntegerGPair = GPairBase<int64_t>;
 // Some helpers for indexing into a binary tree
 class BinaryTree {
  public:
-  __host__ __device__ static int Parent(int i) { return (i - 1) / 2; }
-  __host__ __device__ static int LeftChild(int i) { return 2 * i + 1; }
-  __host__ __device__ static int RightChild(int i) { return 2 * i + 2; }
-  __host__ __device__ static int Sibling(int i) { return (i % 2 == 0) ? i - 1 : i + 1; }
-  __host__ __device__ static int LevelBegin(int level) { return (1 << level) - 1; }
-  __host__ __device__ static int LevelEnd(int level) { return (1 << (level + 1)) - 1; }
-  __host__ __device__ static int NodesInLevel(int level) { return 1 << level; }
+  __host__ __device__ static auto Parent(int i) -> int { return (i - 1) / 2; }
+  __host__ __device__ static auto LeftChild(int i) -> int { return 2 * i + 1; }
+  __host__ __device__ static auto RightChild(int i) -> int { return 2 * i + 2; }
+  __host__ __device__ static auto Sibling(int i) -> int { return (i % 2 == 0) ? i - 1 : i + 1; }
+  __host__ __device__ static auto LevelBegin(int level) -> int { return (1 << level) - 1; }
+  __host__ __device__ static auto LevelEnd(int level) -> int { return (1 << (level + 1)) - 1; }
+  __host__ __device__ static auto NodesInLevel(int level) -> int { return 1 << level; }
 };
 
 // Estimate if the left or right child has less data
 // We compute the histogram for the child with less data
 // And infer the other side by subtraction from the parent
 template <typename GPairT>
-inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
-  int parent, const legate::Buffer<GPairT, 2>& node_sums)
+inline __host__ __device__ auto SelectHistogramNode(int parent,
+                                                    const legate::Buffer<GPairT, 2>& node_sums)
+  -> std::pair<int, int>
 {
   int const left_child  = BinaryTree::LeftChild(parent);
   int const right_child = BinaryTree::RightChild(parent);
@@ -84,9 +87,9 @@ inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
 }
 
 template <typename GPairT>
-inline __host__ __device__ bool ComputeHistogramBin(int node_id,
+inline __host__ __device__ auto ComputeHistogramBin(int node_id,
                                                     const legate::Buffer<GPairT, 2>& node_sums,
-                                                    bool parent_histogram_exists)
+                                                    bool parent_histogram_exists) -> bool
 {
   if (node_id == 0) return true;
   if (node_id < 0) return false;
@@ -97,7 +100,7 @@ inline __host__ __device__ bool ComputeHistogramBin(int node_id,
   return histogram_node == node_id;
 }
 
-__host__ __device__ inline double CalculateLeafValue(double G, double H, double alpha)
+__host__ __device__ inline auto CalculateLeafValue(double G, double H, double alpha) -> double
 {
   return -G / (H + alpha);
 }
@@ -125,7 +128,7 @@ class SparseSplitProposals {
 // Returns the bin index for a given feature and value
 // If the value is not in the split proposals, -1 is returned
 #ifdef __CUDACC__
-  __device__ int FindBin(T x, int feature) const
+  __device__ auto FindBin(T x, int feature) const -> int
   {
     auto feature_row_begin = row_pointers[feature];
     auto feature_row_end   = row_pointers[feature + 1];
@@ -135,7 +138,7 @@ class SparseSplitProposals {
     return ptr - split_proposals.ptr(0);
   }
 #else
-  int FindBin(T x, int feature) const
+  [[nodiscard]] auto FindBin(T x, int feature) const -> int
   {
     auto feature_row_begin = legate::coord_t{row_pointers[feature]};
     auto feature_row_end   = legate::coord_t{row_pointers[feature + 1]};
@@ -147,7 +150,7 @@ class SparseSplitProposals {
 #endif
 
 #ifdef __CUDACC__
-  __host__ __device__ int FindFeature(int bin_idx) const
+  __host__ __device__ auto FindFeature(int bin_idx) const -> int
   {
     // Binary search for the feature
     return thrust::upper_bound(
@@ -156,7 +159,7 @@ class SparseSplitProposals {
   }
 #endif
 
-  __host__ __device__ std::tuple<int, int> FeatureRange(int feature) const
+  [[nodiscard]] __host__ __device__ auto FeatureRange(int feature) const -> std::tuple<int, int>
   {
     return std::make_tuple(row_pointers[feature], row_pointers[feature + 1]);
   }
@@ -168,9 +171,9 @@ class Histogram {
   using value_type = GPairT;
   // If we are using int64 as our type we need to do atomic adds as unsigned long long
   using atomic_add_type =
-    typename std::conditional<std::is_same_v<typename value_type::value_type, int64_t>,
-                              unsigned long long,  // NOLINT(runtime/int)
-                              typename value_type::value_type>::type;
+    std::conditional_t<std::is_same_v<typename value_type::value_type, int64_t>,
+                       unsigned long long,  // NOLINT(runtime/int)
+                       typename value_type::value_type>;
 
  private:
   legate::Buffer<GPairT, 3> buffer_;  // Nodes, outputs, bins
@@ -218,22 +221,22 @@ class Histogram {
     size_       = 0;
   }
 
-  bool ContainsBatch(int node_begin_idx, int node_end_idx)
+  auto ContainsBatch(int node_begin_idx, int node_end_idx) -> bool
   {
     return node_begin_idx >= node_begin_ && node_end_idx <= node_end_;
   }
 
-  __device__ bool ContainsNode(int node_idx)
+  __device__ auto ContainsNode(int node_idx) -> bool
   {
     return node_idx >= node_begin_ && node_idx < node_end_;
   }
 
-  GPairT* Ptr(int node_idx) { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
+  auto Ptr(int node_idx) -> GPairT* { return buffer_.ptr({node_idx - node_begin_, 0, 0}); }
 
-  std::size_t Size() { return size_; }
+  auto Size() -> std::size_t { return size_; }
 
   // Node, output, bin
-  __host__ __device__ GPairT& operator[](legate::Point<3> p)
+  __host__ __device__ auto operator[](legate::Point<3> p) -> GPairT&
   {
     return buffer_[{p[0] - node_begin_, p[1], p[2]}];
   }

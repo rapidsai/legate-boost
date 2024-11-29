@@ -38,34 +38,37 @@ struct Matrix {
     }
   }
 
-  __host__ __device__ std::int64_t size() const { return extent[0] * extent[1]; }
+  [[nodiscard]] __host__ __device__ auto size() const -> std::int64_t
+  {
+    return extent[0] * extent[1];
+  }
 
-  __host__ __device__ T& operator[](std::array<int64_t, 2> idx) const
+  __host__ __device__ auto operator[](std::array<int64_t, 2> idx) const -> T&
   {
     return data[idx[0] * extent[1] + idx[1]];
   }
 
-  static Matrix<T> From1dStore(legate::PhysicalStore store)
+  static auto From1dStore(legate::PhysicalStore store) -> Matrix<T>
   {
     auto shape = store.shape<1>();
     T* data    = store.read_accessor<T, 1, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
 
-  static Matrix<T> From1dOutputStore(const legate::PhysicalStore& store)
+  static auto From1dOutputStore(const legate::PhysicalStore& store) -> Matrix<T>
   {
     auto shape = store.shape<1>();
     tcb::span<T> const data(store.read_write_accessor<T, 1, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
 
-  static Matrix<T> From2dStore(legate::PhysicalStore store)
+  static auto From2dStore(legate::PhysicalStore store) -> Matrix<T>
   {
     auto shape = store.shape<2>();
     tcb::span<T> data(store.read_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
-  static Matrix<T> From2dOutputStore(const legate::PhysicalStore& store)
+  static auto From2dOutputStore(const legate::PhysicalStore& store) -> Matrix<T>
   {
     auto shape = store.shape<2>();
     tcb::span<T> const data(store.read_write_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
@@ -73,7 +76,8 @@ struct Matrix {
   }
 
   // Take a 3d store, remove a broadcast dimension and return a 2d Matrix
-  static Matrix<T> Project3dStore(const legate::PhysicalStore& store, int broadcast_dimension)
+  static auto Project3dStore(const legate::PhysicalStore& store, int broadcast_dimension)
+    -> Matrix<T>
   {
     auto shape = store.shape<3>();
     auto data  = store.read_accessor<T, 3, true>().ptr(shape.lo);
@@ -88,7 +92,7 @@ struct Matrix {
     return Matrix<T>({const_cast<T*>(data), narrow<std::size_t>(extent[0] * extent[1])}, extent);
   }
 
-  static Matrix<T> Create(std::array<int64_t, 2> extent)
+  static auto Create(std::array<int64_t, 2> extent) -> Matrix<T>
   {
     auto deleter = [](legate::Buffer<T, 2>* ptr) {
       ptr->destroy();
@@ -122,7 +126,7 @@ class LearningMonitor {
   }
 
   template <typename T>
-  bool IsConverged(T cost, T grad_norm)
+  auto IsConverged(T cost, T grad_norm) -> bool
   {
     iterations_no_progress = old_cost - cost < min_progress ? iterations_no_progress + 1 : 0;
     old_cost               = cost;

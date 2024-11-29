@@ -14,8 +14,8 @@
  *
  */
 #include "build_nn.h"
-#include <math.h>
 #include <thrust/device_vector.h>
+#include <cmath>
 #include <deque>
 #include <cstdio>
 #include <iostream>
@@ -89,27 +89,27 @@ class NNContext {
       num_parameters += b.size();
     }
   }
-  NNContext(const NNContext&)            = delete;
-  NNContext(NNContext&&)                 = delete;
-  NNContext& operator=(const NNContext&) = delete;
-  NNContext& operator=(NNContext&&)      = delete;
+  NNContext(const NNContext&)                    = delete;
+  NNContext(NNContext&&)                         = delete;
+  auto operator=(const NNContext&) -> NNContext& = delete;
+  auto operator=(NNContext&&) -> NNContext&      = delete;
   ~NNContext() { CUBLAS_ERROR(cublasDestroy(handle)); }
   template <typename T>
-  std::tuple<std::vector<Matrix<T>>, std::vector<Matrix<T>>> Unpack(Matrix<T>& x)
+  auto Unpack(Matrix<T>& x) -> std::tuple<std::vector<Matrix<T>>, std::vector<Matrix<T>>>
   {
     std::vector<Matrix<T>> coefficients;
     std::vector<Matrix<T>> biases;
     std::size_t offset = 0;
-    for (int i = 0; i < coefficient_extents.size(); i++) {
-      auto size = narrow<std::size_t>(coefficient_extents.at(i)[0] * coefficient_extents.at(i)[1]);
+    for (auto& coefficient_extent : coefficient_extents) {
+      auto size = narrow<std::size_t>(coefficient_extent[0] * coefficient_extent[1]);
       // cannot use subspan due to legate issues/1525
-      coefficients.push_back(Matrix<T>({&x.data[offset], size}, coefficient_extents.at(i)));
+      coefficients.push_back(Matrix<T>({&x.data[offset], size}, coefficient_extent));
       offset += size;
     }
-    for (int i = 0; i < bias_extents.size(); i++) {
-      auto size = narrow<std::size_t>(bias_extents.at(i)[0] * bias_extents.at(i)[1]);
+    for (auto& bias_extent : bias_extents) {
+      auto size = narrow<std::size_t>(bias_extent[0] * bias_extent[1]);
       // cannot use subspan due to legate issues/1525
-      biases.push_back(Matrix<T>({&x.data[offset], size}, bias_extents.at(i)));
+      biases.push_back(Matrix<T>({&x.data[offset], size}, bias_extent));
       offset += biases.back().size();
     }
     return std::make_tuple(coefficients, biases);
@@ -120,11 +120,9 @@ template <bool transpose_A = false, bool transpose_B = false, typename T1, typen
 void dot(NNContext* context, Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
 {
   if (A.size() == 0 || B.size() == 0) return;
-  using T = typename std::remove_const<T1>::type;
-  static_assert(std::is_same<T, typename std::remove_const<T2>::type>::value,
-                "T1 and T2 must be the same type");
-  static_assert(std::is_same<T, typename std::remove_const<T3>::type>::value,
-                "T1 and T3 must be the same type");
+  using T = std::remove_const_t<T1>;
+  static_assert(std::is_same_v<T, std::remove_const_t<T2>>, "T1 and T2 must be the same type");
+  static_assert(std::is_same_v<T, std::remove_const_t<T3>>, "T1 and T3 must be the same type");
 
   // Arguments rearranged because data is row major and cublas expects column major
   // https://stackoverflow.com/questions/56043539/cublassgemm-row-major-multiplication
@@ -143,7 +141,7 @@ void dot(NNContext* context, Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
   int const lda_A = transpose_A ? n : k;
   int const lda_C = m;
 
-  if constexpr (std::is_same<T, double>::value) {
+  if constexpr (std::is_same_v<T, double>) {
     CUBLAS_ERROR(cublasDgemm(context->handle,
                              op_B,
                              op_A,
@@ -187,7 +185,7 @@ void print(Matrix<T>& A, int64_t n)
 }
 
 template <typename T>
-Matrix<T> multiply(Matrix<T>& A, T scalar, cudaStream_t stream)
+auto multiply(Matrix<T>& A, T scalar, cudaStream_t stream) -> Matrix<T>
 {
   auto result = Matrix<T>::Create(A.extent);
   LaunchN(
@@ -196,7 +194,7 @@ Matrix<T> multiply(Matrix<T>& A, T scalar, cudaStream_t stream)
 }
 
 template <typename T>
-Matrix<T> subtract(const Matrix<T>& A, const Matrix<T>& B, cudaStream_t stream)
+auto subtract(const Matrix<T>& A, const Matrix<T>& B, cudaStream_t stream) -> Matrix<T>
 {
   EXPECT(A.extent == B.extent, "Matrix dimensions must match");
   auto result = Matrix<T>::Create(A.extent);
@@ -213,11 +211,11 @@ void fill(Matrix<T>& A, T2 val, cudaStream_t stream)
 }
 
 template <typename T>
-T vector_norm(NNContext* context, Matrix<T>& A)
+auto vector_norm(NNContext* context, Matrix<T>& A) -> T
 {
   T result = 0.0;
   if (A.size() == 0) return result;
-  if constexpr (std::is_same<T, double>::value) {
+  if constexpr (std::is_same_v<T, double>) {
     CUBLAS_ERROR(cublasDnrm2(context->handle, A.size(), A.data.data(), 1, &result));
   } else {
     CUBLAS_ERROR(cublasSnrm2(context->handle, A.size(), A.data.data(), 1, &result));
@@ -227,11 +225,11 @@ T vector_norm(NNContext* context, Matrix<T>& A)
 }
 
 template <typename T>
-T vector_dot(NNContext* context, Matrix<T>& A, Matrix<T>& B)
+auto vector_dot(NNContext* context, Matrix<T>& A, Matrix<T>& B) -> T
 {
   T result = 0.0;
   if (A.size() == 0) return result;
-  if constexpr (std::is_same<T, double>::value) {
+  if constexpr (std::is_same_v<T, double>) {
     CUBLAS_ERROR(
       cublasDdot(context->handle, A.size(), A.data.data(), 1, B.data.data(), 1, &result));
   } else {
@@ -277,13 +275,13 @@ void apply_alpha(NNContext* context, Matrix<T>& grad, Matrix<T>& coeff, double a
 }
 
 template <typename T>
-T eval_cost(NNContext* context,
-            Matrix<T>& pred,
-            Matrix<double>& g,
-            Matrix<double>& h,
-            std::vector<Matrix<T>>& coefficients,
-            int64_t total_rows,
-            double alpha)
+auto eval_cost(NNContext* context,
+               Matrix<T>& pred,
+               Matrix<double>& g,
+               Matrix<double>& h,
+               std::vector<Matrix<T>>& coefficients,
+               int64_t total_rows,
+               double alpha) -> T
 {
   Matrix<T> const cost_array = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
@@ -323,7 +321,8 @@ T eval_cost(NNContext* context,
 }
 
 template <typename T>
-Matrix<T> eval_cost_prime(NNContext* context, Matrix<T>& pred, Matrix<double>& g, Matrix<double>& h)
+auto eval_cost_prime(NNContext* context, Matrix<T>& pred, Matrix<double>& g, Matrix<double>& h)
+  -> Matrix<T>
 {
   Matrix<T> cost_prime = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
@@ -357,15 +356,15 @@ void forward(NNContext* nn_context,
 }
 
 template <typename T>
-Matrix<T> backward(NNContext* nn_context,
-                   std::vector<Matrix<T>>& coefficients,
-                   std::vector<Matrix<T>>& bias,
-                   std::vector<Matrix<T>>& activations,
-                   std::vector<Matrix<T>>& deltas,
-                   Matrix<double>& g,
-                   Matrix<double>& h,
-                   std::size_t total_rows,
-                   double alpha)
+auto backward(NNContext* nn_context,
+              std::vector<Matrix<T>>& coefficients,
+              std::vector<Matrix<T>>& bias,
+              std::vector<Matrix<T>>& activations,
+              std::vector<Matrix<T>>& deltas,
+              Matrix<double>& g,
+              Matrix<double>& h,
+              std::size_t total_rows,
+              double alpha) -> Matrix<T>
 {
   auto grads = Matrix<T>::Create({nn_context->num_parameters, 1});
   fill(grads, 0.0, nn_context->stream);
@@ -430,17 +429,17 @@ void update_coefficients(NNContext* nn_context,
 }
 
 template <typename T>
-std::tuple<T, T> line_search(NNContext* nn_context,
-                             std::vector<Matrix<T>>& coefficients,
-                             std::vector<Matrix<T>>& bias,
-                             Matrix<T>& direction,
-                             Matrix<T>& grad,
-                             std::vector<Matrix<T>>& activations,
-                             Matrix<double>& g,
-                             Matrix<double>& h,
-                             std::size_t total_rows,
-                             T cost,
-                             double alpha)
+auto line_search(NNContext* nn_context,
+                 std::vector<Matrix<T>>& coefficients,
+                 std::vector<Matrix<T>>& bias,
+                 Matrix<T>& direction,
+                 Matrix<T>& grad,
+                 std::vector<Matrix<T>>& activations,
+                 Matrix<double>& g,
+                 Matrix<double>& h,
+                 std::size_t total_rows,
+                 T cost,
+                 double alpha) -> std::tuple<T, T>
 {
   T lr        = 1.0;
   const T rho = 0.1;
@@ -486,7 +485,7 @@ class LBfgs {
     s.push_back(std::move(x_diff));
     y.push_back(std::move(grad_diff));
   }
-  Matrix<T> GetDirection(NNContext* context, Matrix<T>& grad)
+  auto GetDirection(NNContext* context, Matrix<T>& grad) -> Matrix<T>
   {
     /*
     Chen, Weizhu, Zhenghao Wang, and Jingren Zhou. "Large-scale L-BFGS using MapReduce." Advances in
@@ -586,12 +585,12 @@ struct build_nn_fn {
 
     auto stream = context.get_task_stream();
 
-    auto total_rows        = context.scalar(0).value<int64_t>();
-    double const gtol      = context.scalar(1).value<double>();
-    int32_t const verbose  = context.scalar(2).value<int32_t>();
-    int32_t const m        = context.scalar(3).value<int32_t>();
-    int32_t const max_iter = context.scalar(4).value<int32_t>();
-    double const alpha     = context.scalar(5).value<double>();
+    auto total_rows     = context.scalar(0).value<int64_t>();
+    auto const gtol     = context.scalar(1).value<double>();
+    auto const verbose  = context.scalar(2).value<int32_t>();
+    auto const m        = context.scalar(3).value<int32_t>();
+    auto const max_iter = context.scalar(4).value<int32_t>();
+    auto const alpha    = context.scalar(5).value<double>();
 
     std::vector<Matrix<T>> coefficients;
     std::vector<Matrix<T>> bias;
