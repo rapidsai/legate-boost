@@ -55,7 +55,7 @@ struct Matrix {
   static Matrix<T> From1dOutputStore(const legate::PhysicalStore& store)
   {
     auto shape = store.shape<1>();
-    tcb::span<T> data(store.read_write_accessor<T, 1, true>().ptr(shape.lo), shape.volume());
+    tcb::span<T> const data(store.read_write_accessor<T, 1, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
 
@@ -68,7 +68,7 @@ struct Matrix {
   static Matrix<T> From2dOutputStore(const legate::PhysicalStore& store)
   {
     auto shape = store.shape<2>();
-    tcb::span<T> data(store.read_write_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
+    tcb::span<T> const data(store.read_write_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
 
@@ -96,7 +96,7 @@ struct Matrix {
       // But this is a deleter for a smart pointer anyway
       delete ptr;  // NOLINT(cppcoreguidelines-owning-memory)
     };
-    std::shared_ptr<legate::Buffer<T, 2>> buffer(
+    std::shared_ptr<legate::Buffer<T, 2>> const buffer(
       new legate::Buffer<T, 2>(legate::create_buffer<T>(legate::Point<2>{extent[0], extent[1]})),
       deleter);
     auto t   = Matrix<T>({buffer->ptr({0, 0}), narrow<std::size_t>(extent[0] * extent[1])}, extent);

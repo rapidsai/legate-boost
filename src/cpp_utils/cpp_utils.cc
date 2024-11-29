@@ -13,6 +13,7 @@
  * limitations under the License.
  *
  */
+#include <legate.h>
 #include "cpp_utils/cpp_utils.h"
 
 namespace legateboost {

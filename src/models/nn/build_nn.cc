@@ -14,8 +14,11 @@
  *
  */
 #include "build_nn.h"
+#include <legate.h>
 #include <cblas.h>
+#include <cstdint>
 #include <algorithm>
+#include <array>
 #include <tuple>
 #include <vector>
 #include <iostream>
@@ -78,19 +81,19 @@ void dot(Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
   static_assert(std::is_same<T, typename std::remove_const<T3>::type>::value,
                 "T1 and T3 must be the same type");
 
-  int m = transpose_B ? B.extent[0] : B.extent[1];
-  int n = transpose_A ? A.extent[1] : A.extent[0];
-  int k = transpose_A ? A.extent[0] : A.extent[1];
+  const int m = transpose_B ? B.extent[0] : B.extent[1];
+  const int n = transpose_A ? A.extent[1] : A.extent[0];
+  const int k = transpose_A ? A.extent[0] : A.extent[1];
 
-  T alpha = 1.0;
-  T beta  = 0.0;
+  const T alpha = 1.0;
+  const T beta  = 0.0;
 
-  auto op_A = transpose_A ? CblasTrans : CblasNoTrans;
-  auto op_B = transpose_B ? CblasTrans : CblasNoTrans;
+  const auto op_A = transpose_A ? CblasTrans : CblasNoTrans;
+  const auto op_B = transpose_B ? CblasTrans : CblasNoTrans;
 
-  int lda_B = transpose_B ? k : m;
-  int lda_A = transpose_A ? n : k;
-  int lda_C = m;
+  const int lda_B = transpose_B ? k : m;
+  const int lda_A = transpose_A ? n : k;
+  const int lda_C = m;
 
   if constexpr (std::is_same<T, double>::value) {
     cblas_dgemm(CblasColMajor,
@@ -225,7 +228,7 @@ T eval_cost(NNContext* context,
     T p     = pred.data[i];
     T g_val = g.data[i];
     T h_val = h.data[i];
-    sum += p * (g_val + 0.5 * h_val * p);  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+    sum += p * (g_val + 0.5 * h_val * p);
   }
 
   sum /= total_rows * pred.extent[1];
@@ -235,7 +238,7 @@ T eval_cost(NNContext* context,
   if (alpha > 0.0) {
     T L2 = 0.0;
     for (auto& c : coefficients) { L2 += vector_dot(c, c); }
-    L2 = (0.5 * alpha) * L2 / total_rows;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+    L2 = (0.5 * alpha) * L2 / total_rows;
 
     sum += L2;
   }
@@ -352,14 +355,13 @@ std::tuple<T, T> line_search(NNContext* nn_context,
                              Matrix<T>& direction,
                              Matrix<T>& grad,
                              std::vector<Matrix<T>>& activations,
-                             std::vector<Matrix<T>>& deltas,
                              Matrix<double>& g,
                              Matrix<double>& h,
                              std::size_t total_rows,
                              T cost,
                              double alpha)
 {
-  T lr        = 1.0;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  T lr        = 1.0;
   const T rho = 0.1;
   const T c   = 1e-4;
   const T t   = -c * vector_dot(grad, direction);
@@ -438,9 +440,9 @@ class LBfgs {
       if (val < 0.0 && val > -eps) { val = -eps; }
     }
 
-    auto delta = Matrix<T>::Create({B.extent[0], 1});
-    auto alpha = Matrix<T>::Create({B.extent[0], 1});
-    int l      = s.size();
+    auto delta  = Matrix<T>::Create({B.extent[0], 1});
+    auto alpha  = Matrix<T>::Create({B.extent[0], 1});
+    int const l = s.size();
     fill(delta, 0.0);
     delta.data[delta.size() - 1] = -1.0;
     for (int i = l - 1; i >= 0; i--) {
@@ -489,14 +491,12 @@ struct build_nn_fn {
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
-    auto total_rows  = context.scalar(0).value<int64_t>();
-    double gtol      = context.scalar(1).value<double>();
-    int32_t verbose  = context.scalar(2).value<int32_t>();
-    int32_t m        = context.scalar(3).value<int32_t>();
-    int32_t max_iter = context.scalar(4).value<int32_t>();
-    double alpha     = context.scalar(5).value<double>();
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
+    auto total_rows        = context.scalar(0).value<int64_t>();
+    double const gtol      = context.scalar(1).value<double>();
+    int32_t const verbose  = context.scalar(2).value<int32_t>();
+    int32_t const m        = context.scalar(3).value<int32_t>();
+    int32_t const max_iter = context.scalar(4).value<int32_t>();
+    double const alpha     = context.scalar(5).value<double>();
 
     std::vector<Matrix<T>> coefficients;
     std::vector<Matrix<T>> bias;
@@ -535,7 +535,6 @@ struct build_nn_fn {
                                         direction,
                                         grad,
                                         activations,
-                                        deltas,
                                         g,
                                         h,
                                         total_rows,

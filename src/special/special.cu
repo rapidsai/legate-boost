@@ -13,14 +13,14 @@
  * limitations under the License.
  */
 #include "special.h"
-namespace  // unnamed
-{
-static void __attribute__((constructor)) register_tasks(void)
-{
-  legateboost::ErfTask::register_variants();
-  legateboost::LgammaTask::register_variants();
-  legateboost::TgammaTask::register_variants();
-  legateboost::DigammaTask::register_variants();
-  legateboost::ZetaTask::register_variants();
-}
-}  // namespace
+#include <legate.h>
+#include "../cpp_utils/cpp_utils.cuh"
+
+namespace legateboost {
+// Explicit instantiation
+template void ErfTask::gpu_variant(legate::TaskContext context);
+template void TgammaTask::gpu_variant(legate::TaskContext context);
+template void LgammaTask::gpu_variant(legate::TaskContext context);
+template void DigammaTask::gpu_variant(legate::TaskContext context);
+template void ZetaTask::gpu_variant(legate::TaskContext context);
+}  // namespace legateboost

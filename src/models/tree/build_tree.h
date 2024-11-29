@@ -75,8 +75,8 @@ template <typename GPairT>
 inline __host__ __device__ std::pair<int, int> SelectHistogramNode(
   int parent, const legate::Buffer<GPairT, 2>& node_sums)
 {
-  int left_child  = BinaryTree::LeftChild(parent);
-  int right_child = BinaryTree::RightChild(parent);
+  int const left_child  = BinaryTree::LeftChild(parent);
+  int const right_child = BinaryTree::RightChild(parent);
   if (node_sums[{left_child, 0}].hess < node_sums[{right_child, 0}].hess) {
     return {left_child, right_child};
   }
@@ -92,7 +92,7 @@ inline __host__ __device__ bool ComputeHistogramBin(int node_id,
   if (node_id < 0) return false;
   if (!parent_histogram_exists) return true;
 
-  int parent                           = BinaryTree::Parent(node_id);
+  int const parent                     = BinaryTree::Parent(node_id);
   auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_sums);
   return histogram_node == node_id;
 }

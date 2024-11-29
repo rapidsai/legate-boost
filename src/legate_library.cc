@@ -10,8 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-#include "legate_library.h"
+#include <legate.h>
 #include <memory>
+#include "legate_library.h"
 #include "mapper.h"
 
 namespace legateboost {
@@ -24,6 +25,7 @@ static const char* const library_name = "legateboost";
   return registrar;
 }
 
+namespace {
 void registration_callback()
 {
   auto context = legate::Runtime::get_runtime()->create_library(
@@ -31,6 +33,7 @@ void registration_callback()
 
   Registry::get_registrar().register_all_tasks(context);
 }
+}  // namespace
 
 }  // namespace legateboost
 

@@ -13,6 +13,9 @@
  * limitations under the License.
  *
  */
+#include <legate.h>
+#include <cstdint>
+#include <tcb/span.hpp>
 #include "legate_library.h"
 #include "legateboost.h"
 #include "build_tree.h"
@@ -20,6 +23,7 @@
 
 namespace legateboost {
 
+namespace {
 template <typename T, int DIM>
 void WriteOutput(const legate::PhysicalStore& out, const legate::Buffer<T, DIM>& x)
 {
@@ -27,6 +31,7 @@ void WriteOutput(const legate::PhysicalStore& out, const legate::Buffer<T, DIM>&
   auto write = out.write_accessor<T, DIM>();
   for (legate::PointInRectIterator<DIM> it(shape); it.valid(); ++it) { write[*it] = x[*it]; }
 }
+}  // namespace
 
 struct update_tree_fn {
   template <typename T>

@@ -17,10 +17,8 @@
 #include "models/krr/rbf.h"
 namespace  // unnamed
 {
-#ifndef LEGATEBOOST_USE_CUDA
 static void __attribute__((constructor)) register_tasks(void)
 {
   legateboost::RbfTask::register_variants();
 }
-#endif
 }  // namespace

@@ -16,17 +16,20 @@
 
 #pragma once
 
-#include "cpp_utils.h"
 #include <nccl.h>
+#include <thrust/execution_policy.h>
+#include <thrust/system_error.h>
 #include <cstdio>
 #include <utility>
 #include <string>
+#include <tcb/span.hpp>
 #include "legate.h"
 #include "legate/cuda/cuda.h"
+#include "cpp_utils.h"
 
 namespace legateboost {
 
-__host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
+inline void check_nccl(ncclResult_t error, const char* file, int line)
 {
   if (error != ncclSuccess) {
     std::stringstream ss;
@@ -66,7 +69,7 @@ inline void throw_on_cuda_error(cudaError_t code, const char* file, int line)
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_NCCL(expr)                    \
   {                                         \
-    ncclResult_t result = (expr);           \
+    const ncclResult_t result = (expr);     \
     check_nccl(result, __FILE__, __LINE__); \
   }
 
@@ -93,8 +96,8 @@ inline void LaunchN(size_t n, cudaStream_t stream, const L& lambda)
 template <typename T>
 void AllReduce(legate::TaskContext context, tcb::span<T> x, ncclRedOp_t op, cudaStream_t stream)
 {
-  const auto& domain = context.get_launch_domain();
-  size_t num_ranks   = domain.get_volume();
+  const auto& domain     = context.get_launch_domain();
+  size_t const num_ranks = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a GPU communicator for multi-rank task.");
   if (context.num_communicators() == 0) return;
@@ -153,7 +156,7 @@ class ThrustAllocator : public legate::ScopedAllocator {
     return static_cast<char*>(ScopedAllocator::allocate(num_bytes));
   }
 
-  void deallocate(char* ptr, size_t n) { ScopedAllocator::deallocate(ptr); }
+  void deallocate(char* ptr, size_t /*n*/) { ScopedAllocator::deallocate(ptr); }
 };
 
 template <typename F, int OpCode>

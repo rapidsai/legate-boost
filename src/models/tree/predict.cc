@@ -14,6 +14,7 @@
  *
  */
 #include "predict.h"
+#include <cstdint>
 #include "../../cpp_utils/cpp_utils.h"
 
 namespace legateboost {

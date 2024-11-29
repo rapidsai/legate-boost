@@ -14,6 +14,7 @@
  *
  */
 
+#include <legate.h>
 #include <set>
 #include <vector>
 #include "mapper.h"
@@ -39,7 +40,7 @@ std::vector<legate::mapping::StoreMapping> LegateboostMapper::store_mappings(
 {
   auto task_id = task.task_id();
   // Enforce c-ordering for these tasks
-  std::set<LegateBoostOpCode> row_major_only = {BUILD_TREE};
+  const std::set<LegateBoostOpCode> row_major_only = {BUILD_TREE};
   std::vector<legate::mapping::StoreMapping> mappings;
   if (row_major_only.count(static_cast<LegateBoostOpCode>(task_id))) {
     for (auto input : task.inputs()) {

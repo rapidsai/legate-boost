@@ -14,9 +14,9 @@
  * limitations under the License.
  *
  */
-#include "legate.h"
-#include "legate_library.h"
-#include "legateboost.h"
+#include <legate.h>
+#include <cstdint>
+#include <tcb/span.hpp>
 #include "../cpp_utils/cpp_utils.h"
 #include "gather.h"
 
@@ -51,8 +51,8 @@ struct gather_fn {
     }
 
     for (auto i = 0; i < sample_rows.size(); i++) {
-      auto row      = sample_rows[i];
-      bool has_data = row >= X_shape.lo[0] && row <= X_shape.hi[0];
+      auto row            = sample_rows[i];
+      const bool has_data = row >= X_shape.lo[0] && row <= X_shape.hi[0];
       for (int j = 0; j < n_features; j++) {
         split_proposals_accessor[{i, j}] = has_data ? X_accessor[{row, j}] : T(0);
       }

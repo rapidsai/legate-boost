@@ -44,7 +44,7 @@ struct gather_fn {
     // we can retrieve sample ids via argument(host) or legate_store(device)
     tcb::span<const int64_t> sample_rows{};
     tcb::span<const int64_t> sample_rows_host{};
-    bool host_samples = context.scalars().size() > 0;
+    bool const host_samples = context.scalars().size() > 0;
     if (host_samples) {
       auto sample_rows_span = context.scalar(0).values<int64_t>();
       sample_rows_host      = {sample_rows_span.ptr(), sample_rows_span.size()};
@@ -69,7 +69,7 @@ struct gather_fn {
       auto i                           = idx / n_features;
       auto j                           = idx % n_features;
       auto row                         = sample_rows[i];
-      bool has_data                    = row >= X_shape.lo[0] && row <= X_shape.hi[0];
+      bool const has_data              = row >= X_shape.lo[0] && row <= X_shape.hi[0];
       split_proposals_accessor[{i, j}] = has_data ? X_accessor[{row, j}] : T(0);
     });
 

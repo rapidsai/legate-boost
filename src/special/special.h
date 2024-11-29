@@ -274,8 +274,6 @@ struct ErfOp {
   }
 };
 
-using ErfTask = UnaryOpTask<ErfOp, ERF>;
-
 struct LgammaOp {
   using ArgsT = std::tuple<>;
   template <typename T>
@@ -284,8 +282,6 @@ struct LgammaOp {
     return std::lgamma(v);
   }
 };
-
-using LgammaTask = UnaryOpTask<LgammaOp, LGAMMA>;
 
 struct TgammaOp {
   using ArgsT = std::tuple<>;
@@ -296,8 +292,6 @@ struct TgammaOp {
   }
 };
 
-using TgammaTask = UnaryOpTask<TgammaOp, TGAMMA>;
-
 struct DigammaOp {
   using ArgsT = std::tuple<>;
   template <typename T>
@@ -306,8 +300,6 @@ struct DigammaOp {
     return calc_digamma(v);
   }
 };
-
-using DigammaTask = UnaryOpTask<DigammaOp, DIGAMMA>;
 
 struct ZetaOp {
   using ArgsT = std::tuple<double>;
@@ -322,6 +314,10 @@ struct ZetaOp {
   }
 };
 
-using ZetaTask = UnaryOpTask<ZetaOp, ZETA>;
+using ErfTask     = UnaryOpTask<ErfOp, ERF>;
+using TgammaTask  = UnaryOpTask<TgammaOp, TGAMMA>;
+using LgammaTask  = UnaryOpTask<LgammaOp, LGAMMA>;
+using DigammaTask = UnaryOpTask<DigammaOp, DIGAMMA>;
+using ZetaTask    = UnaryOpTask<ZetaOp, ZETA>;
 
 }  // namespace legateboost

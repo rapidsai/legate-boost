@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 #include "special/special.h"
+#include "../cpp_utils/cpp_utils.h"
 namespace  // unnamed
 {
-#ifndef LEGATEBOOST_USE_CUDA
 static void __attribute__((constructor)) register_tasks(void)
 {
   legateboost::ErfTask::register_variants();
@@ -24,5 +24,4 @@ static void __attribute__((constructor)) register_tasks(void)
   legateboost::DigammaTask::register_variants();
   legateboost::ZetaTask::register_variants();
 }
-#endif
 }  // namespace

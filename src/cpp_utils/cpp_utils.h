@@ -107,15 +107,13 @@ std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM
   return std::make_tuple(store, shape, accessor);
 }
 
+// NOLINTBEGIN(misc-unused-parameters,cppcoreguidelines-missing-std-forward)
 template <typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_impl(
-  // NOLINTNEXTLINE(cppcoreguidelines-missing-std-forward)
-  legate::Type::Code code,
-  Functor&& f,
-  Fnargs&&... args)
+constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
 {
   throw std::runtime_error("Unsupported type.");
 }
+// NOLINTEND(misc-unused-parameters,cppcoreguidelines-missing-std-forward)
 
 template <typename AccessorT, int N, typename T>
 void expect_dense_row_major(const AccessorT& accessor,
@@ -163,8 +161,8 @@ constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor&& 
 template <typename T, typename OpT>
 void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
 {
-  const auto& domain = context.get_launch_domain();
-  size_t num_ranks   = domain.get_volume();
+  const auto& domain     = context.get_launch_domain();
+  const size_t num_ranks = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a CPU communicator for multi-rank task.");
   if (x.size() == 0 || context.num_communicators() == 0) return;
@@ -178,7 +176,7 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
     EXPECT(false, "Unsupported type.");
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
-  size_t items_per_rank = (x.size() + num_ranks - 1) / num_ranks;
+  const size_t items_per_rank = (x.size() + num_ranks - 1) / num_ranks;
   std::vector<T> data(items_per_rank * num_ranks);
   std::copy(x.begin(), x.end(), data.begin());
   std::vector<T> recvbuf(items_per_rank * num_ranks);
@@ -236,8 +234,12 @@ class UnravelIter {
   using difference_type   = std::int64_t;
   using pointer           = value_type*;
   using reference         = value_type&;
+
+ private:
   legate::Rect<DIM, legate::coord_t> shape_;
   difference_type current_ = 0;
+
+ public:
   __host__ __device__ UnravelIter(legate::Rect<DIM, legate::coord_t> shape) : shape_(shape) {}
   __host__ __device__ UnravelIter& operator++()
   {
@@ -286,8 +288,8 @@ class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
     {
       typename F::ArgsT op_args;
       extract_scalars(op_args, context);
-      auto f                    = std::make_from_tuple<F>(op_args);
-      legate::PhysicalArray out = context.output(0);
+      auto f                          = std::make_from_tuple<F>(op_args);
+      const legate::PhysicalArray out = context.output(0);
       if (out.dim() != in.dim()) { throw legate::TaskException{"Dimension mismatch."}; }
 
       auto in_accessor  = in.data().read_accessor<T, kDim>();
@@ -326,7 +328,3 @@ class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
 };
 
 }  // namespace legateboost
-
-#ifdef __CUDACC__
-#include "../cpp_utils/cpp_utils.cuh"
-#endif

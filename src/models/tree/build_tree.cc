@@ -139,8 +139,8 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
   auto num_features    = X_shape.hi[1] - X_shape.lo[1] + 1;
   auto draft_proposals = legate::create_buffer<T, 2>({num_features, split_samples});
   for (int i = 0; i < split_samples; i++) {
-    auto row      = row_samples[i];
-    bool has_data = row >= X_shape.lo[0] && row <= X_shape.hi[0];
+    auto row            = row_samples[i];
+    bool const has_data = row >= X_shape.lo[0] && row <= X_shape.hi[0];
     for (int j = 0; j < num_features; j++) {
       draft_proposals[{j, i}] = has_data ? X[{row, j, 0}] : T(0);
     }
@@ -154,8 +154,8 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
   row_pointers[0]   = 0;
   for (int j = 0; j < num_features; j++) {
     auto ptr = draft_proposals.ptr({j, 0});
-    tcb::span<T> feature_proposals(draft_proposals.ptr({j, 0}), split_samples);
-    std::set<T> unique(feature_proposals.begin(), feature_proposals.end());
+    tcb::span<T> const feature_proposals(draft_proposals.ptr({j, 0}), split_samples);
+    std::set<T> const unique(feature_proposals.begin(), feature_proposals.end());
     row_pointers[j + 1] = row_pointers[j] + unique.size();
     split_proposals_tmp.insert(split_proposals_tmp.end(), unique.begin(), unique.end());
   }
@@ -205,13 +205,13 @@ struct TreeBuilder {
   {
     // Build the histogram
     for (auto [position, index_local] : batch) {
-      auto index_global = index_local + X_shape.lo[0];
-      bool compute      = ComputeHistogramBin(
+      auto index_global  = index_local + X_shape.lo[0];
+      bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
       if (position < 0 || !compute) continue;
       for (int64_t j = 0; j < num_features; j++) {
-        auto x_value = X[{index_global, j, 0}];
-        int bin_idx  = split_proposals.FindBin(x_value, j);
+        auto x_value      = X[{index_global, j, 0}];
+        int const bin_idx = split_proposals.FindBin(x_value, j);
 
         if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
           for (int64_t k = 0; k < num_outputs; ++k) {
@@ -291,12 +291,12 @@ struct TreeBuilder {
         for (int bin_idx = feature_begin; bin_idx < feature_end; bin_idx++) {
           double gain = 0;
           for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L] = histogram[{node_id, output, bin_idx}];
-            auto [G, H]     = tree.node_sums[{node_id, output}];
-            auto G_R        = G - G_L;
-            auto H_R        = H - H_L;
-            double reg      = std::max(eps, alpha);  // Regularisation term
-            gain +=  // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+            auto [G_L, H_L]  = histogram[{node_id, output, bin_idx}];
+            auto [G, H]      = tree.node_sums[{node_id, output}];
+            auto G_R         = G - G_L;
+            auto H_R         = H - H_L;
+            double const reg = std::max(eps, alpha);  // Regularisation term
+            gain +=
               0.5 * ((G_L * G_L) / (H_L + reg) + (G_R * G_R) / (H_R + reg) - (G * G) / (H + reg));
           }
           if (gain > best_gain) {
@@ -344,7 +344,7 @@ struct TreeBuilder {
         continue;
       }
       auto x              = X[{X_shape.lo[0] + index_local, tree.feature[pos], 0}];
-      bool left           = x <= tree.split_value[pos];
+      bool const left     = x <= tree.split_value[pos];
       pos                 = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
       sorted_positions[i] = {pos, index_local};
     }
@@ -364,8 +364,8 @@ struct TreeBuilder {
 
   std::vector<NodeBatch> PrepareBatches(int depth)
   {
-    tcb::span<std::tuple<int32_t, int32_t>> sorted_positions_span(sorted_positions.ptr(0),
-                                                                  num_rows);
+    tcb::span<std::tuple<int32_t, int32_t>> const sorted_positions_span(sorted_positions.ptr(0),
+                                                                        num_rows);
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
       // All instances are in batch
@@ -382,9 +382,9 @@ struct TreeBuilder {
     std::vector<NodeBatch> batches(num_batches);
 
     for (auto batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
-      int batch_begin = BinaryTree::LevelBegin(depth) + batch_idx * max_batch_size;
-      int batch_end   = std::min(batch_begin + max_batch_size, BinaryTree::LevelEnd(depth));
-      auto comp       = [] __device__(auto a, auto b) {
+      int const batch_begin = BinaryTree::LevelBegin(depth) + batch_idx * max_batch_size;
+      int const batch_end   = std::min(batch_begin + max_batch_size, BinaryTree::LevelEnd(depth));
+      auto comp             = [] __device__(auto a, auto b) {
         return std::get<0>(a) < std::get<0>(b);
       };  // NOLINT(readability/braces)
 
@@ -452,17 +452,15 @@ struct build_tree_fn {
     EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
     // Scalars
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
     auto max_depth     = context.scalars().at(0).value<int>();
     auto max_nodes     = context.scalars().at(1).value<int>();
     auto alpha         = context.scalars().at(2).value<double>();
     auto split_samples = context.scalars().at(3).value<int>();
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
 
     Tree tree(max_nodes, narrow<int>(num_outputs));
-    SparseSplitProposals<T> split_proposals =
+    SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
 
     // Begin building the tree

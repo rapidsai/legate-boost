@@ -24,6 +24,7 @@
 #include <tuple>
 #include <algorithm>
 #include "cublas_v2.h"
+#include "../../cpp_utils/cpp_utils.cuh"
 
 namespace legateboost {
 
@@ -42,8 +43,8 @@ __host__ inline void check_cublas(cublasStatus_t status, const char* file, int l
 
 void SyncCPU(legate::TaskContext context)
 {
-  const auto& domain = context.get_launch_domain();
-  size_t num_ranks   = domain.get_volume();
+  const auto& domain     = context.get_launch_domain();
+  size_t const num_ranks = domain.get_volume();
   if (num_ranks == 1) return;
   const auto& comm = context.communicator(1);
   std::vector<float> gather_result(num_ranks);
@@ -74,7 +75,7 @@ class NNContext {
     // Without syncronising, cublas creation can hang
     SyncCPU(context);
     CUBLAS_ERROR(cublasSetStream(handle, stream));
-    cublasStatus_t status = cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
+    cublasStatus_t const status = cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH);
     if (status != CUBLAS_STATUS_SUCCESS) {
       GetLogger().print() << "WARNING: cuBLAS does not support Tensor cores!";
     }
@@ -128,19 +129,19 @@ void dot(NNContext* context, Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
   // Arguments rearranged because data is row major and cublas expects column major
   // https://stackoverflow.com/questions/56043539/cublassgemm-row-major-multiplication
 
-  int m = transpose_B ? B.extent[0] : B.extent[1];
-  int n = transpose_A ? A.extent[1] : A.extent[0];
-  int k = transpose_A ? A.extent[0] : A.extent[1];
+  int const m = transpose_B ? B.extent[0] : B.extent[1];
+  int const n = transpose_A ? A.extent[1] : A.extent[0];
+  int const k = transpose_A ? A.extent[0] : A.extent[1];
 
-  T alpha = 1.0;
-  T beta  = 0.0;
+  T const alpha = 1.0;
+  T const beta  = 0.0;
 
   auto op_A = transpose_A ? CUBLAS_OP_T : CUBLAS_OP_N;
   auto op_B = transpose_B ? CUBLAS_OP_T : CUBLAS_OP_N;
 
-  int lda_B = transpose_B ? k : m;
-  int lda_A = transpose_A ? n : k;
-  int lda_C = m;
+  int const lda_B = transpose_B ? k : m;
+  int const lda_A = transpose_A ? n : k;
+  int const lda_C = m;
 
   if constexpr (std::is_same<T, double>::value) {
     CUBLAS_ERROR(cublasDgemm(context->handle,
@@ -245,7 +246,7 @@ template <typename T>
 void add_bias(NNContext* context, Matrix<T>& A, Matrix<T>& bias)
 {
   LaunchN(A.extent[0] * A.extent[1], context->stream, [=] __device__(int64_t idx) {
-    int64_t j = idx % A.extent[1];
+    int64_t const j = idx % A.extent[1];
     A.data[idx] += bias.data[j];
   });
 }
@@ -284,11 +285,10 @@ T eval_cost(NNContext* context,
             int64_t total_rows,
             double alpha)
 {
-  Matrix<T> cost_array = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
+  Matrix<T> const cost_array = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
   EXPECT(pred.extent == h.extent, "Preds not equal to gradient size");
   LaunchN(pred.size(), context->stream, [=] __device__(int64_t idx) {
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
     cost_array.data[idx] = (pred.data[idx] * (g.data[idx] + 0.5 * h.data[idx] * pred.data[idx]) /
                             (total_rows * pred.extent[1]));
   });
@@ -316,7 +316,7 @@ T eval_cost(NNContext* context,
   if (alpha > 0.0) {
     T L2 = 0.0;
     for (auto& c : coefficients) { L2 += vector_dot(context, c, c); }
-    L2 = (0.5 * alpha) * L2 / total_rows;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+    L2 = (0.5 * alpha) * L2 / total_rows;
     cost += L2;
   }
   return cost;
@@ -436,14 +436,13 @@ std::tuple<T, T> line_search(NNContext* nn_context,
                              Matrix<T>& direction,
                              Matrix<T>& grad,
                              std::vector<Matrix<T>>& activations,
-                             std::vector<Matrix<T>>& deltas,
                              Matrix<double>& g,
                              Matrix<double>& h,
                              std::size_t total_rows,
                              T cost,
                              double alpha)
 {
-  T lr        = 1.0;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  T lr        = 1.0;
   const T rho = 0.1;
   const T c   = 1e-4;
   const T t   = -c * vector_dot(nn_context, grad, direction);
@@ -534,10 +533,10 @@ class LBfgs {
       if (val < 0.0 && val > -eps) { val = -eps; }
     });
 
-    auto delta = Matrix<T>::Create({B.extent[0], 1});
-    auto alpha = Matrix<T>::Create({B.extent[0], 1});
-    int l      = s.size();
-    LaunchN(1, context->stream, [=] __device__(int64_t _) {
+    auto delta  = Matrix<T>::Create({B.extent[0], 1});
+    auto alpha  = Matrix<T>::Create({B.extent[0], 1});
+    int const l = s.size();
+    LaunchN(1, context->stream, [=] __device__(int64_t /*_*/) {
       for (int i = 0; i < delta.size() - 1; i++) { delta.data[i] = 0.0; }
       delta.data[delta.size() - 1] = -1.0;
 
@@ -587,14 +586,12 @@ struct build_nn_fn {
 
     auto stream = context.get_task_stream();
 
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
-    auto total_rows  = context.scalar(0).value<int64_t>();
-    double gtol      = context.scalar(1).value<double>();
-    int32_t verbose  = context.scalar(2).value<int32_t>();
-    int32_t m        = context.scalar(3).value<int32_t>();
-    int32_t max_iter = context.scalar(4).value<int32_t>();
-    double alpha     = context.scalar(5).value<double>();
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
+    auto total_rows        = context.scalar(0).value<int64_t>();
+    double const gtol      = context.scalar(1).value<double>();
+    int32_t const verbose  = context.scalar(2).value<int32_t>();
+    int32_t const m        = context.scalar(3).value<int32_t>();
+    int32_t const max_iter = context.scalar(4).value<int32_t>();
+    double const alpha     = context.scalar(5).value<double>();
 
     std::vector<Matrix<T>> coefficients;
     std::vector<Matrix<T>> bias;
@@ -633,7 +630,6 @@ struct build_nn_fn {
                                         direction,
                                         grad,
                                         activations,
-                                        deltas,
                                         g,
                                         h,
                                         total_rows,
