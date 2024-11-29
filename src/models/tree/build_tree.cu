@@ -141,6 +141,7 @@ class GradientQuantiser {
 __device__ auto hash(int64_t k) -> int64_t
 {
   // We will assume murmurhash is correct here and ignore clang-tidy warnings
+  // hicpp is wrong here
   // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
   k ^= k >> 33;
   k *= 0xff51afd7ed558ccd;
@@ -229,7 +230,7 @@ struct HistogramAgent {
     // Write out to global memory
     __device__ void Flush(Histogram<IntegerGPair>& histogram, int output)
     {
-      if (current_node == kImpureTile) return;
+      if (current_node == kImpureTile) { return; }
       __syncthreads();
 
       // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -246,7 +247,7 @@ struct HistogramAgent {
     }
     __device__ void LazyInit(int node_id, Histogram<IntegerGPair>& histogram, int output)
     {
-      if (current_node == node_id) return;
+      if (current_node == node_id) { return; }
       this->Flush(histogram, output);
       current_node = node_id;
       __syncthreads();
@@ -340,7 +341,7 @@ struct HistogramAgent {
         row_index < batch.InstancesInBatch() &&
         ComputeHistogramBin(
           sample_node, node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node)));
-      if (!computeHistogram) continue;
+      if (!computeHistogram) { continue; }
 
       auto x = X[{sample_offset + local_sample_idx, feature, 0}];
       // int bin_idx = shared_split_proposals.FindBin(x, feature);
@@ -469,7 +470,7 @@ __global__ void __launch_bounds__(kBlockThreads)
                         legate::Buffer<int> feature_groups,
                         int64_t seed)
 {
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,hicpp-avoid-c-arrays)
   __shared__ char shared_char[kMaxSharedBins * sizeof(SharedMemoryHistogramType)];
   // Allocate as char and then cast to type. This is because we dont want to initialise the type.
   auto* shared_memory =
@@ -629,9 +630,9 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   int const scan_node_idx = batch.node_idx_begin + j;
   int const parent        = BinaryTree::Parent(scan_node_idx);
   // Exit if we didn't compute this histogram
-  if (node_sums[{scan_node_idx, output}].hess <= 0) return;
-  if (!ComputeHistogramBin(scan_node_idx, node_sums, histogram.ContainsNode(parent))) return;
-  if (i >= n_features || scan_node_idx >= batch.node_idx_end) return;
+  if (node_sums[{scan_node_idx, output}].hess <= 0) { return; }
+  if (!ComputeHistogramBin(scan_node_idx, node_sums, histogram.ContainsNode(parent))) { return; }
+  if (i >= n_features || scan_node_idx >= batch.node_idx_end) { return; }
 
   const int feature_idx             = i;
   auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature_idx);
@@ -658,7 +659,7 @@ __global__ static void __launch_bounds__(BLOCK_THREADS)
   }
 
   // This node has no sibling we are finished
-  if (scan_node_idx == 0) return;
+  if (scan_node_idx == 0) { return; }
 
   int const sibling_node_idx = BinaryTree::Sibling(scan_node_idx);
 
@@ -706,7 +707,7 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
   // using one block per (level) node to have blockwise reductions
   int const node_id = narrow<int>(batch.node_idx_begin + blockIdx.x);
   // Early exit if this node has no samples
-  if (vectorised_load(&node_sums[{node_id, 0}]).hess <= 0) return;
+  if (vectorised_load(&node_sums[{node_id, 0}]).hess <= 0) { return; }
 
   using BlockReduce = cub::BlockReduce<GainFeaturePair, BLOCK_THREADS>;
   __shared__ typename BlockReduce::TempStorage temp_storage;
@@ -996,9 +997,11 @@ struct TreeBuilder {
     // Therefore we don't try to calculate this based on available memory
     const std::size_t max_bytes      = 1000000000;  // 1 GB
     const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
-    const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
+    const std::size_t max_histogram_nodes = std::max(1UL, max_bytes / bytes_per_node);
     int depth                             = 0;
-    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) depth++;
+    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) {
+      depth++;
+    }
     histogram      = Histogram<IntegerGPair>(BinaryTree::LevelBegin(0),
                                         BinaryTree::LevelEnd(depth),
                                         num_outputs,

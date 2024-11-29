@@ -3,8 +3,21 @@
 # prefer instead to use the generate #include <legate.h>
 # cppcoreguidelines-avoid-magic-numbers is annoying in scientific code - it considers 0.5 or 2.0 to be magic numbers
 # misc-use-internal-linkage erronously wants us to use anonymous namespaces in .cuh headers
+# hicpp-signed-bitwise has issues https://stackoverflow.com/a/58845898
 
-Checks:          'performance-*,cppcoreguidelines-*,-cppcoreguidelines-avoid-magic-numbers,misc-*,-misc-non-private-member-variables-in-classes,-misc-include-cleaner,-misc-use-internal-linkage' #,modernize-*,,bugprone-*,cert-*,hicpp-*,portability-*'
-WarningsAsErrors: true
+Checks: >
+  -*,
+  performance-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  -misc-use-internal-linkage,
+  modernize-*,
+  hicpp-*,
+  -hicpp-signed-bitwise,
+
+WarningsAsErrors: '*'
 HeaderFilterRegex: '.*'
 FormatStyle:     google

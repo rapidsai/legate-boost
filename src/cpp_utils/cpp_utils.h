@@ -46,18 +46,19 @@ struct is_same_signedness
 template <class T, class U>
 constexpr auto narrow(U u) noexcept(false) -> T
 {
-  T t = static_cast<T>(u);
-#if __CUDA_ARCH__
-  if (static_cast<U>(t) != u) { __trap(); }
+  T t                   = static_cast<T>(u);
   const bool t_negative = std::is_signed_v<T> && (t < T{});
   const bool u_negative = std::is_signed_v<U> && (u < U{});
+#if __CUDA_ARCH__
+  if (static_cast<U>(t) != u) { __trap(); }
   if (!detail::is_same_signedness<T, U>::value && (t_negative != u_negative)) { __trap(); }
 #else
   auto message =
     "narrowing error: " + std::to_string(u) + " cannot be represented as " + typeid(T).name();
-  if (static_cast<U>(t) != u) throw std::runtime_error(message);
-  if (!detail::is_same_signedness<T, U>::value && ((t < T{}) != (u < U{})))
+  if (static_cast<U>(t) != u) { throw std::runtime_error(message); }
+  if (!detail::is_same_signedness<T, U>::value && (t_negative != u_negative)) {
     throw std::runtime_error(message);
+  }
 #endif
   return t;
 }
@@ -127,8 +128,7 @@ void expect_dense_row_major(const AccessorT& accessor,
   // workaround to check 'row-major' for more than 2 dimensions, with
   // dim[i] being promoted with stride[i] == 0 for i > 1
   auto shape_mod = shape;
-  for (int i = 2; i < N; ++i) shape_mod.hi[i] = 0;
-
+  for (int i = 2; i < N; ++i) { shape_mod.hi[i] = 0; }
   expect(shape_mod.empty() || accessor.is_dense_row_major(shape_mod),
          "Expected a dense row major store",
          std::move(file),
@@ -171,15 +171,17 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
   const size_t num_ranks = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a CPU communicator for multi-rank task.");
-  if (x.size() == 0 || context.num_communicators() == 0) return;
+  if (x.size() == 0 || context.num_communicators() == 0) { return; }
   const auto& comm = context.communicator(0);
   legate::comm::coll::CollDataType type{};
-  if (std::is_same_v<T, float>)
+  if (std::is_same_v<T, float>) {
     type = legate::comm::coll::CollDataType::CollFloat;
-  else if (std::is_same_v<T, double>)
+  } else if (std::is_same_v<T, double>) {
     type = legate::comm::coll::CollDataType::CollDouble;
-  else
+  } else {
     EXPECT(false, "Unsupported type.");
+  }
+
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
   const size_t items_per_rank = (x.size() + num_ranks - 1) / num_ranks;
@@ -246,7 +248,9 @@ class UnravelIter {
   difference_type current_ = 0;
 
  public:
-  __host__ __device__ UnravelIter(legate::Rect<DIM, legate::coord_t> shape) : shape_(shape) {}
+  __host__ __device__ explicit UnravelIter(legate::Rect<DIM, legate::coord_t> shape) : shape_(shape)
+  {
+  }
   __host__ __device__ auto operator++() -> UnravelIter&
   {
     current_++;
@@ -283,7 +287,7 @@ void extract_scalars(std::tuple<Tp...>& t, legate::TaskContext context)
 {
   using T        = typename std::tuple_element<I, std::tuple<Tp...>>::type;
   std::get<I>(t) = context.scalar(I).value<T>();
-  if constexpr (I + 1 != sizeof...(Tp)) extract_scalars<I + 1>(t);
+  if constexpr (I + 1 != sizeof...(Tp)) { extract_scalars<I + 1>(t); }
 }
 inline void extract_scalars(std::tuple<>& t, legate::TaskContext context) {}
 

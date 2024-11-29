@@ -91,9 +91,9 @@ inline __host__ __device__ auto ComputeHistogramBin(int node_id,
                                                     const legate::Buffer<GPairT, 2>& node_sums,
                                                     bool parent_histogram_exists) -> bool
 {
-  if (node_id == 0) return true;
-  if (node_id < 0) return false;
-  if (!parent_histogram_exists) return true;
+  if (node_id == 0) { return true; }
+  if (node_id < 0) { return false; }
+  if (!parent_histogram_exists) { return true; }
 
   int const parent                     = BinaryTree::Parent(node_id);
   auto [histogram_node, subtract_node] = SelectHistogramNode(parent, node_sums);
@@ -134,7 +134,7 @@ class SparseSplitProposals {
     auto feature_row_end   = row_pointers[feature + 1];
     auto ptr               = thrust::lower_bound(
       thrust::seq, split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
-    if (ptr == split_proposals.ptr(feature_row_end)) return NOT_FOUND;
+    if (ptr == split_proposals.ptr(feature_row_end)) { return NOT_FOUND; }
     return ptr - split_proposals.ptr(0);
   }
 #else
@@ -144,7 +144,7 @@ class SparseSplitProposals {
     auto feature_row_end   = legate::coord_t{row_pointers[feature + 1]};
     auto ptr               = std::lower_bound(
       split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
-    if (ptr == split_proposals.ptr(feature_row_end)) return NOT_FOUND;
+    if (ptr == split_proposals.ptr(feature_row_end)) { return NOT_FOUND; }
     return ptr - split_proposals.ptr(0);
   }
 #endif
@@ -208,14 +208,14 @@ class Histogram {
                   "Unexpected size of GPairT");
 
     tcb::span<GPairT> span(buffer_.ptr(legate::Point<3>::ZEROES()), size_);
-    for (auto& g : span) g = GPairT{0.0, 0.0};
+    for (auto& g : span) { g = GPairT{0.0, 0.0}; }
   }
 #endif
   Histogram() = default;
 
   void Destroy()
   {
-    if (size_ > 0) buffer_.destroy();
+    if (size_ > 0) { buffer_.destroy(); }
     node_begin_ = 0;
     node_end_   = 0;
     size_       = 0;

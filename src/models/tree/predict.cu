@@ -58,7 +58,7 @@ struct predict_fn {
       // Use a max depth of 100 to avoid infinite loops
       const int max_depth = 100;
       for (int depth = 0; depth < max_depth; depth++) {
-        if (feature[pos] == -1) break;
+        if (feature[pos] == -1) { break; }
         x_point[1]         = feature[pos];
         double const X_val = X_accessor[x_point];
         pos                = X_val <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;

@@ -100,7 +100,7 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, ncclRedOp_t op, cuda
   size_t const num_ranks = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a GPU communicator for multi-rank task.");
-  if (context.num_communicators() == 0) return;
+  if (context.num_communicators() == 0) { return; }
   const auto& comm = context.communicator(0);
   auto* nccl_comm  = comm.get<ncclComm_t*>();
 
@@ -132,7 +132,7 @@ void SumAllReduce(legate::TaskContext context, tcb::span<T> x, cudaStream_t stre
 #define DEFAULT_POLICY thrust::cuda::par
 #endif
 
-constexpr uint32_t kFullBitMask = 0xffffffffu;
+constexpr uint32_t kFullBitMask = 0xffffffffU;
 constexpr uint32_t kWarpSize    = 32;
 __device__ inline auto ballot(bool inFlag, uint32_t mask = kFullBitMask) -> uint32_t
 {

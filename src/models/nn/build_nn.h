@@ -151,8 +151,9 @@ class LearningMonitor {
 
     if (grad_norm < gtol) {
       if (verbose) {
-        if (verbose)
+        if (verbose) {
           GetLogger().print() << "Gradient norm below tolerance " << gtol << ". Stopping.";
+        }
       }
       return true;
     }

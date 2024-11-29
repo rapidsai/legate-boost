@@ -45,7 +45,7 @@ void SyncCPU(legate::TaskContext context)
 {
   const auto& domain     = context.get_launch_domain();
   size_t const num_ranks = domain.get_volume();
-  if (num_ranks == 1) return;
+  if (num_ranks == 1) { return; }
   const auto& comm = context.communicator(1);
   std::vector<float> gather_result(num_ranks);
   auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
@@ -119,7 +119,7 @@ class NNContext {
 template <bool transpose_A = false, bool transpose_B = false, typename T1, typename T2, typename T3>
 void dot(NNContext* context, Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
 {
-  if (A.size() == 0 || B.size() == 0) return;
+  if (A.size() == 0 || B.size() == 0) { return; }
   using T = std::remove_const_t<T1>;
   static_assert(std::is_same_v<T, std::remove_const_t<T2>>, "T1 and T2 must be the same type");
   static_assert(std::is_same_v<T, std::remove_const_t<T3>>, "T1 and T3 must be the same type");
@@ -214,7 +214,7 @@ template <typename T>
 auto vector_norm(NNContext* context, Matrix<T>& A) -> T
 {
   T result = 0.0;
-  if (A.size() == 0) return result;
+  if (A.size() == 0) { return result; }
   if constexpr (std::is_same_v<T, double>) {
     CUBLAS_ERROR(cublasDnrm2(context->handle, A.size(), A.data.data(), 1, &result));
   } else {
@@ -228,7 +228,7 @@ template <typename T>
 auto vector_dot(NNContext* context, Matrix<T>& A, Matrix<T>& B) -> T
 {
   T result = 0.0;
-  if (A.size() == 0) return result;
+  if (A.size() == 0) { return result; }
   if constexpr (std::is_same_v<T, double>) {
     CUBLAS_ERROR(
       cublasDdot(context->handle, A.size(), A.data.data(), 1, B.data.data(), 1, &result));
@@ -351,7 +351,7 @@ void forward(NNContext* nn_context,
   for (int i = 0; i < coefficients.size(); i++) {
     dot(nn_context, activations.at(i), coefficients.at(i), activations.at(i + 1));
     add_bias(nn_context, activations.at(i + 1), biases.at(i));
-    if (i < coefficients.size() - 1) tanh(nn_context, activations.at(i + 1));
+    if (i < coefficients.size() - 1) { tanh(nn_context, activations.at(i + 1)); }
   }
 }
 
@@ -562,8 +562,9 @@ class LBfgs {
 
     T t = vector_dot(context, grad, direction);
     if (t >= 0) {
-      if (verbose)
+      if (verbose) {
         std::cout << "Search direction is not a descent direction. Resetting LBFGS search." << '\n';
+      }
       s.clear();
       y.clear();
       return multiply(grad, T(-1.0), context->stream);

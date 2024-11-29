@@ -190,9 +190,11 @@ struct TreeBuilder {
     for (auto i = 0; i < num_rows; ++i) { sorted_positions[i] = {0, i}; }
     const std::size_t max_bytes      = 1000000000;  // 1 GB
     const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
-    const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
+    const std::size_t max_histogram_nodes = std::max(1UL, max_bytes / bytes_per_node);
     int depth                             = 0;
-    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) depth++;
+    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) {
+      depth++;
+    }
     histogram      = Histogram<GPair>(BinaryTree::LevelBegin(0),
                                  BinaryTree::LevelEnd(depth),
                                  num_outputs,
@@ -214,7 +216,7 @@ struct TreeBuilder {
       auto index_global  = index_local + X_shape.lo[0];
       bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
-      if (position < 0 || !compute) continue;
+      if (position < 0 || !compute) { continue; }
       for (int64_t j = 0; j < num_features; j++) {
         auto x_value      = X[{index_global, j, 0}];
         int const bin_idx = split_proposals.FindBin(x_value, j);
@@ -273,10 +275,12 @@ struct TreeBuilder {
 
     for (int node_idx = batch.node_idx_begin; node_idx < batch.node_idx_end; node_idx++) {
       auto parent = BinaryTree::Parent(node_idx);
-      if (!ComputeHistogramBin(node_idx, tree.node_sums, histogram.ContainsNode(parent))) continue;
+      if (!ComputeHistogramBin(node_idx, tree.node_sums, histogram.ContainsNode(parent))) {
+        continue;
+      }
       scan_node_histogram(node_idx);
       // This node has no sibling we are finished
-      if (node_idx == 0) continue;
+      if (node_idx == 0) { continue; }
 
       auto sibling_node_idx = BinaryTree::Sibling(node_idx);
       // The sibling did not compute a histogram
@@ -327,7 +331,7 @@ struct TreeBuilder {
           left_sum[output]   = {G_L, H_L};
           right_sum[output]  = {G_R, H_R};
         }
-        if (left_sum[0].hess <= 0.0 || right_sum[0].hess <= 0.0) continue;
+        if (left_sum[0].hess <= 0.0 || right_sum[0].hess <= 0.0) { continue; }
         tree.AddSplit(node_id,
                       best_feature,
                       split_proposals.split_proposals[legate::coord_t{best_bin}],

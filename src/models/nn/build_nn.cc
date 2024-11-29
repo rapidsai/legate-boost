@@ -74,7 +74,7 @@ class NNContext {
 template <bool transpose_A = false, bool transpose_B = false, typename T1, typename T2, typename T3>
 void dot(Matrix<T1>& A, Matrix<T2>& B, Matrix<T3>& C)
 {
-  if (A.size() == 0 || B.size() == 0) return;
+  if (A.size() == 0 || B.size() == 0) { return; }
   using T = std::remove_const_t<T1>;
   static_assert(std::is_same_v<T, std::remove_const_t<T2>>, "T1 and T2 must be the same type");
   static_assert(std::is_same_v<T, std::remove_const_t<T3>>, "T1 and T3 must be the same type");
@@ -137,7 +137,7 @@ template <typename T>
 auto multiply(Matrix<T>& A, T scalar) -> Matrix<T>
 {
   auto result = Matrix<T>::Create(A.extent);
-  for (int i = 0; i < A.size(); i++) result.data[i] = A.data[i] * scalar;
+  for (int i = 0; i < A.size(); i++) { result.data[i] = A.data[i] * scalar; }
   return result;
 }
 
@@ -146,21 +146,21 @@ auto subtract(const Matrix<T>& A, const Matrix<T>& B) -> Matrix<T>
 {
   EXPECT(A.extent == B.extent, "Matrix dimensions must match");
   auto result = Matrix<T>::Create(A.extent);
-  for (int i = 0; i < A.size(); i++) result.data[i] = A.data[i] - B.data[i];
+  for (int i = 0; i < A.size(); i++) { result.data[i] = A.data[i] - B.data[i]; }
   return result;
 }
 
 template <typename T, typename T2>
 void fill(Matrix<T>& A, T2 val)
 {
-  for (auto& a : A.data) a = val;
+  for (auto& a : A.data) { a = val; }
 }
 
 template <typename T>
 auto vector_norm(Matrix<T>& A) -> T
 {
   T result = 0.0;
-  if (A.size() == 0) return result;
+  if (A.size() == 0) { return result; }
   if constexpr (std::is_same_v<T, double>) {
     result = cblas_dnrm2(A.size(), A.data.data(), 1);
   } else {
@@ -173,7 +173,7 @@ template <typename T>
 auto vector_dot(Matrix<T>& A, Matrix<T>& B) -> T
 {
   T result = 0.0;
-  if (A.size() == 0) return result;
+  if (A.size() == 0) { return result; }
   if constexpr (std::is_same_v<T, double>) {
     result = cblas_ddot(A.size(), A.data.data(), 1, B.data.data(), 1);
   } else {
@@ -275,7 +275,7 @@ void forward(std::vector<Matrix<T>>& coefficients,
   for (int i = 0; i < coefficients.size(); i++) {
     dot(activations.at(i), coefficients.at(i), activations.at(i + 1));
     add_bias(activations.at(i + 1), biases.at(i));
-    if (i < coefficients.size() - 1) tanh(activations.at(i + 1));
+    if (i < coefficients.size() - 1) { tanh(activations.at(i + 1)); }
   }
 }
 
@@ -314,7 +314,7 @@ auto backward(NNContext* nn_context,
 
   // Scale and allreduce gradients
   SumAllReduce(nn_context->legate_context, grads.data);
-  for (auto& grad : grads.data) grad /= total_rows;
+  for (auto& grad : grads.data) { grad /= total_rows; }
   return grads;
 }
 
@@ -416,16 +416,16 @@ class LBfgs {
     for (int i = 0; i < s.size(); i++) {
       auto s_i = s.at(i);
       EXPECT(b.extent[1] == s_i.size(), "s_i size does not match");
-      for (int j = 0; j < s_i.size(); j++) b.data[offset + j] = s_i.data[j];
+      for (int j = 0; j < s_i.size(); j++) { b.data[offset + j] = s_i.data[j]; }
       offset += b.extent[1];
     }
     for (int i = 0; i < y.size(); i++) {
       auto y_i = y.at(i);
       EXPECT(b.extent[1] == y_i.size(), "y_i size does not match");
-      for (int j = 0; j < y_i.size(); j++) b.data[offset + j] = y_i.data[j];
+      for (int j = 0; j < y_i.size(); j++) { b.data[offset + j] = y_i.data[j]; }
       offset += b.extent[1];
     }
-    for (int i = 0; i < grad.size(); i++) b.data[offset + i] = grad.data[i];
+    for (int i = 0; i < grad.size(); i++) { b.data[offset + i] = grad.data[i]; }
 
     auto B = Matrix<T>::Create({b.extent[0], b.extent[0]});
     dot<false, true>(b, b, B);
@@ -465,8 +465,9 @@ class LBfgs {
 
     T t = vector_dot(grad, direction);
     if (t >= 0) {
-      if (verbose)
+      if (verbose) {
         std::cout << "Search direction is not a descent direction. Resetting LBFGS search." << '\n';
+      }
       s.clear();
       y.clear();
       return multiply(grad, T(-1.0));

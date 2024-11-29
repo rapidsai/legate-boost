@@ -89,7 +89,7 @@ struct update_tree_fn {
           new_gradient[{pos, k}] += g_accessor[{i, 0, k}];
           new_hessian[{pos, k}] += h_accessor[{i, 0, k}];
         }
-        if (feature[pos] == -1) break;
+        if (feature[pos] == -1) { break; }
         auto x = X_accessor[{i, feature[pos], 0}];
         pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
       }
