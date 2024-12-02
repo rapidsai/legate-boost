@@ -21,6 +21,7 @@
 #include <thrust/sort.h>
 #include <thrust/random.h>
 #include <thrust/unique.h>
+#include <cstddef>
 #include <numeric>
 #include <limits>
 #include <vector>
@@ -117,22 +118,22 @@ class GradientQuantiser {
     double const hess_remainder = scaled_hess - floor(scaled_hess);
     // We won't check for overflow here as this is performance critical
     // If our calculation of the scale factor is correct we should never overflow
-    // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
+    // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions,bugprone-narrowing-conversions)
     IntegerGPair::value_type const grad_quantised =
       floor(scaled_grad) + static_cast<double>(dist(eng) < grad_remainder);
     IntegerGPair::value_type const hess_quantised =
       floor(scaled_hess) + static_cast<double>(dist(eng) < hess_remainder);
-    // NOLINTEND(cppcoreguidelines-narrowing-conversions)
+    // NOLINTEND(cppcoreguidelines-narrowing-conversions,bugprone-narrowing-conversions)
     return IntegerGPair{grad_quantised, hess_quantised};
   }
 
   __device__ auto Dequantise(IntegerGPair value) const -> GPair
   {
     GPair result;
-    // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
+    // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions,bugprone-narrowing-conversions)
     result.grad = value.grad * inverse_scale.grad;
     result.hess = value.hess * inverse_scale.hess;
-    // NOLINTEND(cppcoreguidelines-narrowing-conversions)
+    // NOLINTEND(cppcoreguidelines-narrowing-conversions,bugprone-narrowing-conversions)
     return result;
   }
 };
@@ -141,14 +142,13 @@ class GradientQuantiser {
 __device__ auto hash(int64_t k) -> int64_t
 {
   // We will assume murmurhash is correct here and ignore clang-tidy warnings
-  // hicpp is wrong here
-  // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
+  // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions,bugprone-narrowing-conversions)
   k ^= k >> 33;
   k *= 0xff51afd7ed558ccd;
   k ^= k >> 33;
   k *= 0xc4ceb9fe1a85ec53;
   k ^= k >> 33;
-  // NOLINTEND(cppcoreguidelines-narrowing-conversions)
+  // NOLINTEND(cppcoreguidelines-narrowing-conversions,bugprone-narrowing-conversions)
   return k;
 }
 
@@ -239,7 +239,7 @@ struct HistogramAgent {
       auto* dest_ptr = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
         &histogram[{current_node, output, begin_idx}]);
 
-      for (int i = narrow_cast<int>(threadIdx.x); i < (end_idx - begin_idx) * 2;
+      for (auto i = narrow_cast<int>(threadIdx.x); i < (end_idx - begin_idx) * 2;
            i += kBlockThreads) {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         atomicAdd(&dest_ptr[i], src_ptr[i]);
@@ -385,9 +385,9 @@ struct HistogramAgent {
     std::array<int, kItemsPerThread> feature{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      auto idx                 = offset + (i * kBlockThreads) + threadIdx.x;
-      uint32_t const row_index = idx / feature_stride;
-      feature[i]               = feature_begin + idx % feature_stride;
+      auto idx = offset + (static_cast<std::size_t>(i * kBlockThreads)) + threadIdx.x;
+      uint32_t const row_index                            = idx / feature_stride;
+      feature[i]                                          = feature_begin + idx % feature_stride;
       cuda::std::tie(sample_node[i], local_sample_idx[i]) = batch.instances[row_index];
     }
 
@@ -436,7 +436,7 @@ struct HistogramAgent {
     // Second dimension is feature groups
     // Third dimension is output
     std::size_t const n_elements = batch.InstancesInBatch() * feature_stride;
-    std::size_t offset           = blockIdx.x * kItemsPerTile;
+    auto offset                  = static_cast<std::size_t>(blockIdx.x) * kItemsPerTile;
     while (offset + kItemsPerTile <= n_elements) {
       int const tile_node_id = this->GetTileNode(offset);
       // If all threads here have the same node we can use shared memory
@@ -445,7 +445,7 @@ struct HistogramAgent {
       } else {
         ProcessTileShared(offset, tile_node_id);
       }
-      offset += kItemsPerTile * gridDim.x;
+      offset += static_cast<std::size_t>(kItemsPerTile * gridDim.x);
     }
     ProcessPartialTileGlobal(offset, n_elements);
 
@@ -614,12 +614,12 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
 
 {
   const int kWarpThreads = 32;
-  const int lane_idx     = narrow_cast<int>(threadIdx.x % kWarpThreads);
-  int const rank         = narrow<int>((blockIdx.x * blockDim.x + threadIdx.x) / kWarpThreads);
-  int const num_nodes    = narrow<int>(batch.NodesInBatch());
+  const auto lane_idx    = narrow_cast<int>(threadIdx.x % kWarpThreads);
+  auto const rank        = narrow<int>((blockIdx.x * blockDim.x + threadIdx.x) / kWarpThreads);
+  auto const num_nodes   = narrow<int>(batch.NodesInBatch());
   int const i            = rank / num_nodes;
   int const j            = rank % num_nodes;
-  int const output       = narrow_cast<int>(blockIdx.y);
+  auto const output      = narrow_cast<int>(blockIdx.y);
 
   // Specialize WarpScan for type int
   using WarpScan = cub::WarpScan<IntegerGPair>;
@@ -797,14 +797,14 @@ struct Tree {
     // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     thrust::fill(thrust_exec_policy,
                  leaf_value.ptr({0, 0}),
-                 leaf_value.ptr({0, 0}) + (max_nodes * num_outputs),
+                 leaf_value.ptr({0, 0}) + static_cast<ptrdiff_t>(max_nodes * num_outputs),
                  0.0);
     thrust::fill(thrust_exec_policy, feature.ptr(0), feature.ptr(0) + max_nodes, -1);
     thrust::fill(thrust_exec_policy, split_value.ptr(0), split_value.ptr(0) + max_nodes, 0.0);
     thrust::fill(thrust_exec_policy, gain.ptr(0), gain.ptr(0) + max_nodes, 0.0);
     thrust::fill(thrust_exec_policy,
                  node_sums.ptr({0, 0}),
-                 node_sums.ptr({0, 0}) + (max_nodes * num_outputs),
+                 node_sums.ptr({0, 0}) + static_cast<ptrdiff_t>(max_nodes * num_outputs),
                  IntegerGPair{0, 0});
     // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
@@ -1080,8 +1080,7 @@ struct TreeBuilder {
                         const legate::AccessorRO<double, 3>& g,
                         const legate::AccessorRO<double, 3>& h,
                         NodeBatch batch,
-                        int64_t seed,
-                        int /*depth*/)
+                        int64_t seed)
   {
     histogram_kernel.BuildHistogram(X,
                                     X_shape.lo[0],
@@ -1153,11 +1152,11 @@ struct TreeBuilder {
       g, h, num_rows, g_shape.lo[0], tree.node_sums, quantiser, seed);
     CHECK_CUDA_STREAM(stream);
 
-    SumAllReduce(
-      context,
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-      tcb::span<int64_t>(reinterpret_cast<int64_t*>(tree.node_sums.ptr({0, 0})), num_outputs * 2),
-      stream);
+    SumAllReduce(context,
+                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                 tcb::span<int64_t>(reinterpret_cast<int64_t*>(tree.node_sums.ptr({0, 0})),
+                                    static_cast<size_t>(num_outputs * 2)),
+                 stream);
     LaunchN(num_outputs,
             stream,
             [            =,
@@ -1187,8 +1186,7 @@ struct TreeBuilder {
     return histogram;
   }
 
-  template <typename PolicyT>
-  auto PrepareBatches(int depth, PolicyT& /*policy*/) -> std::vector<NodeBatch>
+  auto PrepareBatches(int depth) -> std::vector<NodeBatch>
   {
     tcb::span<cuda::std::tuple<int32_t, int32_t>> const sorted_positions_span(
       sorted_positions.ptr(0), num_rows);
@@ -1310,20 +1308,12 @@ struct build_tree_fn {
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha, seed);
 
     for (int depth = 0; depth < max_depth; ++depth) {
-      auto batches = builder.PrepareBatches(depth, thrust_exec_policy);
+      auto batches = builder.PrepareBatches(depth);
       for (auto batch : batches) {
         auto histogram = builder.GetHistogram(batch);
 
-        builder.ComputeHistogram(histogram,
-                                 context,
-                                 tree,
-                                 X_accessor,
-                                 X_shape,
-                                 g_accessor,
-                                 h_accessor,
-                                 batch,
-                                 seed,
-                                 depth);
+        builder.ComputeHistogram(
+          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch, seed);
 
         builder.PerformBestSplit(tree, histogram, alpha, batch);
       }

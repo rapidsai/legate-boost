@@ -19,6 +19,7 @@
 #include <nccl.h>
 #include <thrust/execution_policy.h>
 #include <thrust/system_error.h>
+#include <cstddef>
 #include <cstdio>
 #include <utility>
 #include <string>
@@ -88,8 +89,9 @@ inline void LaunchN(size_t n, cudaStream_t stream, const L& lambda)
 {
   if (n == 0) { return; }
   const int kBlockThreads = 256;
-  const int GRID_SIZE     = static_cast<int>((n + ITEMS_PER_THREAD * kBlockThreads - 1) /
-                                         (ITEMS_PER_THREAD * kBlockThreads));
+  const int GRID_SIZE =
+    static_cast<int>((n + static_cast<size_t>(ITEMS_PER_THREAD * kBlockThreads) - 1) /
+                     (static_cast<size_t>(ITEMS_PER_THREAD * kBlockThreads)));
   LaunchNKernel<L, kBlockThreads><<<GRID_SIZE, kBlockThreads, 0, stream>>>(n, lambda);
 }
 

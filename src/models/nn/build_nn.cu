@@ -93,7 +93,10 @@ class NNContext {
   NNContext(NNContext&&)                         = delete;
   auto operator=(const NNContext&) -> NNContext& = delete;
   auto operator=(NNContext&&) -> NNContext&      = delete;
-  ~NNContext() { CUBLAS_ERROR(cublasDestroy(handle)); }
+  ~NNContext()
+  {
+    cublasDestroy(handle);
+  }  // Don't check the result because it's bad to throw in destructors
   template <typename T>
   auto Unpack(Matrix<T>& x) -> std::tuple<std::vector<Matrix<T>>, std::vector<Matrix<T>>>
   {

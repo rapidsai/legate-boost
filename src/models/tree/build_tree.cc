@@ -15,6 +15,7 @@
  */
 #include "build_tree.h"
 #include <legate.h>
+#include <cstddef>
 #include <random>
 #include <set>
 #include <tuple>
@@ -425,10 +426,10 @@ struct TreeBuilder {
       }
     }
     // NCCL cannot allreduce custom types, need to reinterpret as double
-    SumAllReduce(
-      context,
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-      tcb::span<double>(reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})), num_outputs * 2));
+    SumAllReduce(context,
+                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                 tcb::span<double>(reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})),
+                                   static_cast<size_t>(num_outputs * 2)));
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = tree.node_sums[{0, i}];
       tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, alpha);

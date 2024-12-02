@@ -19,6 +19,7 @@
 #ifdef __CUDACC__
 #include <thrust/binary_search.h>
 #endif
+#include <cstddef>
 #include <utility>
 #include <tuple>
 #include <tcb/span.hpp>
@@ -187,7 +188,7 @@ class Histogram {
     : buffer_(legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins})),
       node_begin_(node_begin),
       node_end_(node_end),
-      size_((node_end - node_begin) * num_outputs * num_bins)
+      size_(static_cast<std::size_t>((node_end - node_begin) * num_outputs * num_bins))
   {
     static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
                   "Unexpected size of GPairT");
@@ -202,7 +203,7 @@ class Histogram {
     : buffer_(legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins})),
       node_begin_(node_begin),
       node_end_(node_end),
-      size_((node_end - node_begin) * num_outputs * num_bins)
+      size_(static_cast<std::size_t>((node_end - node_begin) * num_outputs * num_bins))
   {
     static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
                   "Unexpected size of GPairT");
