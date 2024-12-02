@@ -62,8 +62,8 @@ using IntegerGPair = GPairBase<int64_t>;
 class BinaryTree {
  public:
   __host__ __device__ static auto Parent(int i) -> int { return (i - 1) / 2; }
-  __host__ __device__ static auto LeftChild(int i) -> int { return 2 * i + 1; }
-  __host__ __device__ static auto RightChild(int i) -> int { return 2 * i + 2; }
+  __host__ __device__ static auto LeftChild(int i) -> int { return (2 * i) + 1; }
+  __host__ __device__ static auto RightChild(int i) -> int { return (2 * i) + 2; }
   __host__ __device__ static auto Sibling(int i) -> int { return (i % 2 == 0) ? i - 1 : i + 1; }
   __host__ __device__ static auto LevelBegin(int level) -> int { return (1 << level) - 1; }
   __host__ __device__ static auto LevelEnd(int level) -> int { return (1 << (level + 1)) - 1; }
@@ -132,7 +132,7 @@ class SparseSplitProposals {
   {
     auto feature_row_begin = row_pointers[feature];
     auto feature_row_end   = row_pointers[feature + 1];
-    auto ptr               = thrust::lower_bound(
+    auto* ptr              = thrust::lower_bound(
       thrust::seq, split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
     if (ptr == split_proposals.ptr(feature_row_end)) { return NOT_FOUND; }
     return ptr - split_proposals.ptr(0);
@@ -142,7 +142,7 @@ class SparseSplitProposals {
   {
     auto feature_row_begin = legate::coord_t{row_pointers[feature]};
     auto feature_row_end   = legate::coord_t{row_pointers[feature + 1]};
-    auto ptr               = std::lower_bound(
+    auto* ptr              = std::lower_bound(
       split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
     if (ptr == split_proposals.ptr(feature_row_end)) { return NOT_FOUND; }
     return ptr - split_proposals.ptr(0);

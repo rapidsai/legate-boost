@@ -91,7 +91,7 @@ struct update_tree_fn {
         }
         if (feature[pos] == -1) { break; }
         auto x = X_accessor[{i, feature[pos], 0}];
-        pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
+        pos    = x <= split_value[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
       }
     }
 
@@ -130,7 +130,7 @@ class UpdateTreeTask : public Task<UpdateTreeTask, UPDATE_TREE> {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks()
+void __attribute__((constructor)) register_tasks()
 {
   legateboost::UpdateTreeTask::register_variants();
 }

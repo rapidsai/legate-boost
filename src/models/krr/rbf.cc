@@ -17,8 +17,5 @@
 #include "models/krr/rbf.h"
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks()
-{
-  legateboost::RbfTask::register_variants();
-}
+void __attribute__((constructor)) register_tasks() { legateboost::RbfTask::register_variants(); }
 }  // namespace

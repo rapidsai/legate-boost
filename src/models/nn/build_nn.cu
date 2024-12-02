@@ -48,7 +48,7 @@ void SyncCPU(legate::TaskContext context)
   if (num_ranks == 1) { return; }
   const auto& comm = context.communicator(1);
   std::vector<float> gather_result(num_ranks);
-  auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
+  auto* comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
   float tmp = NAN;
   legate::comm::coll::collAllgather(
@@ -546,7 +546,7 @@ class LBfgs {
         delta.data[l + i] -= alpha.data[i];
       }
 
-      T scalar = B[{l - 1, 2 * l - 1}] / B[{2 * l - 1, 2 * l - 1}];
+      T scalar = B[{l - 1, (2 * l) - 1}] / B[{(2 * l) - 1, (2 * l) - 1}];
       for (int i = 0; i < delta.size(); i++) { delta.data[i] *= scalar; }
 
       for (int i = 0; i < l; i++) {
@@ -584,7 +584,7 @@ struct build_nn_fn {
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
-    auto stream = context.get_task_stream();
+    auto* stream = context.get_task_stream();
 
     auto total_rows     = context.scalar(0).value<int64_t>();
     auto const gtol     = context.scalar(1).value<double>();

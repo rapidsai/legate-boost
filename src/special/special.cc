@@ -16,7 +16,7 @@
 #include "../cpp_utils/cpp_utils.h"
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks()
+void __attribute__((constructor)) register_tasks()
 {
   legateboost::ErfTask::register_variants();
   legateboost::LgammaTask::register_variants();

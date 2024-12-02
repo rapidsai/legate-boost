@@ -182,7 +182,7 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
     EXPECT(false, "Unsupported type.");
   }
 
-  auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
+  auto* comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
   const size_t items_per_rank = (x.size() + num_ranks - 1) / num_ranks;
   std::vector<T> data(items_per_rank * num_ranks);
@@ -195,7 +195,7 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
   std::vector<T> partials(items_per_rank, 0.0);
   for (size_t j = 0; j < items_per_rank; j++) {
     for (size_t i = 0; i < num_ranks; i++) {
-      partials[j] = op(partials[j], recvbuf[i * items_per_rank + j]);
+      partials[j] = op(partials[j], recvbuf[(i * items_per_rank) + j]);
     }
   }
 

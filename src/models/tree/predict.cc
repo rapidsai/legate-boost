@@ -52,7 +52,7 @@ struct predict_fn {
       for (int depth = 0; depth < max_depth; depth++) {
         if (feature[pos] == -1) { break; }
         auto x = X_accessor[{i, feature[pos], 0}];
-        pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
+        pos    = x <= split_value[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
       }
       for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
         pred_accessor[{i, 0, j}] = leaf_value[{pos, j}];
@@ -72,7 +72,7 @@ struct predict_fn {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks()
+void __attribute__((constructor)) register_tasks()
 {
   legateboost::PredictTask::register_variants();
 }

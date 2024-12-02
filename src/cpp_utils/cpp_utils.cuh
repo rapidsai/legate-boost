@@ -77,7 +77,7 @@ template <typename L, int BLOCK_THREADS>
 __global__ void __launch_bounds__(BLOCK_THREADS)
   LaunchNKernel(size_t size, L lambda)  // NOLINT(performance-unnecessary-value-param)
 {
-  for (auto i = blockDim.x * blockIdx.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
+  for (auto i = (blockDim.x * blockIdx.x) + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
     lambda(i);
   }
 }
@@ -106,13 +106,13 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, ncclRedOp_t op, cuda
 
   if (num_ranks > 1) {
     if (std::is_same_v<T, float>) {
-      CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclFloat, op, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(x.data(), x.data(), x.size(), ncclFloat, op, *nccl_comm, stream));
     } else if (std::is_same_v<T, double>) {
-      CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclDouble, op, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(x.data(), x.data(), x.size(), ncclDouble, op, *nccl_comm, stream));
     } else if (std::is_same_v<T, int64_t>) {
-      CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclInt64, op, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(x.data(), x.data(), x.size(), ncclInt64, op, *nccl_comm, stream));
     } else if (std::is_same_v<T, int32_t>) {
-      CHECK_NCCL(ncclAllReduce(&x[0], &x[0], x.size(), ncclInt, op, *nccl_comm, stream));
+      CHECK_NCCL(ncclAllReduce(x.data(), x.data(), x.size(), ncclInt, op, *nccl_comm, stream));
     } else {
       EXPECT(false, "Unsupported type for all reduce.");
     }
@@ -136,7 +136,7 @@ constexpr uint32_t kFullBitMask = 0xffffffffU;
 constexpr uint32_t kWarpSize    = 32;
 __device__ inline auto ballot(bool inFlag, uint32_t mask = kFullBitMask) -> uint32_t
 {
-  return __ballot_sync(mask, inFlag);
+  return __ballot_sync(mask, static_cast<int>(inFlag));
 }
 
 template <typename T>
@@ -164,7 +164,7 @@ template <typename F, int OpCode>
 void UnaryOpTask<F, OpCode>::gpu_variant(legate::TaskContext context)
 {
   auto const& in          = context.input(0);
-  auto stream             = context.get_task_stream();
+  auto* stream            = context.get_task_stream();
   auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
   auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
   legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, thrust_exec_policy);

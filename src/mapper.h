@@ -30,7 +30,7 @@ class LegateboostMapper : public legate::mapping::Mapper {
   auto operator=(LegateboostMapper&& rhs) -> LegateboostMapper&      = delete;
 
   // Legate mapping functions
- public:
+
   auto task_target(const legate::mapping::Task& task,
                    const std::vector<legate::mapping::TaskTarget>& options)
     -> legate::mapping::TaskTarget override;

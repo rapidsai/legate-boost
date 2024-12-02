@@ -41,7 +41,7 @@ struct gather_fn {
 
     // we can retrieve sample ids via argument(host) or legate store (host)
     tcb::span<const int64_t> sample_rows{};
-    if (context.scalars().size() > 0) {
+    if (!context.scalars().empty()) {
       auto legate_span = context.scalar(0).values<int64_t>();
       sample_rows      = {legate_span.ptr(), legate_span.size()};
     } else {
@@ -75,8 +75,5 @@ struct gather_fn {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks()
-{
-  legateboost::GatherTask::register_variants();
-}
+void __attribute__((constructor)) register_tasks() { legateboost::GatherTask::register_variants(); }
 }  // namespace

@@ -30,7 +30,7 @@ namespace {
 struct NodeBatch {
   int32_t node_idx_begin{};
   int32_t node_idx_end{};
-  tcb::span<std::tuple<int32_t, int32_t>> instances{};
+  tcb::span<std::tuple<int32_t, int32_t>> instances;
   [[nodiscard]] auto begin() const { return instances.begin(); }
   [[nodiscard]] auto end() const { return instances.end(); }
   __host__ __device__ [[nodiscard]] auto InstancesInBatch() const -> std::size_t
@@ -392,7 +392,7 @@ struct TreeBuilder {
     std::vector<NodeBatch> batches(num_batches);
 
     for (auto batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
-      int const batch_begin = BinaryTree::LevelBegin(depth) + batch_idx * max_batch_size;
+      int const batch_begin = BinaryTree::LevelBegin(depth) + (batch_idx * max_batch_size);
       int const batch_end   = std::min(batch_begin + max_batch_size, BinaryTree::LevelEnd(depth));
       auto comp             = [] __device__(auto a, auto b) {
         return std::get<0>(a) < std::get<0>(b);
@@ -508,7 +508,7 @@ struct build_tree_fn {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks()
+void __attribute__((constructor)) register_tasks()
 {
   legateboost::BuildTreeTask::register_variants();
 }

@@ -39,12 +39,12 @@ struct gather_fn {
     EXPECT_AXIS_ALIGNED(1, X_shape, split_proposals_shape);
     auto n_features = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
 
-    auto stream = context.get_task_stream();
+    auto* stream = context.get_task_stream();
 
     // we can retrieve sample ids via argument(host) or legate_store(device)
     tcb::span<const int64_t> sample_rows{};
     tcb::span<const int64_t> sample_rows_host{};
-    bool const host_samples = context.scalars().size() > 0;
+    bool const host_samples = !context.scalars().empty();
     if (host_samples) {
       auto sample_rows_span = context.scalar(0).values<int64_t>();
       sample_rows_host      = {sample_rows_span.ptr(), sample_rows_span.size()};

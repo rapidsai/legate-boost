@@ -450,7 +450,7 @@ class LBfgs {
       delta.data[l + i] -= alpha.data[i];
     }
 
-    T scalar = B[{l - 1, 2 * l - 1}] / B[{2 * l - 1, 2 * l - 1}];
+    T scalar = B[{l - 1, (2 * l) - 1}] / B[{(2 * l) - 1, (2 * l) - 1}];
     multiply(delta, scalar);
 
     for (int i = 0; i < l; i++) {
@@ -562,7 +562,7 @@ struct build_nn_fn {
 }  // namespace legateboost
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks()
+void __attribute__((constructor)) register_tasks()
 {
   legateboost::BuildNNTask::register_variants();
 }

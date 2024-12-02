@@ -44,7 +44,7 @@ auto LegateboostMapper::store_mappings(const legate::mapping::Task& task,
   // Enforce c-ordering for these tasks
   const std::set<LegateBoostOpCode> row_major_only = {BUILD_TREE};
   std::vector<legate::mapping::StoreMapping> mappings;
-  if (row_major_only.count(static_cast<LegateBoostOpCode>(task_id))) {
+  if (row_major_only.count(static_cast<LegateBoostOpCode>(task_id)) != 0U) {
     for (auto input : task.inputs()) {
       mappings.push_back(
         legate::mapping::StoreMapping::default_mapping(input.data(), options.front()));

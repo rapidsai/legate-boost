@@ -45,7 +45,7 @@ struct Matrix {
 
   __host__ __device__ auto operator[](std::array<int64_t, 2> idx) const -> T&
   {
-    return data[idx[0] * extent[1] + idx[1]];
+    return data[(idx[0] * extent[1]) + idx[1]];
   }
 
   static auto From1dStore(legate::PhysicalStore store) -> Matrix<T>
