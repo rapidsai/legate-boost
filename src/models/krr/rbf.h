@@ -25,7 +25,7 @@ struct RbfOp {
   explicit RbfOp(double sigma) : sigma(sigma) {}
 
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return std::exp(-v / (2.0 * sigma * sigma));
   }

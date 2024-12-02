@@ -15,6 +15,7 @@
  */
 
 #pragma once
+#include <assert.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/execution_policy.h>
@@ -27,15 +28,54 @@
 #include <tuple>
 #include "legate_library.h"
 #include "legate/comm/coll.h"
+#include <tcb/span.hpp>
 
 namespace legateboost {
 
-extern Legion::Logger logger;
+auto GetLogger() -> Legion::Logger&;
 
+// Narrow function as per GSL and cppcoreguidelines
+// Throws if narrowing would lose information
+
+namespace detail {
+template <class T, class U>
+struct is_same_signedness
+  : public std::integral_constant<bool, std::is_signed_v<T> == std::is_signed_v<U>> {};
+}  // namespace detail
+
+template <class T, class U>
+constexpr auto narrow(U u) noexcept(false) -> T
+{
+  T t                   = static_cast<T>(u);
+  const bool t_negative = std::is_signed_v<T> && (t < T{});
+  const bool u_negative = std::is_signed_v<U> && (u < U{});
+#if __CUDA_ARCH__
+  if (static_cast<U>(t) != u) { __trap(); }
+  if (!detail::is_same_signedness<T, U>::value && (t_negative != u_negative)) { __trap(); }
+#else
+  auto message =
+    "narrowing error: " + std::to_string(u) + " cannot be represented as " + typeid(T).name();
+  if (static_cast<U>(t) != u) { throw std::runtime_error(message); }
+  if (!detail::is_same_signedness<T, U>::value && (t_negative != u_negative)) {
+    throw std::runtime_error(message);
+  }
+#endif
+  return t;
+}
+
+template <class T, class U>
+constexpr auto narrow_cast(U&& u) noexcept -> T
+{
+  return static_cast<T>(std::forward<U>(u));
+}
+
+// These macros can be replaced with the C++20 std::source_location when this code base moves to
+// C++20 The nolint can then be removed
 inline void expect(bool condition, const std::string& message, const std::string& file, int line)
 {
   if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }
 }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define EXPECT(condition, message) (expect(condition, message, __FILE__, __LINE__))
 
 template <int AXIS, typename ShapeAT, typename ShapeBT>
@@ -46,9 +86,9 @@ void expect_axis_aligned(const ShapeAT& a, const ShapeBT& b, const std::string& 
          file,
          line);
 }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define EXPECT_AXIS_ALIGNED(axis, shape_a, shape_b) \
   (expect_axis_aligned<axis>(shape_a, shape_b, __FILE__, __LINE__))
-
 template <int DIM>
 void expect_is_broadcast(const legate::Rect<DIM>& shape, const std::string& file, int line)
 {
@@ -58,22 +98,26 @@ void expect_is_broadcast(const legate::Rect<DIM>& shape, const std::string& file
     expect(shape.lo[i] == 0, ss.str(), file, line);
   }
 }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define EXPECT_IS_BROADCAST(shape) (expect_is_broadcast(shape, __FILE__, __LINE__))
 
 template <typename T, int NDIM, bool assert_row_major = true>
-std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>> GetInputStore(
-  const legate::PhysicalStore& store)
+auto GetInputStore(const legate::PhysicalStore& store)
+  -> std::tuple<legate::PhysicalStore, legate::Rect<NDIM>, legate::AccessorRO<T, NDIM>>
 {
   auto shape    = store.shape<NDIM>();
   auto accessor = store.read_accessor<T, NDIM, true>();
   return std::make_tuple(store, shape, accessor);
 }
 
+// NOLINTBEGIN(misc-unused-parameters,cppcoreguidelines-missing-std-forward)
 template <typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr auto type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+  -> decltype(auto)
 {
   throw std::runtime_error("Unsupported type.");
 }
+// NOLINTEND(misc-unused-parameters,cppcoreguidelines-missing-std-forward)
 
 template <typename AccessorT, int N, typename T>
 void expect_dense_row_major(const AccessorT& accessor,
@@ -84,58 +128,65 @@ void expect_dense_row_major(const AccessorT& accessor,
   // workaround to check 'row-major' for more than 2 dimensions, with
   // dim[i] being promoted with stride[i] == 0 for i > 1
   auto shape_mod = shape;
-  for (int i = 2; i < N; ++i) shape_mod.hi[i] = 0;
-
+  for (int i = 2; i < N; ++i) { shape_mod.hi[i] = 0; }
   expect(shape_mod.empty() || accessor.is_dense_row_major(shape_mod),
          "Expected a dense row major store",
          std::move(file),
          line);
 }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define EXPECT_DENSE_ROW_MAJOR(accessor, shape) \
   (expect_dense_row_major(accessor, shape, __FILE__, __LINE__))
 
 template <typename T, typename... Types, typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr auto type_dispatch_impl(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+  -> decltype(auto)
 {
   if (code == legate::type_code_of_v<T>) {
     return f.template operator()<T>(std::forward<Fnargs>(args)...);
   }
-  return type_dispatch_impl<Types...>(code, f, std::forward<Fnargs>(args)...);
+  return type_dispatch_impl<Types...>(
+    code, std::forward<Functor>(f), std::forward<Fnargs>(args)...);
 }
 
 template <typename... Types, typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr auto type_dispatch(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+  -> decltype(auto)
 {
-  return type_dispatch_impl<Types...>(code, f, std::forward<Fnargs>(args)...);
+  return type_dispatch_impl<Types...>(
+    code, std::forward<Functor>(f), std::forward<Fnargs>(args)...);
 }
 
 template <typename Functor, typename... Fnargs>
-constexpr decltype(auto) type_dispatch_float(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+constexpr auto type_dispatch_float(legate::Type::Code code, Functor&& f, Fnargs&&... args)
+  -> decltype(auto)
 {
-  type_dispatch<float, double>(code, f, std::forward<Fnargs>(args)...);
+  type_dispatch<float, double>(code, std::forward<Functor>(f), std::forward<Fnargs>(args)...);
 }
 
 template <typename T, typename OpT>
-void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
+void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
 {
-  const auto& domain = context.get_launch_domain();
-  size_t num_ranks   = domain.get_volume();
+  const auto& domain     = context.get_launch_domain();
+  const size_t num_ranks = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a CPU communicator for multi-rank task.");
-  if (count == 0 || context.num_communicators() == 0) return;
+  if (x.size() == 0 || context.num_communicators() == 0) { return; }
   const auto& comm = context.communicator(0);
-  legate::comm::coll::CollDataType type;
-  if (std::is_same<T, float>::value)
+  legate::comm::coll::CollDataType type{};
+  if (std::is_same_v<T, float>) {
     type = legate::comm::coll::CollDataType::CollFloat;
-  else if (std::is_same<T, double>::value)
+  } else if (std::is_same_v<T, double>) {
     type = legate::comm::coll::CollDataType::CollDouble;
-  else
+  } else {
     EXPECT(false, "Unsupported type.");
-  auto comm_ptr = comm.get<legate::comm::coll::CollComm>();
+  }
+
+  auto* comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
-  size_t items_per_rank = (count + num_ranks - 1) / num_ranks;
+  const size_t items_per_rank = (x.size() + num_ranks - 1) / num_ranks;
   std::vector<T> data(items_per_rank * num_ranks);
-  std::copy(x, x + count, data.begin());
+  std::copy(x.begin(), x.end(), data.begin());
   std::vector<T> recvbuf(items_per_rank * num_ranks);
 
   legate::comm::coll::collAlltoall(data.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
@@ -144,19 +195,19 @@ void AllReduce(legate::TaskContext context, T* x, int count, OpT op)
   std::vector<T> partials(items_per_rank, 0.0);
   for (size_t j = 0; j < items_per_rank; j++) {
     for (size_t i = 0; i < num_ranks; i++) {
-      partials[j] = op(partials[j], recvbuf[i * items_per_rank + j]);
+      partials[j] = op(partials[j], recvbuf[(i * items_per_rank) + j]);
     }
   }
 
   legate::comm::coll::collAllgather(
     partials.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
-  std::copy(recvbuf.begin(), recvbuf.begin() + count, x);
+  std::copy(recvbuf.begin(), recvbuf.begin() + x.size(), x.begin());
 }
 
 template <typename T>
-void SumAllReduce(legate::TaskContext context, T* x, int count)
+void SumAllReduce(legate::TaskContext context, tcb::span<T> x)
 {
-  AllReduce(context, x, count, std::plus<T>());
+  AllReduce(context, x, std::plus<T>());
 }
 
 /**
@@ -170,7 +221,7 @@ __host__ __device__ auto UnravelIndex(std::size_t idx,
   for (std::int32_t dim = 0; dim < D; dim++) { extent[dim] += 1; }
   // First find the point in sub-rectangle
   legate::Point<D, legate::coord_t> sub_p;
-  static_assert(std::is_signed<decltype(D)>::value,
+  static_assert(std::is_signed_v<decltype(D)>,
                 "Don't change the type without changing the for loop.");
   for (std::int32_t dim = D; --dim > 0;) {
     auto s     = extent[dim];
@@ -191,22 +242,28 @@ class UnravelIter {
   using difference_type   = std::int64_t;
   using pointer           = value_type*;
   using reference         = value_type&;
+
+ private:
   legate::Rect<DIM, legate::coord_t> shape_;
   difference_type current_ = 0;
-  __host__ __device__ UnravelIter(legate::Rect<DIM, legate::coord_t> shape) : shape_(shape) {}
-  __host__ __device__ UnravelIter& operator++()
+
+ public:
+  __host__ __device__ explicit UnravelIter(legate::Rect<DIM, legate::coord_t> shape) : shape_(shape)
+  {
+  }
+  __host__ __device__ auto operator++() -> UnravelIter&
   {
     current_++;
     return *this;
   }
   template <typename DistanceT>
-  __host__ __device__ UnravelIter& operator+=(DistanceT n)
+  __host__ __device__ auto operator+=(DistanceT n) -> UnravelIter&
   {
     current_ += n;
     return *this;
   }
   template <typename DistanceT>
-  __host__ __device__ UnravelIter operator+(DistanceT n)
+  __host__ __device__ auto operator+(DistanceT n) -> UnravelIter
   {
     UnravelIter copy = *this;
     copy += n;
@@ -214,12 +271,15 @@ class UnravelIter {
   }
 
   template <typename DistanceT>
-  __host__ __device__ value_type operator[](DistanceT n) const
+  __host__ __device__ auto operator[](DistanceT n) const -> value_type
   {
     return UnravelIndex(current_ + n, shape_);
   }
 
-  __host__ __device__ value_type operator*() const { return UnravelIndex(current_, shape_); }
+  __host__ __device__ auto operator*() const -> value_type
+  {
+    return UnravelIndex(current_, shape_);
+  }
 };
 
 template <size_t I = 0, typename... Tp>
@@ -227,7 +287,7 @@ void extract_scalars(std::tuple<Tp...>& t, legate::TaskContext context)
 {
   using T        = typename std::tuple_element<I, std::tuple<Tp...>>::type;
   std::get<I>(t) = context.scalar(I).value<T>();
-  if constexpr (I + 1 != sizeof...(Tp)) extract_scalars<I + 1>(t);
+  if constexpr (I + 1 != sizeof...(Tp)) { extract_scalars<I + 1>(t); }
 }
 inline void extract_scalars(std::tuple<>& t, legate::TaskContext context) {}
 
@@ -241,8 +301,8 @@ class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
     {
       typename F::ArgsT op_args;
       extract_scalars(op_args, context);
-      auto f                    = std::make_from_tuple<F>(op_args);
-      legate::PhysicalArray out = context.output(0);
+      auto f                          = std::make_from_tuple<F>(op_args);
+      const legate::PhysicalArray out = context.output(0);
       if (out.dim() != in.dim()) { throw legate::TaskException{"Dimension mismatch."}; }
 
       auto in_accessor  = in.data().read_accessor<T, kDim>();
@@ -281,7 +341,3 @@ class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
 };
 
 }  // namespace legateboost
-
-#ifdef __CUDACC__
-#include "../cpp_utils/cpp_utils.cuh"
-#endif

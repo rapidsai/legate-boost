@@ -13,9 +13,15 @@
  * limitations under the License.
  *
  */
+#include <legate.h>
 #include "cpp_utils/cpp_utils.h"
 
 namespace legateboost {
-Legion::Logger logger("legateboost");
+
+auto GetLogger() -> Legion::Logger&
+{
+  static Legion::Logger logger("legateboost");
+  return logger;
+}
 
 }  // namespace legateboost

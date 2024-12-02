@@ -14,6 +14,7 @@
  */
 #pragma once
 
+#include <math.h>
 #include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator
 #include <thrust/for_each.h>                    // for for_each_n
 #include <legate/task/task_context.h>           // for TaskContext
@@ -29,6 +30,10 @@
 #include "../cpp_utils/cpp_utils.h"
 
 namespace legateboost {
+
+// Don't make any changes to imported math functions
+// NOLINTBEGIN
+
 /*
  * Code from PyTorch, which comes from cephes. See thirdparty/LICENSES/LICENSE.pytorch
  */
@@ -82,7 +87,7 @@ __host__ __device__ inline double calc_digamma(double x)
     // accurate than tan(pi * x). While these operations are mathematically equivalent
     // since both x and r are in radians and tan() has a periodicity of pi, in practice
     // the computation of pi * x is a source of error (when |x| > 1).
-    double q, r;
+    double q = NAN, r = NAN;
     r = std::modf(x, &q);
     return calc_digamma(1 - x) - m_PI / std::tan(m_PI * r);
   }
@@ -139,7 +144,7 @@ __host__ __device__ inline float calc_digamma(float x)
     // accurate than tan(pi * x). While these operations are mathematically equivalent
     // since both x and r are in radians and tan() has a periodicity of pi, in practice
     // the computation of pi * x is a source of error (when |x| > 1).
-    double q, r;
+    double q = NAN, r = NAN;
     r                      = std::modf(x, &q);
     float pi_over_tan_pi_x = static_cast<float>(m_PI / std::tan(m_PI * r));
     return calc_digamma(1 - x) - pi_over_tan_pi_x;
@@ -199,8 +204,8 @@ __host__ __device__ inline double zeta(double x, double q)
     -7.1661652561756670113e18  /*1.6938241367317436694528e27/236364091 */
   };
 
-  int i;
-  double a, b, k, s, t, w;
+  int i    = 0;
+  double a = NAN, b = NAN, k = NAN, s = NAN, t = NAN, w = NAN;
 
   if (x == 1.0) { return std::numeric_limits<double>::infinity(); }
 
@@ -258,49 +263,43 @@ __host__ __device__ inline double zeta(double x, double q)
   return s;
 }
 
+// NOLINTEND
+
 struct ErfOp {
   using ArgsT = std::tuple<>;
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return std::erf(v);
   }
 };
 
-using ErfTask = UnaryOpTask<ErfOp, ERF>;
-
 struct LgammaOp {
   using ArgsT = std::tuple<>;
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return std::lgamma(v);
   }
 };
 
-using LgammaTask = UnaryOpTask<LgammaOp, LGAMMA>;
-
 struct TgammaOp {
   using ArgsT = std::tuple<>;
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return std::tgamma(v);
   }
 };
 
-using TgammaTask = UnaryOpTask<TgammaOp, TGAMMA>;
-
 struct DigammaOp {
   using ArgsT = std::tuple<>;
   template <typename T>
-  __host__ __device__ T operator()(T const& v) const
+  __host__ __device__ auto operator()(T const& v) const -> T
   {
     return calc_digamma(v);
   }
 };
-
-using DigammaTask = UnaryOpTask<DigammaOp, DIGAMMA>;
 
 struct ZetaOp {
   using ArgsT = std::tuple<double>;
@@ -309,12 +308,16 @@ struct ZetaOp {
   explicit ZetaOp(double x) : x{x} {}
 
   template <typename T>
-  __host__ __device__ T operator()(T const& q) const
+  __host__ __device__ auto operator()(T const& q) const -> T
   {
     return zeta(x, q);
   }
 };
 
-using ZetaTask = UnaryOpTask<ZetaOp, ZETA>;
+using ErfTask     = UnaryOpTask<ErfOp, ERF>;
+using TgammaTask  = UnaryOpTask<TgammaOp, TGAMMA>;
+using LgammaTask  = UnaryOpTask<LgammaOp, LGAMMA>;
+using DigammaTask = UnaryOpTask<DigammaOp, DIGAMMA>;
+using ZetaTask    = UnaryOpTask<ZetaOp, ZETA>;
 
 }  // namespace legateboost

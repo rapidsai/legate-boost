@@ -15,6 +15,7 @@
  */
 #include "build_tree.h"
 #include <legate.h>
+#include <cstddef>
 #include <random>
 #include <set>
 #include <tuple>
@@ -28,17 +29,19 @@ namespace legateboost {
 namespace {
 
 struct NodeBatch {
-  int32_t node_idx_begin;
-  int32_t node_idx_end;
-  std::tuple<int32_t, int32_t>* instances_begin;
-  std::tuple<int32_t, int32_t>* instances_end;
-  auto begin() const { return instances_begin; }
-  auto end() const { return instances_end; }
-  __host__ __device__ std::size_t InstancesInBatch() const
+  int32_t node_idx_begin{};
+  int32_t node_idx_end{};
+  tcb::span<std::tuple<int32_t, int32_t>> instances;
+  [[nodiscard]] auto begin() const { return instances.begin(); }
+  [[nodiscard]] auto end() const { return instances.end(); }
+  __host__ __device__ [[nodiscard]] auto InstancesInBatch() const -> std::size_t
   {
-    return instances_end - instances_begin;
+    return instances.size();
   }
-  __host__ __device__ std::size_t NodesInBatch() const { return node_idx_end - node_idx_begin; }
+  __host__ __device__ [[nodiscard]] auto NodesInBatch() const -> std::size_t
+  {
+    return node_idx_end - node_idx_begin;
+  }
 };
 
 struct Tree {
@@ -76,14 +79,14 @@ struct Tree {
       this->leaf_value[{BinaryTree::RightChild(node_id), output}] = right_leaf_value[output];
     }
   }
-  bool IsLeaf(int node_id) const { return feature[node_id] == -1; }
+  [[nodiscard]] auto IsLeaf(int node_id) const -> bool { return feature[node_id] == -1; }
 
   legate::Buffer<double, 2> leaf_value;
   std::vector<int32_t> feature;
   std::vector<double> split_value;
   std::vector<double> gain;
   legate::Buffer<GPair, 2> node_sums;
-  const int num_outputs;
+  int num_outputs;
 };
 
 template <typename T>
@@ -100,7 +103,7 @@ void WriteOutput(const legate::PhysicalStore& out, const legate::Buffer<T, 2>& x
   auto shape = out.shape<2>();
   auto write = out.write_accessor<T, 2>();
   for (auto i = shape.lo[0]; i <= shape.hi[0]; ++i) {
-    for (int j = shape.lo[1]; j <= shape.hi[1]; ++j) { write[{i, j}] = x[{i, j}]; }
+    for (auto j = shape.lo[1]; j <= shape.hi[1]; ++j) { write[{i, j}] = x[{i, j}]; }
   }
 }
 
@@ -114,7 +117,7 @@ void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
   const legate::Rect<2> hessian_shape = hessian.shape<2>();
   auto hessian_acc                    = hessian.write_accessor<double, 2>();
   for (auto i = hessian_shape.lo[0]; i <= hessian_shape.hi[0]; ++i) {
-    for (int j = hessian_shape.lo[1]; j <= hessian_shape.hi[1]; ++j) {
+    for (auto j = hessian_shape.lo[1]; j <= hessian_shape.hi[1]; ++j) {
       hessian_acc[{i, j}] = tree.node_sums[{i, j}].hess;
     }
   }
@@ -125,12 +128,12 @@ void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
 // Remove any duplicates
 // Return sparse matrix of split samples for each feature
 template <typename T>
-SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
-                                           const legate::AccessorRO<T, 3>& X,
-                                           legate::Rect<3> X_shape,
-                                           int split_samples,
-                                           int seed,
-                                           int64_t dataset_rows)
+auto SelectSplitSamples(legate::TaskContext context,
+                        const legate::AccessorRO<T, 3>& X,
+                        legate::Rect<3> X_shape,
+                        int split_samples,
+                        int seed,
+                        int64_t dataset_rows) -> SparseSplitProposals<T>
 {
   std::vector<int64_t> row_samples(split_samples);
 
@@ -140,16 +143,16 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
     return dist(eng);
   });
 
-  int num_features     = X_shape.hi[1] - X_shape.lo[1] + 1;
+  auto num_features    = X_shape.hi[1] - X_shape.lo[1] + 1;
   auto draft_proposals = legate::create_buffer<T, 2>({num_features, split_samples});
   for (int i = 0; i < split_samples; i++) {
-    auto row      = row_samples[i];
-    bool has_data = row >= X_shape.lo[0] && row <= X_shape.hi[0];
+    auto row            = row_samples[i];
+    bool const has_data = row >= X_shape.lo[0] && row <= X_shape.hi[0];
     for (int j = 0; j < num_features; j++) {
       draft_proposals[{j, i}] = has_data ? X[{row, j, 0}] : T(0);
     }
   }
-  SumAllReduce(context, draft_proposals.ptr({0, 0}), num_features * split_samples);
+  SumAllReduce(context, tcb::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples));
 
   // Sort samples
   std::vector<T> split_proposals_tmp;
@@ -158,7 +161,8 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
   row_pointers[0]   = 0;
   for (int j = 0; j < num_features; j++) {
     auto ptr = draft_proposals.ptr({j, 0});
-    std::set<T> unique(ptr, ptr + split_samples);
+    tcb::span<T> const feature_proposals(draft_proposals.ptr({j, 0}), split_samples);
+    std::set<T> const unique(feature_proposals.begin(), feature_proposals.end());
     row_pointers[j + 1] = row_pointers[j] + unique.size();
     split_proposals_tmp.insert(split_proposals_tmp.end(), unique.begin(), unique.end());
   }
@@ -185,11 +189,13 @@ struct TreeBuilder {
   {
     sorted_positions = legate::create_buffer<std::tuple<int32_t, int32_t>>(num_rows);
     for (auto i = 0; i < num_rows; ++i) { sorted_positions[i] = {0, i}; }
-    const std::size_t max_bytes      = std::pow(10, 9);  // 1 GB
+    const std::size_t max_bytes      = 1000000000;  // 1 GB
     const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
-    const std::size_t max_histogram_nodes = std::max(1ul, max_bytes / bytes_per_node);
+    const std::size_t max_histogram_nodes = std::max(1UL, max_bytes / bytes_per_node);
     int depth                             = 0;
-    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) depth++;
+    while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) {
+      depth++;
+    }
     histogram      = Histogram<GPair>(BinaryTree::LevelBegin(0),
                                  BinaryTree::LevelEnd(depth),
                                  num_outputs,
@@ -208,13 +214,13 @@ struct TreeBuilder {
   {
     // Build the histogram
     for (auto [position, index_local] : batch) {
-      auto index_global = index_local + X_shape.lo[0];
-      bool compute      = ComputeHistogramBin(
+      auto index_global  = index_local + X_shape.lo[0];
+      bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
-      if (position < 0 || !compute) continue;
+      if (position < 0 || !compute) { continue; }
       for (int64_t j = 0; j < num_features; j++) {
-        auto x_value = X[{index_global, j, 0}];
-        int bin_idx  = split_proposals.FindBin(x_value, j);
+        auto x_value      = X[{index_global, j, 0}];
+        int const bin_idx = split_proposals.FindBin(x_value, j);
 
         if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
           for (int64_t k = 0; k < num_outputs; ++k) {
@@ -225,9 +231,12 @@ struct TreeBuilder {
       }
     }
 
-    SumAllReduce(context,
-                 reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
-                 batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2);
+    // NCCL cannot allreduce custom types, need to reinterpret as double
+    SumAllReduce(
+      context,
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      tcb::span<double>(reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
+                        batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2));
     this->Scan(histogram, batch, tree);
   }
 
@@ -267,10 +276,12 @@ struct TreeBuilder {
 
     for (int node_idx = batch.node_idx_begin; node_idx < batch.node_idx_end; node_idx++) {
       auto parent = BinaryTree::Parent(node_idx);
-      if (!ComputeHistogramBin(node_idx, tree.node_sums, histogram.ContainsNode(parent))) continue;
+      if (!ComputeHistogramBin(node_idx, tree.node_sums, histogram.ContainsNode(parent))) {
+        continue;
+      }
       scan_node_histogram(node_idx);
       // This node has no sibling we are finished
-      if (node_idx == 0) continue;
+      if (node_idx == 0) { continue; }
 
       auto sibling_node_idx = BinaryTree::Sibling(node_idx);
       // The sibling did not compute a histogram
@@ -291,11 +302,11 @@ struct TreeBuilder {
         for (int bin_idx = feature_begin; bin_idx < feature_end; bin_idx++) {
           double gain = 0;
           for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L] = histogram[{node_id, output, bin_idx}];
-            auto [G, H]     = tree.node_sums[{node_id, output}];
-            auto G_R        = G - G_L;
-            auto H_R        = H - H_L;
-            double reg      = std::max(eps, alpha);  // Regularisation term
+            auto [G_L, H_L]  = histogram[{node_id, output, bin_idx}];
+            auto [G, H]      = tree.node_sums[{node_id, output}];
+            auto G_R         = G - G_L;
+            auto H_R         = H - H_L;
+            double const reg = std::max(eps, alpha);  // Regularisation term
             gain +=
               0.5 * ((G_L * G_L) / (H_L + reg) + (G_R * G_R) / (H_R + reg) - (G * G) / (H + reg));
           }
@@ -321,7 +332,7 @@ struct TreeBuilder {
           left_sum[output]   = {G_L, H_L};
           right_sum[output]  = {G_R, H_R};
         }
-        if (left_sum[0].hess <= 0.0 || right_sum[0].hess <= 0.0) continue;
+        if (left_sum[0].hess <= 0.0 || right_sum[0].hess <= 0.0) { continue; }
         tree.AddSplit(node_id,
                       best_feature,
                       split_proposals.split_proposals[legate::coord_t{best_bin}],
@@ -344,7 +355,7 @@ struct TreeBuilder {
         continue;
       }
       auto x              = X[{X_shape.lo[0] + index_local, tree.feature[pos], 0}];
-      bool left           = x <= tree.split_value[pos];
+      bool const left     = x <= tree.split_value[pos];
       pos                 = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
       sorted_positions[i] = {pos, index_local};
     }
@@ -352,7 +363,7 @@ struct TreeBuilder {
 
   // Create a new histogram for this batch if we need to
   // Destroy the old one
-  Histogram<GPair> GetHistogram(NodeBatch batch)
+  auto GetHistogram(NodeBatch batch) -> Histogram<GPair>
   {
     if (histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) { return histogram; }
 
@@ -362,38 +373,39 @@ struct TreeBuilder {
     return histogram;
   }
 
-  std::vector<NodeBatch> PrepareBatches(int depth)
+  auto PrepareBatches(int depth) -> std::vector<NodeBatch>
   {
+    tcb::span<std::tuple<int32_t, int32_t>> const sorted_positions_span(sorted_positions.ptr(0),
+                                                                        num_rows);
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
       // All instances are in batch
-      return {NodeBatch{BinaryTree::LevelBegin(depth),
-                        BinaryTree::LevelEnd(depth),
-                        sorted_positions.ptr(0),
-                        sorted_positions.ptr(0) + num_rows}};
+      return {NodeBatch{
+        BinaryTree::LevelBegin(depth), BinaryTree::LevelEnd(depth), sorted_positions_span}};
     }
 
-    std::sort(sorted_positions.ptr(0),
-              sorted_positions.ptr(0) + num_rows,
-              [] __device__(auto a, auto b) { return std::get<0>(a) < std::get<0>(b); });
+    std::sort(
+      sorted_positions_span.begin(),
+      sorted_positions_span.end(),
+      [] __device__(const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
 
     const int num_batches = (BinaryTree::NodesInLevel(depth) + max_batch_size - 1) / max_batch_size;
     std::vector<NodeBatch> batches(num_batches);
 
     for (auto batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
-      int batch_begin = BinaryTree::LevelBegin(depth) + batch_idx * max_batch_size;
-      int batch_end   = std::min(batch_begin + max_batch_size, BinaryTree::LevelEnd(depth));
-      auto comp       = [] __device__(auto a, auto b) {
+      int const batch_begin = BinaryTree::LevelBegin(depth) + (batch_idx * max_batch_size);
+      int const batch_end   = std::min(batch_begin + max_batch_size, BinaryTree::LevelEnd(depth));
+      auto comp             = [] __device__(auto a, auto b) {
         return std::get<0>(a) < std::get<0>(b);
       };  // NOLINT(readability/braces)
 
-      auto lower = std::lower_bound(sorted_positions.ptr(0),
-                                    sorted_positions.ptr(0) + num_rows,
+      auto lower = std::lower_bound(sorted_positions_span.begin(),
+                                    sorted_positions_span.end(),
                                     std::tuple(batch_begin, 0),
                                     comp);
-      auto upper = std::upper_bound(
-        lower, sorted_positions.ptr(0) + num_rows, std::tuple(batch_end - 1, 0), comp);
-      batches[batch_idx] = {batch_begin, batch_end, lower, upper};
+      auto upper =
+        std::upper_bound(lower, sorted_positions_span.end(), std::tuple(batch_end - 1, 0), comp);
+      batches[batch_idx] = {batch_begin, batch_end, {lower, upper}};
     }
     batches.erase(std::remove_if(batches.begin(),
                                  batches.end(),
@@ -413,7 +425,11 @@ struct TreeBuilder {
         tree.node_sums[{0, j}] += {g_accessor[{i, 0, j}], h_accessor[{i, 0, j}]};
       }
     }
-    SumAllReduce(context, reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})), num_outputs * 2);
+    // NCCL cannot allreduce custom types, need to reinterpret as double
+    SumAllReduce(context,
+                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                 tcb::span<double>(reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})),
+                                   static_cast<size_t>(num_outputs * 2)));
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = tree.node_sums[{0, i}];
       tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, alpha);
@@ -421,10 +437,10 @@ struct TreeBuilder {
   }
 
   legate::Buffer<std::tuple<int32_t, int32_t>, 1> sorted_positions;
-  const int32_t num_rows;
-  const int32_t num_features;
-  const int32_t num_outputs;
-  const int32_t max_nodes;
+  int32_t num_rows;
+  int32_t num_features;
+  int32_t num_outputs;
+  int32_t max_nodes;
   int max_batch_size;
   SparseSplitProposals<T> split_proposals;
   Histogram<GPair> histogram;
@@ -454,8 +470,8 @@ struct build_tree_fn {
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
-    Tree tree(max_nodes, num_outputs);
-    SparseSplitProposals<T> split_proposals =
+    Tree tree(max_nodes, narrow<int>(num_outputs));
+    SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
 
     // Begin building the tree
@@ -493,7 +509,7 @@ struct build_tree_fn {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks(void)
+void __attribute__((constructor)) register_tasks()
 {
   legateboost::BuildTreeTask::register_variants();
 }

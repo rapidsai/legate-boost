@@ -23,21 +23,21 @@ namespace legateboost {
 class LegateboostMapper : public legate::mapping::Mapper {
  public:
   LegateboostMapper();
-  virtual ~LegateboostMapper(void) {}
-
- private:
-  LegateboostMapper(const LegateboostMapper& rhs)            = delete;
-  LegateboostMapper& operator=(const LegateboostMapper& rhs) = delete;
+  ~LegateboostMapper() override                                      = default;
+  LegateboostMapper(const LegateboostMapper& rhs)                    = delete;
+  LegateboostMapper(LegateboostMapper&& rhs)                         = delete;
+  auto operator=(const LegateboostMapper& rhs) -> LegateboostMapper& = delete;
+  auto operator=(LegateboostMapper&& rhs) -> LegateboostMapper&      = delete;
 
   // Legate mapping functions
- public:
-  legate::mapping::TaskTarget task_target(
-    const legate::mapping::Task& task,
-    const std::vector<legate::mapping::TaskTarget>& options) override;
-  std::vector<legate::mapping::StoreMapping> store_mappings(
-    const legate::mapping::Task& task,
-    const std::vector<legate::mapping::StoreTarget>& options) override;
-  legate::Scalar tunable_value(legate::TunableID tunable_id) override;
+
+  auto task_target(const legate::mapping::Task& task,
+                   const std::vector<legate::mapping::TaskTarget>& options)
+    -> legate::mapping::TaskTarget override;
+  auto store_mappings(const legate::mapping::Task& task,
+                      const std::vector<legate::mapping::StoreTarget>& options)
+    -> std::vector<legate::mapping::StoreMapping> override;
+  auto tunable_value(legate::TunableID tunable_id) -> legate::Scalar override;
 };
 
 }  // namespace legateboost
