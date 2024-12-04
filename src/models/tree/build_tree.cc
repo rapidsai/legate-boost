@@ -489,6 +489,8 @@ struct build_tree_fn {
   legateboost::type_dispatch_float(X.code(), build_tree_fn(), context);
 }
 
+/*static*/ void BuildTreeCSRTask::cpu_variant(legate::TaskContext context) {}
+
 }  // namespace legateboost
 
 namespace  // unnamed
@@ -496,5 +498,6 @@ namespace  // unnamed
 static void __attribute__((constructor)) register_tasks(void)
 {
   legateboost::BuildTreeTask::register_variants();
+  legateboost::BuildTreeCSRTask::register_variants();
 }
 }  // namespace

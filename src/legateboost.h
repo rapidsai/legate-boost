@@ -29,9 +29,10 @@ enum LegateBoostOpCode {  // NOLINT(performance-enum-size)
   DIGAMMA = 7,
   ZETA    = 8,
   /**/
-  GATHER   = 9,
-  RBF      = 10,
-  BUILD_NN = 11,
+  GATHER         = 9,
+  RBF            = 10,
+  BUILD_NN       = 11,
+  BUILD_TREE_CSR = 12,
 };
 
 #endif  // SRC_LEGATEBOOST_H_
