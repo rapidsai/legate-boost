@@ -20,7 +20,7 @@
 enum LegateBoostOpCode {  // NOLINT(performance-enum-size)
   OP_CODE_BASE = 0,
   BUILD_TREE   = 1,
-  PREDICT      = 2,
+  PREDICT_TREE = 2,
   UPDATE_TREE  = 3,
   /* special */
   ERF     = 4,
@@ -29,10 +29,11 @@ enum LegateBoostOpCode {  // NOLINT(performance-enum-size)
   DIGAMMA = 7,
   ZETA    = 8,
   /**/
-  GATHER         = 9,
-  RBF            = 10,
-  BUILD_NN       = 11,
-  BUILD_TREE_CSR = 12,
+  GATHER           = 9,
+  RBF              = 10,
+  BUILD_NN         = 11,
+  BUILD_TREE_CSR   = 12,
+  PREDICT_TREE_CSR = 13,
 };
 
 #endif  // SRC_LEGATEBOOST_H_

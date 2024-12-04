@@ -84,4 +84,6 @@ def test_sparse():
     )
     g = cn.array(rs.normal(size=(2, num_outputs)))
     h = cn.array(rs.random((2, 1)) + 0.1)
-    lb.models.Tree().set_random_state(np.random.RandomState(2)).fit(X, g, h)
+
+    model = lb.models.Tree().set_random_state(np.random.RandomState(2)).fit(X, g, h)
+    model.predict(X)

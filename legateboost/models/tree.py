@@ -24,7 +24,8 @@ from .base_model import BaseModel
 class LegateBoostOpCode(IntEnum):
     BUILD_TREE = user_lib.cffi.BUILD_TREE
     BUILD_TREE_CSR = user_lib.cffi.BUILD_TREE_CSR
-    PREDICT = user_lib.cffi.PREDICT
+    PREDICT_TREE = user_lib.cffi.PREDICT_TREE
+    PREDICT_TREE_CSR = user_lib.cffi.PREDICT_TREE_CSR
     UPDATE_TREE = user_lib.cffi.UPDATE_TREE
 
 
@@ -259,12 +260,12 @@ class Tree(BaseModel):
         self.hessian = cn.array(hessian, copy=False)
         return self
 
-    def predict(self, X: cn.ndarray) -> cn.ndarray:
+    def predict_dense(self, X: cn.ndarray) -> cn.ndarray:
         n_rows = X.shape[0]
         n_features = X.shape[1]
         n_outputs = self.leaf_value.shape[1]
         task = get_legate_runtime().create_auto_task(
-            user_context, LegateBoostOpCode.PREDICT
+            user_context, LegateBoostOpCode.PREDICT_TREE
         )
 
         pred = get_legate_runtime().create_store(types.float64, (n_rows, n_outputs))
@@ -288,8 +289,57 @@ class Tree(BaseModel):
 
         task.add_alignment(X_, pred_)
         task.execute()
-
         return cn.array(pred, copy=False)
+
+    def predict_csr(self, X: csr_matrix) -> cn.ndarray:
+        n_rows = X.shape[0]
+        n_outputs = self.leaf_value.shape[1]
+        task = get_legate_runtime().create_auto_task(
+            user_context, LegateBoostOpCode.PREDICT_TREE_CSR
+        )
+
+        pred = get_legate_runtime().create_store(types.float64, (n_rows, n_outputs))
+        # inputs
+        val_var = task.add_input(X.vals)
+        crd_var = task.add_input(X.crd)
+        pos_var = task.add_input(X.pos)
+        task.add_constraint(
+            image(pos_var, crd_var, hint=ImageComputationHint.FIRST_LAST)
+        )
+        task.add_constraint(
+            image(pos_var, val_var, hint=ImageComputationHint.FIRST_LAST)
+        )
+        pos_var_broadcast = X.pos.promote(1, n_outputs)
+        task.add_alignment(pos_var_broadcast, pred)
+
+        # scalars
+        task.add_scalar_arg(X.shape[1], types.int32)
+
+        # output
+        task.add_output(
+            pred.promote(1, 1)
+        )  # add 1 dimension so it has the same dimension as dense version
+        task.add_output(pred)  # only here for alignment, no used
+
+        # broadcast the tree structure
+        leaf_value_ = get_store(self.leaf_value)
+        feature_ = get_store(self.feature)
+        split_value_ = get_store(self.split_value)
+        task.add_input(leaf_value_)
+        task.add_input(feature_)
+        task.add_input(split_value_)
+        task.add_broadcast(leaf_value_)
+        task.add_broadcast(feature_)
+        task.add_broadcast(split_value_)
+
+        task.add_input(pos_var_broadcast)  # used only for alignment
+        task.execute()
+        return cn.array(pred, copy=False)
+
+    def predict(self, X: Union[cn.ndarray, csr_matrix]) -> cn.ndarray:
+        if isinstance(X, csr_matrix):
+            return self.predict_csr(X)
+        return self.predict_dense(X)
 
     def is_leaf(self, id: int) -> Any:
         return self.feature[id] == -1

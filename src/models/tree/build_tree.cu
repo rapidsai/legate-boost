@@ -32,6 +32,7 @@
 #include "../../cpp_utils/cpp_utils.cuh"
 #include "legate/comm/coll.h"
 #include "build_tree.h"
+#include "matrix_types.h"
 
 namespace legateboost {
 

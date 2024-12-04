@@ -62,7 +62,13 @@ struct predict_fn {
 };
 }  // namespace
 
-/*static*/ void PredictTask::cpu_variant(legate::TaskContext context)
+/*static*/ void PredictTreeTask::cpu_variant(legate::TaskContext context)
+{
+  const auto& X = context.input(0).data();
+  type_dispatch_float(X.code(), predict_fn(), context);
+}
+
+/*static*/ void PredictTreeCSRTask::cpu_variant(legate::TaskContext context)
 {
   const auto& X = context.input(0).data();
   type_dispatch_float(X.code(), predict_fn(), context);
@@ -74,6 +80,7 @@ namespace  // unnamed
 {
 void __attribute__((constructor)) register_tasks()
 {
-  legateboost::PredictTask::register_variants();
+  legateboost::PredictTreeTask::register_variants();
+  legateboost::PredictTreeCSRTask::register_variants();
 }
 }  // namespace
