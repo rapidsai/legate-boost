@@ -18,7 +18,7 @@ HELP="$0 [<target> ...] [<flag> ...]
  where <flag> is any of:
 
    --editable        - install Python wheel in editable mode
-   --fix             - clang-tidy will attempt to fix issues
+   --fix             - clang-tidy will attempt to fix issues.
    -h | --help       - print the help text
 "
 
@@ -68,7 +68,7 @@ if hasArg clang-tidy; then
     if hasArg --fix; then
         FIX_ARG="-fix"
     fi
-    run-clang-tidy -p build_clang_tidy -header-filter=.* ${FIX_ARG}
+    run-clang-tidy -p build_clang_tidy ${FIX_ARG} -exclude-header-filter='.*\/legate\/.*|.*\/libcudacxx\/.*' -header-filter='.*'
     echo "done running clang-tidy"
 fi
 

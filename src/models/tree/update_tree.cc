@@ -13,6 +13,9 @@
  * limitations under the License.
  *
  */
+#include <legate.h>
+#include <cstdint>
+#include <tcb/span.hpp>
 #include "legate_library.h"
 #include "legateboost.h"
 #include "build_tree.h"
@@ -20,6 +23,7 @@
 
 namespace legateboost {
 
+namespace {
 template <typename T, int DIM>
 void WriteOutput(const legate::PhysicalStore& out, const legate::Buffer<T, DIM>& x)
 {
@@ -27,6 +31,7 @@ void WriteOutput(const legate::PhysicalStore& out, const legate::Buffer<T, DIM>&
   auto write = out.write_accessor<T, DIM>();
   for (legate::PointInRectIterator<DIM> it(shape); it.valid(); ++it) { write[*it] = x[*it]; }
 }
+}  // namespace
 
 struct update_tree_fn {
   template <typename T>
@@ -78,20 +83,21 @@ struct update_tree_fn {
     for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
       int pos = 0;
       // Use a max depth of 100 to avoid infinite loops
-      for (int depth = 0; depth < 100; depth++) {
+      const int max_depth = 100;
+      for (int depth = 0; depth < max_depth; depth++) {
         for (int k = 0; k < num_outputs; k++) {
           new_gradient[{pos, k}] += g_accessor[{i, 0, k}];
           new_hessian[{pos, k}] += h_accessor[{i, 0, k}];
         }
-        if (feature[pos] == -1) break;
+        if (feature[pos] == -1) { break; }
         auto x = X_accessor[{i, feature[pos], 0}];
-        pos    = x <= split_value[pos] ? pos * 2 + 1 : pos * 2 + 2;
+        pos    = x <= split_value[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
       }
     }
 
     // Sync the new statistics
-    SumAllReduce(context, new_gradient.ptr({0, 0}), num_nodes * num_outputs);
-    SumAllReduce(context, new_hessian.ptr({0, 0}), num_nodes * num_outputs);
+    SumAllReduce(context, tcb::span<double>(new_gradient.ptr({0, 0}), num_nodes * num_outputs));
+    SumAllReduce(context, tcb::span<double>(new_hessian.ptr({0, 0}), num_nodes * num_outputs));
 
     // Update tree
     for (int i = 0; i < num_nodes; i++) {
@@ -124,7 +130,7 @@ class UpdateTreeTask : public Task<UpdateTreeTask, UPDATE_TREE> {
 
 namespace  // unnamed
 {
-static void __attribute__((constructor)) register_tasks(void)
+void __attribute__((constructor)) register_tasks()
 {
   legateboost::UpdateTreeTask::register_variants();
 }

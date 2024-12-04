@@ -15,10 +15,9 @@
  *
  */
 #include "models/krr/rbf.h"
-namespace  // unnamed
-{
-static void __attribute__((constructor)) register_tasks(void)
-{
-  legateboost::RbfTask::register_variants();
-}
-}  // namespace
+#include "../../cpp_utils/cpp_utils.cuh"
+
+namespace legateboost {
+// Explicit instantiation
+template void RbfTask::gpu_variant(legate::TaskContext context);
+};  // namespace legateboost

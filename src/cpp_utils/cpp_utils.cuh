@@ -16,25 +16,27 @@
 
 #pragma once
 
-#include "cpp_utils.h"
 #include <nccl.h>
+#include <thrust/execution_policy.h>
+#include <thrust/system_error.h>
+#include <cstddef>
 #include <cstdio>
 #include <utility>
 #include <string>
+#include <tcb/span.hpp>
 #include "legate.h"
 #include "legate/cuda/cuda.h"
+#include "cpp_utils.h"
 
 namespace legateboost {
 
-__host__ inline void check_nccl(ncclResult_t error, const char* file, int line)
+inline void check_nccl(ncclResult_t error, const char* file, int line)
 {
   if (error != ncclSuccess) {
-    fprintf(stderr,
-            "Internal NCCL failure with error %s in file %s at line %d\n",
-            ncclGetErrorString(error),
-            file,
-            line);
-    exit(error);
+    std::stringstream ss;
+    ss << "Internal NCCL failure with error " << ncclGetErrorString(error) << " in file " << file
+       << " at line " << line;
+    throw std::runtime_error(ss.str());
   }
 }
 
@@ -49,63 +51,70 @@ inline void throw_on_cuda_error(cudaError_t code, const char* file, int line)
   }
 }
 
+// Can't remove these macros until we have std::source_location in c++20
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_CUDA(expr) throw_on_cuda_error(expr, __FILE__, __LINE__)
 
 #ifdef DEBUG
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_CUDA_STREAM(stream)              \
-  do {                                         \
+  {                                            \
     CHECK_CUDA(cudaStreamSynchronize(stream)); \
     CHECK_CUDA(cudaPeekAtLastError());         \
-  } while (false)
+  }
 #else
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_CUDA_STREAM(stream) CHECK_CUDA(cudaPeekAtLastError())
 #endif
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CHECK_NCCL(expr)                    \
-  do {                                      \
-    ncclResult_t result = (expr);           \
+  {                                         \
+    const ncclResult_t result = (expr);     \
     check_nccl(result, __FILE__, __LINE__); \
-  } while (false)
+  }
 
 template <typename L, int BLOCK_THREADS>
 __global__ void __launch_bounds__(BLOCK_THREADS)
   LaunchNKernel(size_t size, L lambda)  // NOLINT(performance-unnecessary-value-param)
 {
-  for (auto i = blockDim.x * blockIdx.x + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
+  for (auto i = (blockDim.x * blockIdx.x) + threadIdx.x; i < size; i += blockDim.x * gridDim.x) {
     lambda(i);
   }
 }
 
-template <int ITEMS_PER_THREAD = 8, typename L>
+constexpr int kDefaultItemsPerThread = 8;
+template <int ITEMS_PER_THREAD = kDefaultItemsPerThread, typename L>
 inline void LaunchN(size_t n, cudaStream_t stream, const L& lambda)
 {
   if (n == 0) { return; }
   const int kBlockThreads = 256;
-  const int GRID_SIZE     = static_cast<int>((n + ITEMS_PER_THREAD * kBlockThreads - 1) /
-                                         (ITEMS_PER_THREAD * kBlockThreads));
+  const int GRID_SIZE =
+    static_cast<int>((n + static_cast<size_t>(ITEMS_PER_THREAD * kBlockThreads) - 1) /
+                     (static_cast<size_t>(ITEMS_PER_THREAD * kBlockThreads)));
   LaunchNKernel<L, kBlockThreads><<<GRID_SIZE, kBlockThreads, 0, stream>>>(n, lambda);
 }
 
 template <typename T>
-void AllReduce(legate::TaskContext context, T* x, int count, ncclRedOp_t op, cudaStream_t stream)
+void AllReduce(legate::TaskContext context, tcb::span<T> x, ncclRedOp_t op, cudaStream_t stream)
 {
-  const auto& domain = context.get_launch_domain();
-  size_t num_ranks   = domain.get_volume();
+  const auto& domain     = context.get_launch_domain();
+  size_t const num_ranks = domain.get_volume();
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a GPU communicator for multi-rank task.");
-  if (context.num_communicators() == 0) return;
-  const auto& comm      = context.communicator(0);
-  ncclComm_t* nccl_comm = comm.get<ncclComm_t*>();
+  if (context.num_communicators() == 0) { return; }
+  const auto& comm = context.communicator(0);
+  auto* nccl_comm  = comm.get<ncclComm_t*>();
 
   if (num_ranks > 1) {
-    if (std::is_same<T, float>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclFloat, op, *nccl_comm, stream));
-    } else if (std::is_same<T, double>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclDouble, op, *nccl_comm, stream));
-    } else if (std::is_same<T, int64_t>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclInt64, op, *nccl_comm, stream));
-    } else if (std::is_same<T, int32_t>::value) {
-      CHECK_NCCL(ncclAllReduce(x, x, count, ncclInt, op, *nccl_comm, stream));
+    if (std::is_same_v<T, float>) {
+      CHECK_NCCL(ncclAllReduce(x.data(), x.data(), x.size(), ncclFloat, op, *nccl_comm, stream));
+    } else if (std::is_same_v<T, double>) {
+      CHECK_NCCL(ncclAllReduce(x.data(), x.data(), x.size(), ncclDouble, op, *nccl_comm, stream));
+    } else if (std::is_same_v<T, int64_t>) {
+      CHECK_NCCL(ncclAllReduce(x.data(), x.data(), x.size(), ncclInt64, op, *nccl_comm, stream));
+    } else if (std::is_same_v<T, int32_t>) {
+      CHECK_NCCL(ncclAllReduce(x.data(), x.data(), x.size(), ncclInt, op, *nccl_comm, stream));
     } else {
       EXPECT(false, "Unsupported type for all reduce.");
     }
@@ -114,9 +123,9 @@ void AllReduce(legate::TaskContext context, T* x, int count, ncclRedOp_t op, cud
 }
 
 template <typename T>
-void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t stream)
+void SumAllReduce(legate::TaskContext context, tcb::span<T> x, cudaStream_t stream)
 {
-  AllReduce(context, x, count, ncclSum, stream);
+  AllReduce(context, x, ncclSum, stream);
 }
 
 #if THRUST_VERSION >= 101600
@@ -125,13 +134,16 @@ void SumAllReduce(legate::TaskContext context, T* x, int count, cudaStream_t str
 #define DEFAULT_POLICY thrust::cuda::par
 #endif
 
-__device__ inline uint32_t ballot(bool inFlag, uint32_t mask = 0xffffffffu)
+constexpr uint32_t kFullBitMask = 0xffffffffU;
+constexpr uint32_t kWarpSize    = 32;
+__device__ inline auto ballot(bool inFlag, uint32_t mask = kFullBitMask) -> uint32_t
 {
-  return __ballot_sync(mask, inFlag);
+  return __ballot_sync(mask, static_cast<int>(inFlag));
 }
 
 template <typename T>
-__device__ inline T shfl(T val, int srcLane, int width = 32, uint32_t mask = 0xffffffffu)
+__device__ inline auto shfl(T val, int srcLane, int width = kWarpSize, uint32_t mask = kFullBitMask)
+  -> T
 {
   return __shfl_sync(mask, val, srcLane, width);
 }
@@ -142,19 +154,19 @@ class ThrustAllocator : public legate::ScopedAllocator {
 
   explicit ThrustAllocator(legate::Memory::Kind kind) : legate::ScopedAllocator(kind) {}
 
-  char* allocate(size_t num_bytes)
+  auto allocate(size_t num_bytes) -> char*
   {
     return static_cast<char*>(ScopedAllocator::allocate(num_bytes));
   }
 
-  void deallocate(char* ptr, size_t n) { ScopedAllocator::deallocate(ptr); }
+  void deallocate(char* ptr, size_t /*n*/) { ScopedAllocator::deallocate(ptr); }
 };
 
 template <typename F, int OpCode>
 void UnaryOpTask<F, OpCode>::gpu_variant(legate::TaskContext context)
 {
   auto const& in          = context.input(0);
-  auto stream             = context.get_task_stream();
+  auto* stream            = context.get_task_stream();
   auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
   auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
   legate::dim_dispatch(in.dim(), DispatchDimOp{}, context, in, thrust_exec_policy);

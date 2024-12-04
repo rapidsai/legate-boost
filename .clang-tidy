@@ -1,4 +1,30 @@
-Checks:          'performance-*'
-WarningsAsErrors: true
+# misc-non-private-member-variables-in-classes is annoying because we have many POD classes/structs
+# misc-include-cleaner wants us to use specific legate headers for classes, but we don't want to use these because they move sometimes upstream
+# prefer instead to use the generate #include <legate.h>
+# cppcoreguidelines-avoid-magic-numbers is annoying in scientific code - it considers 0.5 or 2.0 to be magic numbers
+# misc-use-internal-linkage erronously wants us to use anonymous namespaces in .cuh headers
+# hicpp-signed-bitwise has issues https://stackoverflow.com/a/58845898
+
+Checks: >
+  -*,
+  performance-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  -misc-use-internal-linkage,
+  modernize-*,
+  hicpp-*,
+  -hicpp-signed-bitwise,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+
+
+WarningsAsErrors: '*'
 HeaderFilterRegex: '.*'
 FormatStyle:     google

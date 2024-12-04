@@ -12,7 +12,6 @@ LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
 rapids-conda-retry mambabuild \
     --channel legate \
     --channel legate/label/experimental \
-    --channel legate/label/rc \
     --channel conda-forge \
     --channel nvidia \
     --no-force-upload \

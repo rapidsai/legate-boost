@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <memory>
 #include <limits>
+#include <tcb/span.hpp>
 #include "../../cpp_utils/cpp_utils.h"
 #include "legate_library.h"
 #include "legateboost.h"
@@ -25,55 +26,62 @@ namespace legateboost {
 
 template <typename T>
 struct Matrix {
-  T* data;
+  std::array<int64_t, 2> extent{};
+  tcb::span<T> data;
   std::shared_ptr<legate::Buffer<T, 2>> buffer;
-  std::array<int64_t, 2> extent;
 
-  Matrix(T* data, std::array<int64_t, 2> extent) : data(data)
+  Matrix(tcb::span<T> data, std::array<int64_t, 2> extent)
+    : extent({std::max(extent[0], 0L), std::max(extent[1], 0L)}), data(data)
   {
-    this->extent[0] = std::max(extent[0], 0L);
-    this->extent[1] = std::max(extent[1], 0L);
+    if (extent[0] * extent[1] != data.size()) {
+      throw std::runtime_error("Matrix extent does not match data size");
+    }
   }
 
-  __host__ __device__ std::int64_t size() const { return extent[0] * extent[1]; }
-
-  __host__ __device__ T& operator[](std::array<int64_t, 2> idx) const
+  [[nodiscard]] __host__ __device__ auto size() const -> std::int64_t
   {
-    return data[idx[0] * extent[1] + idx[1]];
+    return extent[0] * extent[1];
   }
 
-  static Matrix<T> From1dStore(legate::PhysicalStore store)
+  __host__ __device__ auto operator[](std::array<int64_t, 2> idx) const -> T&
+  {
+    return data[(idx[0] * extent[1]) + idx[1]];
+  }
+
+  static auto From1dStore(legate::PhysicalStore store) -> Matrix<T>
   {
     auto shape = store.shape<1>();
     T* data    = store.read_accessor<T, 1, true>().ptr(shape.lo);
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
-  static Matrix<T> From1dOutputStore(const legate::PhysicalStore& store)
+
+  static auto From1dOutputStore(const legate::PhysicalStore& store) -> Matrix<T>
   {
     auto shape = store.shape<1>();
-    T* data    = store.read_write_accessor<T, 1, true>().ptr(shape.lo);
+    tcb::span<T> const data(store.read_write_accessor<T, 1, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
 
-  static Matrix<T> From2dStore(legate::PhysicalStore store)
+  static auto From2dStore(legate::PhysicalStore store) -> Matrix<T>
   {
     auto shape = store.shape<2>();
-    T* data    = store.read_accessor<T, 2, true>().ptr(shape.lo);
+    tcb::span<T> data(store.read_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
-  static Matrix<T> From2dOutputStore(const legate::PhysicalStore& store)
+  static auto From2dOutputStore(const legate::PhysicalStore& store) -> Matrix<T>
   {
     auto shape = store.shape<2>();
-    T* data    = store.read_write_accessor<T, 2, true>().ptr(shape.lo);
+    tcb::span<T> const data(store.read_write_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
 
   // Take a 3d store, remove a broadcast dimension and return a 2d Matrix
-  static Matrix<T> Project3dStore(const legate::PhysicalStore& store, int broadcast_dimension)
+  static auto Project3dStore(const legate::PhysicalStore& store, int broadcast_dimension)
+    -> Matrix<T>
   {
     auto shape = store.shape<3>();
     auto data  = store.read_accessor<T, 3, true>().ptr(shape.lo);
-    std::array<int64_t, 2> extent;
+    std::array<int64_t, 2> extent{};
     if (broadcast_dimension == 0) {
       extent = {shape.hi[1] - shape.lo[1] + 1, shape.hi[2] - shape.lo[2] + 1};
     } else if (broadcast_dimension == 1) {
@@ -81,29 +89,32 @@ struct Matrix {
     } else {
       extent = {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1};
     }
-    return Matrix<T>(const_cast<T*>(data), extent);
+    return Matrix<T>({const_cast<T*>(data), narrow<std::size_t>(extent[0] * extent[1])}, extent);
   }
 
-  static Matrix<T> Create(std::array<int64_t, 2> extent)
+  static auto Create(std::array<int64_t, 2> extent) -> Matrix<T>
   {
     auto deleter = [](legate::Buffer<T, 2>* ptr) {
       ptr->destroy();
-      delete ptr;
+      // Clang tidy suggests not deleting a pointer and using a smart pointer instead
+      // But this is a deleter for a smart pointer anyway
+      delete ptr;  // NOLINT(cppcoreguidelines-owning-memory)
     };
-    std::shared_ptr<legate::Buffer<T, 2>> buffer(
+    std::shared_ptr<legate::Buffer<T, 2>> const buffer(
       new legate::Buffer<T, 2>(legate::create_buffer<T>(legate::Point<2>{extent[0], extent[1]})),
       deleter);
-    auto t   = Matrix<T>(buffer->ptr({0, 0}), extent);
+    auto t   = Matrix<T>({buffer->ptr({0, 0}), narrow<std::size_t>(extent[0] * extent[1])}, extent);
     t.buffer = buffer;
     return t;
   }
 };
 
 class LearningMonitor {
-  const int max_iter;
-  const int max_iterations_no_progress = 5;
-  const int verbose;
-  const double gtol;
+  static constexpr int max_iterations_no_progress = 5;
+  static constexpr double min_progress            = 1e-16;
+  int max_iter;
+  int verbose;
+  double gtol;
   int iteration              = 0;
   int iterations_no_progress = 0;
   double old_cost            = std::numeric_limits<double>::max();
@@ -115,32 +126,34 @@ class LearningMonitor {
   }
 
   template <typename T>
-  bool IsConverged(T cost, T grad_norm)
+  auto IsConverged(T cost, T grad_norm) -> bool
   {
-    iterations_no_progress = old_cost - cost < 1e-16 ? iterations_no_progress + 1 : 0;
+    iterations_no_progress = old_cost - cost < min_progress ? iterations_no_progress + 1 : 0;
     old_cost               = cost;
 
     if (verbose && iteration % verbose == 0) {
-      logger.print() << "L-BFGS Iteration: " << iteration << " Cost: " << cost
-                     << " Grad Norm: " << grad_norm;
+      GetLogger().print() << "L-BFGS Iteration: " << iteration << " Cost: " << cost
+                          << " Grad Norm: " << grad_norm;
     }
 
     if (iteration >= max_iter) {
-      if (verbose) { logger.print() << "L-BFGS: Maximum number of iterations reached."; }
+      if (verbose) { GetLogger().print() << "L-BFGS: Maximum number of iterations reached."; }
       return true;
     }
 
     if (iterations_no_progress >= max_iterations_no_progress) {
       if (verbose) {
-        logger.print() << "No progress in " << max_iterations_no_progress
-                       << " iterations. Stopping.";
+        GetLogger().print() << "No progress in " << max_iterations_no_progress
+                            << " iterations. Stopping.";
       }
       return true;
     }
 
     if (grad_norm < gtol) {
       if (verbose) {
-        if (verbose) logger.print() << "Gradient norm below tolerance " << gtol << ". Stopping.";
+        if (verbose) {
+          GetLogger().print() << "Gradient norm below tolerance " << gtol << ". Stopping.";
+        }
       }
       return true;
     }
