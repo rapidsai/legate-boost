@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-from legate_sparse import csr_matrix
 
 import cupynumeric as cn
 import legateboost as lb
@@ -75,7 +74,8 @@ def test_alpha():
     assert np.isclose(model.predict(X)[0], y.sum() / (y.size + alpha))
 
 
-def test_sparse():
+def test_csr():
+    csr_matrix = pytest.importorskip("legate_sparse.csr_matrix")
     num_outputs = 1
     rs = cn.random.RandomState(0)
     X = csr_matrix(

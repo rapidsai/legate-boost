@@ -386,3 +386,6 @@ class Tree(BaseModel):
         new = copy.deepcopy(self)
         new.leaf_value *= scalar
         return new
+
+    def supports_csr(self) -> bool:
+        return True

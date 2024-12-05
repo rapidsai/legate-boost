@@ -1,12 +1,17 @@
 import numpy as np
 import pytest
+import scipy
 from sklearn.datasets import make_regression
 from sklearn.model_selection import train_test_split
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cupynumeric as cn
 import legateboost as lb
-from legateboost.testing.utils import non_increasing, sanity_check_models
+from legateboost.testing.utils import (
+    all_base_models,
+    non_increasing,
+    sanity_check_models,
+)
 
 
 def test_init():
@@ -215,3 +220,19 @@ def test_iterator_methods():
     assert list(model) == list(model.models_)
     for i, est in enumerate(model):
         assert est == model[i]
+
+
+@pytest.mark.parametrize(
+    "base_model", filter(lambda m: m.supports_csr(), all_base_models()), ids=type
+)
+def test_csr_input(base_model):
+    csr_matrix = pytest.importorskip("legate_sparse").csr_matrix
+    X_scipy = scipy.sparse.csr_matrix([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0]])
+    X_legate_sparse = csr_matrix(X_scipy)
+    y = cn.array([1.0, 2.0])
+    model = lb.LBRegressor(
+        n_estimators=1,
+        base_models=(base_model,),
+    )
+    model.fit(X_scipy, y)
+    model.fit(X_legate_sparse, y)

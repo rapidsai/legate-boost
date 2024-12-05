@@ -3,6 +3,11 @@ from typing import Any, List
 import numpy as np
 import scipy.sparse as sp
 
+try:
+    from legate_sparse import csr_matrix
+except ImportError:
+    csr_matrix = None
+
 import cupynumeric as cn
 
 __all__: List[str] = []
@@ -29,30 +34,28 @@ def check_sample_weight(sample_weight: Any, n: int) -> cn.ndarray:
 
 def check_array(x: Any) -> cn.ndarray:
     if sp.issparse(x):
-        raise ValueError("Sparse matrix not allowed.")
+        x = csr_matrix(x)
+    elif isinstance(x, csr_matrix):
+        pass
+    else:
+        x = cn.array(x, copy=False)
 
-    if not hasattr(x, "__legate_data_interface__"):
-        x = cn.array(np.require(x, requirements=["C", "A"]))
-    if hasattr(x, "__array_interface__"):
-        shape = x.__array_interface__["shape"]
-        if shape[0] <= 0:
-            raise ValueError(
-                "Found array with %d sample(s) (shape=%s) while a"
-                " minimum of %d is required." % (shape[0], shape, 1)
-            )
-        if len(shape) >= 2 and 0 in shape:
-            raise ValueError(
-                "Found array with %d feature(s) (shape=%s) while"
-                " a minimum of %d is required." % (shape[1], shape, 1)
-            )
+    if x.shape[0] <= 0:
+        raise ValueError(
+            "Found array with %d sample(s) (shape=%s) while a"
+            " minimum of %d is required." % (x.shape[0], x.shape, 1)
+        )
+    if len(x.shape) >= 2 and 0 in x.shape:
+        raise ValueError(
+            "Found array with %d feature(s) (shape=%s) while"
+            " a minimum of %d is required." % (x.shape[1], x.shape, 1)
+        )
 
     if cn.iscomplexobj(x):
         raise ValueError("Complex data not supported.")
     # note: taking sum first then checking finiteness uses less memory
     if np.issubdtype(x.dtype, np.floating) and not cn.isfinite(x.sum()):
         raise ValueError("Input contains NaN or inf")
-
-    x = cn.array(x, copy=False)
 
     return x
 
