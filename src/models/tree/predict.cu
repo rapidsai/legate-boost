@@ -19,11 +19,42 @@
 #include "../../cpp_utils/cpp_utils.cuh"
 #include "../../cpp_utils/cpp_utils.h"
 #include "predict.h"
+#include "matrix_types.h"
 
 namespace legateboost {
 
 namespace {
-struct predict_fn {
+
+template <typename MatrixT>
+void PredictRows(const MatrixT& X,
+                 legate::AccessorWO<double, 3> pred_accessor,
+                 legate::Rect<3, legate::coord_t> pred_shape,
+                 legate::AccessorRO<double, 1> split_value,
+                 legate::AccessorRO<int32_t, 1> feature,
+                 legate::AccessorRO<double, 2> leaf_value,
+                 cudaStream_t stream)
+{
+  // rowwise kernel
+  auto prediction_lambda = [=] __device__(size_t idx) {
+    int64_t pos         = 0;
+    auto global_row_idx = X.RowRange().lo + idx;
+    // Use a max depth of 100 to avoid infinite loops
+    const int max_depth = 100;
+    for (int depth = 0; depth < max_depth; depth++) {
+      if (feature[pos] == -1) { break; }
+      double const X_val = X.Get(global_row_idx, feature[pos]);
+      pos                = X_val <= split_value[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
+    }
+    for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
+      pred_accessor[{global_row_idx, 0, j}] = leaf_value[{pos, j}];
+    }
+  };  // NOLINT(readability/braces)
+
+  LaunchN(X.RowRange().volume(), stream, prediction_lambda);
+  CHECK_CUDA_STREAM(stream);
+}
+
+struct predict_dense_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
@@ -39,7 +70,6 @@ struct predict_fn {
     auto pred          = context.output(0).data();
     auto pred_shape    = pred.shape<3>();
     auto pred_accessor = pred.write_accessor<double, 3>();
-    auto n_outputs     = pred_shape.hi[2] - pred_shape.lo[2] + 1;
 
     EXPECT(pred_shape.lo[2] == 0, "Expect all outputs to be present");
     // We should have one output prediction per row of X
@@ -50,36 +80,56 @@ struct predict_fn {
     EXPECT_IS_BROADCAST(context.input(2).data().shape<1>());
     EXPECT_IS_BROADCAST(context.input(3).data().shape<1>());
 
-    // rowwise kernel
-    auto prediction_lambda = [=] __device__(size_t idx) {
-      int64_t pos              = 0;
-      legate::Point<3> x_point = {X_shape.lo[0] + static_cast<int64_t>(idx), 0, 0};
+    PredictRows(DenseXMatrix<T>(X_accessor, X_shape),
+                pred_accessor,
+                pred_shape,
+                split_value,
+                feature,
+                leaf_value,
+                context.get_task_stream());
+  }
+};
 
-      // Use a max depth of 100 to avoid infinite loops
-      const int max_depth = 100;
-      for (int depth = 0; depth < max_depth; depth++) {
-        if (feature[pos] == -1) { break; }
-        x_point[1]         = feature[pos];
-        double const X_val = X_accessor[x_point];
-        pos                = X_val <= split_value[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
-      }
-      for (int64_t j = 0; j < n_outputs; j++) {
-        pred_accessor[{X_shape.lo[0] + static_cast<int64_t>(idx), 0, j}] = leaf_value[{pos, j}];
-      }
-    };  // NOLINT(readability/braces)
+struct predict_csr_fn {
+  template <typename T>
+  void operator()(legate::TaskContext context)
+  {
+    auto [X_vals, X_vals_shape, X_vals_accessor] = GetInputStore<T, 1>(context.input(0).data());
+    auto [X_coords, X_coords_shape, X_coords_accessor] =
+      GetInputStore<int64_t, 1>(context.input(1).data());
+    auto [X_offsets, X_offsets_shape, X_offsets_accessor] =
+      GetInputStore<legate::Rect<1, legate::coord_t>, 1>(context.input(2).data());
 
-    auto* stream = context.get_task_stream();
-    LaunchN(X_shape.hi[0] - X_shape.lo[0] + 1, stream, prediction_lambda);
+    auto leaf_value  = context.input(3).data().read_accessor<double, 2>();
+    auto feature     = context.input(4).data().read_accessor<int32_t, 1>();
+    auto split_value = context.input(5).data().read_accessor<double, 1>();
 
-    CHECK_CUDA_STREAM(stream);
+    auto pred          = context.output(0).data();
+    auto pred_shape    = pred.shape<3>();
+    auto pred_accessor = pred.write_accessor<double, 3>();
+
+    auto num_features = context.scalars().at(0).value<int32_t>();
+    CSRXMatrix<T> X(
+      X_vals_accessor, X_coords_accessor, X_offsets_accessor, X_offsets_shape, num_features);
+
+    EXPECT_AXIS_ALIGNED(0, X_offsets_shape, pred_shape);
+
+    PredictRows(
+      X, pred_accessor, pred_shape, split_value, feature, leaf_value, context.get_task_stream());
   }
 };
 }  // namespace
 
-/*static*/ void PredictTask::gpu_variant(legate::TaskContext context)
+/*static*/ void PredictTreeTask::gpu_variant(legate::TaskContext context)
 {
   auto X = context.input(0).data();
-  type_dispatch_float(X.code(), predict_fn(), context);
+  type_dispatch_float(X.code(), predict_dense_fn(), context);
+}
+
+/*static*/ void PredictTreeCSRTask::gpu_variant(legate::TaskContext context)
+{
+  auto X = context.input(0).data();
+  type_dispatch_float(X.code(), predict_csr_fn(), context);
 }
 
 }  // namespace legateboost

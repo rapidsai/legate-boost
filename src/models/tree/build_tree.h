@@ -243,7 +243,15 @@ class Histogram {
   }
 };
 
-class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
+class BuildTreeDenseTask : public Task<BuildTreeDenseTask, BUILD_TREE> {
+ public:
+  static void cpu_variant(legate::TaskContext context);
+#ifdef LEGATEBOOST_USE_CUDA
+  static void gpu_variant(legate::TaskContext context);
+#endif
+};
+
+class BuildTreeCSRTask : public Task<BuildTreeCSRTask, BUILD_TREE_CSR> {
  public:
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA

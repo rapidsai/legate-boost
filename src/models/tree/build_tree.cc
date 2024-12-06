@@ -24,6 +24,7 @@
 #include "legate_library.h"
 #include "legateboost.h"
 #include "cpp_utils/cpp_utils.h"
+#include "matrix_types.h"
 
 namespace legateboost {
 namespace {
@@ -127,10 +128,9 @@ void WriteTreeOutput(legate::TaskContext context, const Tree& tree)
 // Share the samples with all workers
 // Remove any duplicates
 // Return sparse matrix of split samples for each feature
-template <typename T>
+template <typename T, template <typename> class XMatrix>
 auto SelectSplitSamples(legate::TaskContext context,
-                        const legate::AccessorRO<T, 3>& X,
-                        legate::Rect<3> X_shape,
+                        const XMatrix<T>& X,
                         int split_samples,
                         int seed,
                         int64_t dataset_rows) -> SparseSplitProposals<T>
@@ -143,23 +143,22 @@ auto SelectSplitSamples(legate::TaskContext context,
     return dist(eng);
   });
 
-  auto num_features    = X_shape.hi[1] - X_shape.lo[1] + 1;
-  auto draft_proposals = legate::create_buffer<T, 2>({num_features, split_samples});
+  auto draft_proposals = legate::create_buffer<T, 2>({X.NumFeatures(), split_samples});
   for (int i = 0; i < split_samples; i++) {
     auto row            = row_samples[i];
-    bool const has_data = row >= X_shape.lo[0] && row <= X_shape.hi[0];
-    for (int j = 0; j < num_features; j++) {
-      draft_proposals[{j, i}] = has_data ? X[{row, j, 0}] : T(0);
+    const bool has_data = X.RowRange().contains(row);
+    for (int j = 0; j < X.NumFeatures(); j++) {
+      draft_proposals[{j, i}] = has_data ? X.Get(row, j) : T(0);
     }
   }
-  SumAllReduce(context, tcb::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples));
+  SumAllReduce(context, tcb::span<T>(draft_proposals.ptr({0, 0}), X.NumFeatures() * split_samples));
 
   // Sort samples
   std::vector<T> split_proposals_tmp;
-  split_proposals_tmp.reserve(num_features * split_samples);
-  auto row_pointers = legate::create_buffer<int32_t, 1>(num_features + 1);
+  split_proposals_tmp.reserve(X.NumFeatures() * split_samples);
+  auto row_pointers = legate::create_buffer<int32_t, 1>(X.NumFeatures() + 1);
   row_pointers[0]   = 0;
-  for (int j = 0; j < num_features; j++) {
+  for (int j = 0; j < X.NumFeatures(); j++) {
     auto ptr = draft_proposals.ptr({j, 0});
     tcb::span<T> const feature_proposals(draft_proposals.ptr({j, 0}), split_samples);
     std::set<T> const unique(feature_proposals.begin(), feature_proposals.end());
@@ -170,11 +169,12 @@ auto SelectSplitSamples(legate::TaskContext context,
   auto split_proposals = legate::create_buffer<T, 1>(split_proposals_tmp.size());
   std::copy(split_proposals_tmp.begin(), split_proposals_tmp.end(), split_proposals.ptr(0));
   return SparseSplitProposals<T>(
-    split_proposals, row_pointers, num_features, split_proposals_tmp.size());
+    split_proposals, row_pointers, X.NumFeatures(), split_proposals_tmp.size());
 }
 
-template <typename T>
+template <typename MatrixT>
 struct TreeBuilder {
+  using T = typename MatrixT::value_type;
   TreeBuilder(int32_t num_rows,
               int32_t num_features,
               int32_t num_outputs,
@@ -185,6 +185,7 @@ struct TreeBuilder {
       num_features(num_features),
       num_outputs(num_outputs),
       max_nodes(max_nodes),
+      max_depth(max_depth),
       split_proposals(split_proposals)
   {
     sorted_positions = legate::create_buffer<std::tuple<int32_t, int32_t>>(num_rows);
@@ -202,24 +203,49 @@ struct TreeBuilder {
                                  split_proposals.histogram_size);
     max_batch_size = max_histogram_nodes;
   }
-  template <typename TYPE>
+
+  Tree Build(legate::TaskContext context,
+             const MatrixT& X_matrix,
+             legate::AccessorRO<double, 3> g_accessor,
+             legate::AccessorRO<double, 3> h_accessor,
+             legate::Rect<3> g_shape,
+             double alpha)
+  {
+    // Begin building the tree
+    Tree tree(max_nodes, narrow<int>(num_outputs));
+    this->InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
+    for (int depth = 0; depth < max_depth; ++depth) {
+      auto batches = this->PrepareBatches(depth);
+      for (auto batch : batches) {
+        auto histogram = this->GetHistogram(batch);
+
+        this->ComputeHistogram(histogram, context, tree, X_matrix, g_accessor, h_accessor, batch);
+
+        this->PerformBestSplit(tree, histogram, alpha, batch);
+      }
+      // Update position of entire level
+      // Don't bother updating positions for the last level
+      if (depth < max_depth - 1) { this->UpdatePositions(tree, X_matrix); }
+    }
+    return tree;
+  }
+
   void ComputeHistogram(Histogram<GPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
-                        const legate::AccessorRO<TYPE, 3>& X,
-                        legate::Rect<3> X_shape,
+                        const MatrixT& X,
                         const legate::AccessorRO<double, 3>& g,
                         const legate::AccessorRO<double, 3>& h,
                         NodeBatch batch)
   {
     // Build the histogram
     for (auto [position, index_local] : batch) {
-      auto index_global  = index_local + X_shape.lo[0];
+      auto index_global  = index_local + X.RowRange().lo[0];
       bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
       if (position < 0 || !compute) { continue; }
       for (int64_t j = 0; j < num_features; j++) {
-        auto x_value      = X[{index_global, j, 0}];
+        auto x_value      = X.Get(index_global, j);
         int const bin_idx = split_proposals.FindBin(x_value, j);
 
         if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
@@ -344,8 +370,7 @@ struct TreeBuilder {
       }
     }
   }
-  template <typename TYPE>
-  void UpdatePositions(Tree& tree, const legate::AccessorRO<TYPE, 3>& X, legate::Rect<3> X_shape)
+  void UpdatePositions(Tree& tree, const MatrixT& X)
   {
     // Update the positions
     for (int i = 0; i < num_rows; i++) {
@@ -354,7 +379,7 @@ struct TreeBuilder {
         sorted_positions[i] = {-1, index_local};
         continue;
       }
-      auto x              = X[{X_shape.lo[0] + index_local, tree.feature[pos], 0}];
+      auto x              = X.Get(X.RowRange().lo[0] + index_local, tree.feature[pos]);
       bool const left     = x <= tree.split_value[pos];
       pos                 = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
       sorted_positions[i] = {pos, index_local};
@@ -441,18 +466,20 @@ struct TreeBuilder {
   int32_t num_features;
   int32_t num_outputs;
   int32_t max_nodes;
+  int32_t max_depth;
   int max_batch_size;
   SparseSplitProposals<T> split_proposals;
   Histogram<GPair> histogram;
 };
 
-struct build_tree_fn {
+struct build_tree_dense_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
     auto [X, X_shape, X_accessor] = GetInputStore<T, 3>(context.input(0).data());
     auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(1).data());
     auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
+
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
@@ -470,39 +497,69 @@ struct build_tree_fn {
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
-    Tree tree(max_nodes, narrow<int>(num_outputs));
+    DenseXMatrix<T> X_matrix(X_accessor, X_shape);
+
     SparseSplitProposals<T> const split_proposals =
-      SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
+      SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
 
-    // Begin building the tree
-    TreeBuilder<T> builder(
-      num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
+    // Dispatch the tree building algorithm templated on the matrix type
+    auto tree = TreeBuilder<DenseXMatrix<T>>(
+                  num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals)
+                  .Build(context, X_matrix, g_accessor, h_accessor, g_shape, alpha);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
-    for (int depth = 0; depth < max_depth; ++depth) {
-      auto batches = builder.PrepareBatches(depth);
-      for (auto batch : batches) {
-        auto histogram = builder.GetHistogram(batch);
-
-        builder.ComputeHistogram(
-          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
-
-        builder.PerformBestSplit(tree, histogram, alpha, batch);
-      }
-      // Update position of entire level
-      // Don't bother updating positions for the last level
-      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_accessor, X_shape); }
-    }
     WriteTreeOutput(context, tree);
   }
 };
 
+struct build_tree_csr_fn {
+  template <typename T>
+  void operator()(legate::TaskContext context)
+  {
+    auto [X_vals, X_vals_shape, X_vals_accessor] = GetInputStore<T, 1>(context.input(0).data());
+    auto [X_coords, X_coords_shape, X_coords_accessor] =
+      GetInputStore<int64_t, 1>(context.input(1).data());
+    auto [X_offsets, X_offsets_shape, X_offsets_accessor] =
+      GetInputStore<legate::Rect<1>, 1>(context.input(2).data());
+    auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(3).data());
+    auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(4).data());
+
+    auto num_rows    = std::max<int64_t>(X_offsets_shape.hi[0] - X_offsets_shape.lo[0] + 1, 0);
+    auto num_outputs = g_shape.hi[2] - g_shape.lo[2] + 1;
+    EXPECT(g_shape.lo[2] == 0, "Outputs should not be split between workers.");
+
+    // Scalars
+    auto max_depth     = context.scalars().at(0).value<int>();
+    auto max_nodes     = context.scalars().at(1).value<int>();
+    auto alpha         = context.scalars().at(2).value<double>();
+    auto split_samples = context.scalars().at(3).value<int>();
+    auto seed          = context.scalars().at(4).value<int>();
+    auto dataset_rows  = context.scalars().at(5).value<int64_t>();
+    auto num_features  = context.scalars().at(6).value<int64_t>();
+
+    CSRXMatrix<T> X_matrix(
+      X_vals_accessor, X_coords_accessor, X_offsets_accessor, X_offsets_shape, num_features);
+    const SparseSplitProposals<T> split_proposals =
+      SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
+
+    auto tree = TreeBuilder<CSRXMatrix<T>>(
+                  num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals)
+                  .Build(context, X_matrix, g_accessor, h_accessor, g_shape, alpha);
+
+    WriteTreeOutput(context, tree);
+  }
+};
 }  // namespace
 
-/*static*/ void BuildTreeTask::cpu_variant(legate::TaskContext context)
+/*static*/ void BuildTreeDenseTask::cpu_variant(legate::TaskContext context)
 {
   const auto& X = context.input(0).data();
-  legateboost::type_dispatch_float(X.code(), build_tree_fn(), context);
+  legateboost::type_dispatch_float(X.code(), build_tree_dense_fn(), context);
+}
+
+/*static*/ void BuildTreeCSRTask::cpu_variant(legate::TaskContext context)
+{
+  const auto& X = context.input(0).data();
+  legateboost::type_dispatch_float(X.code(), build_tree_csr_fn(), context);
 }
 
 }  // namespace legateboost
@@ -511,6 +568,7 @@ namespace  // unnamed
 {
 void __attribute__((constructor)) register_tasks()
 {
-  legateboost::BuildTreeTask::register_variants();
+  legateboost::BuildTreeDenseTask::register_variants();
+  legateboost::BuildTreeCSRTask::register_variants();
 }
 }  // namespace
