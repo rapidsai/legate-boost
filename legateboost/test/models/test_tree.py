@@ -83,5 +83,9 @@ def test_csr():
     g = cn.array([[1.0], [-1.0]])
     h = cn.array([[1.0], [1.0]])
 
-    model = lb.models.Tree().set_random_state(np.random.RandomState(2)).fit(X, g, h)
+    model = (
+        lb.models.Tree(alpha=0.0)
+        .set_random_state(np.random.RandomState(2))
+        .fit(X, g, h)
+    )
     assert np.allclose(model.predict(X), -g / h)

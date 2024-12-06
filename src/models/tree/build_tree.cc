@@ -172,8 +172,9 @@ auto SelectSplitSamples(legate::TaskContext context,
     split_proposals, row_pointers, X.NumFeatures(), split_proposals_tmp.size());
 }
 
-template <typename T>
+template <typename MatrixT>
 struct TreeBuilder {
+  using T = typename MatrixT::value_type;
   TreeBuilder(int32_t num_rows,
               int32_t num_features,
               int32_t num_outputs,
@@ -201,24 +202,22 @@ struct TreeBuilder {
                                  split_proposals.histogram_size);
     max_batch_size = max_histogram_nodes;
   }
-  template <typename TYPE>
   void ComputeHistogram(Histogram<GPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
-                        const legate::AccessorRO<TYPE, 3>& X,
-                        legate::Rect<3> X_shape,
+                        const MatrixT& X,
                         const legate::AccessorRO<double, 3>& g,
                         const legate::AccessorRO<double, 3>& h,
                         NodeBatch batch)
   {
     // Build the histogram
     for (auto [position, index_local] : batch) {
-      auto index_global  = index_local + X_shape.lo[0];
+      auto index_global  = index_local + X.RowRange().lo[0];
       bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
       if (position < 0 || !compute) { continue; }
       for (int64_t j = 0; j < num_features; j++) {
-        auto x_value      = X[{index_global, j, 0}];
+        auto x_value      = X.Get(index_global, j);
         int const bin_idx = split_proposals.FindBin(x_value, j);
 
         if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
@@ -343,8 +342,7 @@ struct TreeBuilder {
       }
     }
   }
-  template <typename TYPE>
-  void UpdatePositions(Tree& tree, const legate::AccessorRO<TYPE, 3>& X, legate::Rect<3> X_shape)
+  void UpdatePositions(Tree& tree, const MatrixT& X)
   {
     // Update the positions
     for (int i = 0; i < num_rows; i++) {
@@ -353,7 +351,7 @@ struct TreeBuilder {
         sorted_positions[i] = {-1, index_local};
         continue;
       }
-      auto x              = X[{X_shape.lo[0] + index_local, tree.feature[pos], 0}];
+      auto x              = X.Get(X.RowRange().lo[0] + index_local, tree.feature[pos]);
       bool const left     = x <= tree.split_value[pos];
       pos                 = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
       sorted_positions[i] = {pos, index_local};
@@ -478,7 +476,7 @@ struct build_tree_dense_fn {
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
 
     // Begin building the tree
-    TreeBuilder<T> builder(
+    TreeBuilder<DenseXMatrix<T>> builder(
       num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
 
     builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
@@ -487,14 +485,13 @@ struct build_tree_dense_fn {
       for (auto batch : batches) {
         auto histogram = builder.GetHistogram(batch);
 
-        builder.ComputeHistogram(
-          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
+        builder.ComputeHistogram(histogram, context, tree, X_matrix, g_accessor, h_accessor, batch);
 
         builder.PerformBestSplit(tree, histogram, alpha, batch);
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
-      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_accessor, X_shape); }
+      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_matrix); }
     }
     WriteTreeOutput(context, tree);
   }
@@ -504,6 +501,53 @@ struct build_tree_csr_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
+    auto [X_vals, X_vals_shape, X_vals_accessor] = GetInputStore<T, 1>(context.input(0).data());
+    auto [X_coords, X_coords_shape, X_coords_accessor] =
+      GetInputStore<int64_t, 1>(context.input(1).data());
+    auto [X_offsets, X_offsets_shape, X_offsets_accessor] =
+      GetInputStore<legate::Rect<1>, 1>(context.input(2).data());
+    auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(3).data());
+    auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(4).data());
+
+    auto num_rows    = std::max<int64_t>(X_offsets_shape.hi[0] - X_offsets_shape.lo[0] + 1, 0);
+    auto num_outputs = g_shape.hi[2] - g_shape.lo[2] + 1;
+    EXPECT(g_shape.lo[2] == 0, "Outputs should not be split between workers.");
+
+    // Scalars
+    auto max_depth     = context.scalars().at(0).value<int>();
+    auto max_nodes     = context.scalars().at(1).value<int>();
+    auto alpha         = context.scalars().at(2).value<double>();
+    auto split_samples = context.scalars().at(3).value<int>();
+    auto seed          = context.scalars().at(4).value<int>();
+    auto dataset_rows  = context.scalars().at(5).value<int64_t>();
+    auto num_features  = context.scalars().at(6).value<int64_t>();
+
+    Tree tree(max_nodes, num_outputs);
+
+    CSRXMatrix<T> X_matrix(
+      X_vals_accessor, X_coords_accessor, X_offsets_accessor, X_offsets_shape, num_features);
+    const SparseSplitProposals<T> split_proposals =
+      SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
+
+    // Begin building the tree
+    TreeBuilder<CSRXMatrix<T>> builder(
+      num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
+
+    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
+    for (int depth = 0; depth < max_depth; ++depth) {
+      auto batches = builder.PrepareBatches(depth);
+      for (auto batch : batches) {
+        auto histogram = builder.GetHistogram(batch);
+
+        builder.ComputeHistogram(histogram, context, tree, X_matrix, g_accessor, h_accessor, batch);
+
+        builder.PerformBestSplit(tree, histogram, alpha, batch);
+      }
+      // Update position of entire level
+      // Don't bother updating positions for the last level
+      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_matrix); }
+    }
+    WriteTreeOutput(context, tree);
   }
 };
 }  // namespace
