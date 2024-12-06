@@ -75,15 +75,13 @@ def test_alpha():
 
 
 def test_csr():
-    csr_matrix = pytest.importorskip("legate_sparse.csr_matrix")
-    num_outputs = 1
-    rs = cn.random.RandomState(0)
+    csr_matrix = pytest.importorskip("legate_sparse").csr_matrix
     X = csr_matrix(
         (cn.array([1.0, 2.0, 3.0]), cn.array([0, 1, 2]), cn.array([0, 2, 3])),
         shape=(2, 3),
     )
-    g = cn.array(rs.normal(size=(2, num_outputs)))
-    h = cn.array(rs.random((2, 1)) + 0.1)
+    g = cn.array([[1.0], [-1.0]])
+    h = cn.array([[1.0], [1.0]])
 
     model = lb.models.Tree().set_random_state(np.random.RandomState(2)).fit(X, g, h)
-    model.predict(X)
+    assert np.allclose(model.predict(X), -g / h)

@@ -1398,7 +1398,7 @@ struct build_tree_csr_fn {
   }
 };
 
-/*static*/ void BuildTreeTask::gpu_variant(legate::TaskContext context)
+/*static*/ void BuildTreeDenseTask::gpu_variant(legate::TaskContext context)
 {
   const auto& X = context.input(0).data();
   type_dispatch_float(X.code(), build_tree_fn(), context);
