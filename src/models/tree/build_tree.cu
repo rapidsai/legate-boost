@@ -1339,8 +1339,8 @@ struct build_tree_csr_fn {
     auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(4).data());
 
     auto num_rows    = std::max<int64_t>(X_offsets_shape.hi[0] - X_offsets_shape.lo[0] + 1, 0);
-    auto num_outputs = g_shape.hi[1] - g_shape.lo[1] + 1;
-    EXPECT(g_shape.lo[1] == 0, "Outputs should not be split between workers.");
+    auto num_outputs = g_shape.hi[2] - g_shape.lo[2] + 1;
+    EXPECT(g_shape.lo[2] == 0, "Outputs should not be split between workers.");
 
     // Scalars
     auto max_depth     = context.scalars().at(0).value<int>();
