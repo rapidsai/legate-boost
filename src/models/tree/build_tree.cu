@@ -819,11 +819,12 @@ struct Tree {
                        [=] __device__(const legate::Point<DIM>& p) { out_acc[p] = x[p]; });
   }
 
-  template <typename ThrustPolicyT>
-  void WriteTreeOutput(legate::TaskContext context,
-                       const ThrustPolicyT& policy,
-                       GradientQuantiser quantiser)
+  void WriteTreeOutput(legate::TaskContext context, GradientQuantiser quantiser)
   {
+    auto stream       = context.get_task_stream();
+    auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
+    auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
+
     WriteOutput(context.output(0).data(), leaf_value, policy);
     WriteOutput(context.output(1).data(), feature, policy);
     WriteOutput(context.output(2).data(), split_value, policy);
@@ -843,7 +844,7 @@ struct Tree {
 
   ~Tree()                              = default;
   Tree(const Tree&)                    = delete;
-  Tree(Tree&&)                         = delete;
+  Tree(Tree&&)                         = default;
   auto operator=(const Tree&) -> Tree& = delete;
   auto operator=(Tree&&) -> Tree&      = delete;
 
@@ -975,15 +976,18 @@ struct TreeBuilder {
               int32_t max_nodes,
               int32_t max_depth,
               const SparseSplitProposals<T>& split_proposals,
-              GradientQuantiser quantiser)
+              GradientQuantiser quantiser,
+              int64_t seed)
     : num_rows(num_rows),
       num_features(num_features),
       num_outputs(num_outputs),
       stream(stream),
       max_nodes(max_nodes),
+      max_depth(max_depth),
       split_proposals(split_proposals),
       quantiser(quantiser),
-      histogram_kernel(split_proposals, stream)
+      histogram_kernel(split_proposals, stream),
+      seed(seed)
   {
     sorted_positions = legate::create_buffer<cuda::std::tuple<int32_t, int32_t>>(num_rows);
     FillPositions(sorted_positions, num_rows, stream);
@@ -1005,6 +1009,38 @@ struct TreeBuilder {
                                         split_proposals.histogram_size,
                                         stream);
     max_batch_size = max_histogram_nodes;
+  }
+
+  Tree Build(legate::TaskContext context,
+             const MatrixT& X_matrix,
+             legate::AccessorRO<double, 3> g_accessor,
+             legate::AccessorRO<double, 3> h_accessor,
+             legate::Rect<3> g_shape,
+             double alpha)
+  {
+    auto stream             = context.get_task_stream();
+    auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
+    auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
+
+    Tree tree(max_nodes, num_outputs, stream, thrust_exec_policy);
+
+    this->InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
+
+    for (int depth = 0; depth < max_depth; ++depth) {
+      auto batches = this->PrepareBatches(depth);
+      for (auto batch : batches) {
+        auto histogram = this->GetHistogram(batch);
+
+        this->ComputeHistogram(histogram, context, tree, X_matrix, g_accessor, h_accessor, batch);
+
+        this->PerformBestSplit(tree, histogram, alpha, batch);
+      }
+      // Update position of entire level
+      // Don't bother updating positions for the last level
+      if (depth < max_depth - 1) { this->UpdatePositions(tree, X_matrix); }
+    }
+
+    return tree;
   }
 
   TreeBuilder(const TreeBuilder&)                    = delete;
@@ -1075,8 +1111,7 @@ struct TreeBuilder {
                         const MatrixT X,
                         const legate::AccessorRO<double, 3>& g,
                         const legate::AccessorRO<double, 3>& h,
-                        NodeBatch batch,
-                        int64_t seed)
+                        NodeBatch batch)
   {
     histogram_kernel.BuildHistogram(X,
                                     g,
@@ -1137,8 +1172,7 @@ struct TreeBuilder {
                       const legate::AccessorRO<double, 3>& g,
                       const legate::AccessorRO<double, 3>& h,
                       legate::Rect<3> g_shape,
-                      double alpha,
-                      int64_t seed)
+                      double alpha)
   {
     const int kBlockThreads = 256;
     const size_t blocks     = (num_rows + kBlockThreads - 1) / kBlockThreads;
@@ -1245,6 +1279,8 @@ struct TreeBuilder {
   const int32_t num_features;
   const int32_t num_outputs;
   const int32_t max_nodes;
+  const int32_t max_depth;
+  const int64_t seed;
   SparseSplitProposals<T> split_proposals;
   Histogram<IntegerGPair> histogram;
   int max_batch_size;
@@ -1285,41 +1321,23 @@ struct build_tree_fn {
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
 
-    Tree tree(max_nodes, num_outputs, stream, thrust_exec_policy);
-
     const SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows, stream);
 
     GradientQuantiser const quantiser(context, g_accessor, h_accessor, g_shape, stream);
 
-    // Begin building the tree
-    TreeBuilder<DenseXMatrix<T>> builder(num_rows,
-                                         num_features,
-                                         num_outputs,
-                                         stream,
-                                         tree.max_nodes,
-                                         max_depth,
-                                         split_proposals,
-                                         quantiser);
+    auto tree = TreeBuilder<DenseXMatrix<T>>(num_rows,
+                                             num_features,
+                                             num_outputs,
+                                             stream,
+                                             max_nodes,
+                                             max_depth,
+                                             split_proposals,
+                                             quantiser,
+                                             seed)
+                  .Build(context, X_matrix, g_accessor, h_accessor, g_shape, alpha);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha, seed);
-
-    for (int depth = 0; depth < max_depth; ++depth) {
-      auto batches = builder.PrepareBatches(depth);
-      for (auto batch : batches) {
-        auto histogram = builder.GetHistogram(batch);
-
-        builder.ComputeHistogram(
-          histogram, context, tree, X_matrix, g_accessor, h_accessor, batch, seed);
-
-        builder.PerformBestSplit(tree, histogram, alpha, batch);
-      }
-      // Update position of entire level
-      // Don't bother updating positions for the last level
-      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_matrix); }
-    }
-
-    tree.WriteTreeOutput(context, thrust_exec_policy, quantiser);
+    tree.WriteTreeOutput(context, quantiser);
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
     CHECK_CUDA_STREAM(stream);
@@ -1351,12 +1369,7 @@ struct build_tree_csr_fn {
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
     auto num_features  = context.scalars().at(6).value<int64_t>();
 
-    auto stream             = context.get_task_stream();
-    auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
-    auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
-
-    Tree tree(max_nodes, num_outputs, stream, thrust_exec_policy);
-
+    auto* stream = context.get_task_stream();
     CSRXMatrix<T> X_matrix(
       X_vals_accessor, X_coords_accessor, X_offsets_accessor, X_offsets_shape, num_features);
     const SparseSplitProposals<T> split_proposals =
@@ -1365,33 +1378,18 @@ struct build_tree_csr_fn {
     GradientQuantiser quantiser(context, g_accessor, h_accessor, g_shape, stream);
 
     // Begin building the tree
-    TreeBuilder<CSRXMatrix<T>> builder(num_rows,
-                                       num_features,
-                                       num_outputs,
-                                       stream,
-                                       tree.max_nodes,
-                                       max_depth,
-                                       split_proposals,
-                                       quantiser);
+    auto tree = TreeBuilder<CSRXMatrix<T>>(num_rows,
+                                           num_features,
+                                           num_outputs,
+                                           stream,
+                                           max_nodes,
+                                           max_depth,
+                                           split_proposals,
+                                           quantiser,
+                                           seed)
+                  .Build(context, X_matrix, g_accessor, h_accessor, g_shape, alpha);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha, seed);
-
-    for (int depth = 0; depth < max_depth; ++depth) {
-      auto batches = builder.PrepareBatches(depth);
-      for (auto batch : batches) {
-        auto histogram = builder.GetHistogram(batch);
-
-        builder.ComputeHistogram(
-          histogram, context, tree, X_matrix, g_accessor, h_accessor, batch, seed);
-
-        builder.PerformBestSplit(tree, histogram, alpha, batch);
-      }
-      // Update position of entire level
-      // Don't bother updating positions for the last level
-      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_matrix); }
-    }
-
-    tree.WriteTreeOutput(context, thrust_exec_policy, quantiser);
+    tree.WriteTreeOutput(context, quantiser);
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
     CHECK_CUDA_STREAM(stream);

@@ -185,6 +185,7 @@ struct TreeBuilder {
       num_features(num_features),
       num_outputs(num_outputs),
       max_nodes(max_nodes),
+      max_depth(max_depth),
       split_proposals(split_proposals)
   {
     sorted_positions = legate::create_buffer<std::tuple<int32_t, int32_t>>(num_rows);
@@ -202,6 +203,33 @@ struct TreeBuilder {
                                  split_proposals.histogram_size);
     max_batch_size = max_histogram_nodes;
   }
+
+  Tree Build(legate::TaskContext context,
+             const MatrixT& X_matrix,
+             legate::AccessorRO<double, 3> g_accessor,
+             legate::AccessorRO<double, 3> h_accessor,
+             legate::Rect<3> g_shape,
+             double alpha)
+  {
+    // Begin building the tree
+    Tree tree(max_nodes, narrow<int>(num_outputs));
+    this->InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
+    for (int depth = 0; depth < max_depth; ++depth) {
+      auto batches = this->PrepareBatches(depth);
+      for (auto batch : batches) {
+        auto histogram = this->GetHistogram(batch);
+
+        this->ComputeHistogram(histogram, context, tree, X_matrix, g_accessor, h_accessor, batch);
+
+        this->PerformBestSplit(tree, histogram, alpha, batch);
+      }
+      // Update position of entire level
+      // Don't bother updating positions for the last level
+      if (depth < max_depth - 1) { this->UpdatePositions(tree, X_matrix); }
+    }
+    return tree;
+  }
+
   void ComputeHistogram(Histogram<GPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
@@ -438,6 +466,7 @@ struct TreeBuilder {
   int32_t num_features;
   int32_t num_outputs;
   int32_t max_nodes;
+  int32_t max_depth;
   int max_batch_size;
   SparseSplitProposals<T> split_proposals;
   Histogram<GPair> histogram;
@@ -468,31 +497,16 @@ struct build_tree_dense_fn {
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
-    Tree tree(max_nodes, narrow<int>(num_outputs));
-
     DenseXMatrix<T> X_matrix(X_accessor, X_shape);
 
     SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
 
-    // Begin building the tree
-    TreeBuilder<DenseXMatrix<T>> builder(
-      num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
+    // Dispatch the tree building algorithm templated on the matrix type
+    auto tree = TreeBuilder<DenseXMatrix<T>>(
+                  num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals)
+                  .Build(context, X_matrix, g_accessor, h_accessor, g_shape, alpha);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
-    for (int depth = 0; depth < max_depth; ++depth) {
-      auto batches = builder.PrepareBatches(depth);
-      for (auto batch : batches) {
-        auto histogram = builder.GetHistogram(batch);
-
-        builder.ComputeHistogram(histogram, context, tree, X_matrix, g_accessor, h_accessor, batch);
-
-        builder.PerformBestSplit(tree, histogram, alpha, batch);
-      }
-      // Update position of entire level
-      // Don't bother updating positions for the last level
-      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_matrix); }
-    }
     WriteTreeOutput(context, tree);
   }
 };
@@ -522,31 +536,15 @@ struct build_tree_csr_fn {
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
     auto num_features  = context.scalars().at(6).value<int64_t>();
 
-    Tree tree(max_nodes, num_outputs);
-
     CSRXMatrix<T> X_matrix(
       X_vals_accessor, X_coords_accessor, X_offsets_accessor, X_offsets_shape, num_features);
     const SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
 
-    // Begin building the tree
-    TreeBuilder<CSRXMatrix<T>> builder(
-      num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
+    auto tree = TreeBuilder<CSRXMatrix<T>>(
+                  num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals)
+                  .Build(context, X_matrix, g_accessor, h_accessor, g_shape, alpha);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
-    for (int depth = 0; depth < max_depth; ++depth) {
-      auto batches = builder.PrepareBatches(depth);
-      for (auto batch : batches) {
-        auto histogram = builder.GetHistogram(batch);
-
-        builder.ComputeHistogram(histogram, context, tree, X_matrix, g_accessor, h_accessor, batch);
-
-        builder.PerformBestSplit(tree, histogram, alpha, batch);
-      }
-      // Update position of entire level
-      // Don't bother updating positions for the last level
-      if (depth < max_depth - 1) { builder.UpdatePositions(tree, X_matrix); }
-    }
     WriteTreeOutput(context, tree);
   }
 };
