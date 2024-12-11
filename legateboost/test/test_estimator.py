@@ -227,12 +227,44 @@ def test_iterator_methods():
 )
 def test_csr_input(base_model):
     csr_matrix = pytest.importorskip("legate_sparse").csr_matrix
-    X_scipy = scipy.sparse.csr_matrix([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0]])
+    X_dense = cn.array([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0]])
+    X_scipy = scipy.sparse.csr_matrix(X_dense)
     X_legate_sparse = csr_matrix(X_scipy)
     y = cn.array([1.0, 2.0])
     model = lb.LBRegressor(
+        init=None,
         n_estimators=1,
         base_models=(base_model,),
+        learning_rate=1.0,
     )
-    model.fit(X_scipy, y)
-    model.fit(X_legate_sparse, y)
+    sparse_pred = model.fit(X_scipy, y).predict(X_scipy)
+    legate_sparse_pred = model.fit(X_legate_sparse, y).predict(X_legate_sparse)
+    dense_pred = model.fit(X_dense, y).predict(X_dense)
+    assert cn.allclose(sparse_pred, legate_sparse_pred)
+    assert cn.allclose(sparse_pred, dense_pred)
+
+    # Generate a sparse dataset and check that dense and sparse
+    # input give a bitwise equal result
+    rng = np.random.RandomState(0)
+    X = rng.binomial(1, 0.1, (100, 100)).astype(np.float32)
+    y = rng.randint(0, 5, 100)
+    X_scipy = scipy.sparse.csr_matrix(X)
+
+    # regression
+    params = {"base_models": (base_model,), "n_estimators": 5, "random_state": 0}
+    sparse_model = lb.LBRegressor(**params)
+    dense_model = lb.LBRegressor(**params)
+    dense_pred = dense_model.fit(X, y).predict(X)
+    X_csr = csr_matrix(X)
+    assert X_csr.nnz < X.size
+    sparse_pred = sparse_model.fit(X_csr, y).predict(X_csr)
+    assert cn.all(dense_pred == sparse_pred)
+    sanity_check_models(sparse_model)
+
+    # classification
+    sparse_model = lb.LBClassifier(**params)
+    dense_model = lb.LBClassifier(**params)
+    dense_pred = dense_model.fit(X, y).predict_proba(X)
+    sparse_pred = sparse_model.fit(X_csr, y).predict_proba(X_csr)
+    assert cn.all(dense_pred == sparse_pred)
+    sanity_check_models(sparse_model)

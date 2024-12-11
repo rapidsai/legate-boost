@@ -40,6 +40,12 @@ struct GPairBase {
     this->hess += b.hess;
     return *this;
   }
+  __host__ __device__ auto operator-=(const GPairBase<T>& b) -> GPairBase<T>&
+  {
+    this->grad -= b.grad;
+    this->hess -= b.hess;
+    return *this;
+  }
 };
 
 template <typename T>

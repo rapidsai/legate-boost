@@ -210,12 +210,11 @@ using SharedMemoryHistogramType = GPairBase<int32_t>;
 const int kMaxSharedBins = 2048;  // 16KB shared memory. More is not helpful and creates more cache
                                   // misses for binary search in split_proposals.
 
-template <typename MatrixT,
+template <typename T,
           int kBlockThreads,
           int kItemsPerThread,
           int kItemsPerTile = kBlockThreads * kItemsPerThread>
 struct HistogramAgent {
-  using T                      = typename MatrixT::value_type;
   static const int kImpureTile = -1;  // Special value for a tile that is not pure (contains
                                       // multiple nodes)
   struct SharedMemoryHistogram {
@@ -273,7 +272,7 @@ struct HistogramAgent {
     }
   };
 
-  const MatrixT& X;
+  const DenseXMatrix<T>& X;
   const legate::AccessorRO<double, 3>& g;
   const legate::AccessorRO<double, 3>& h;
   const size_t& n_outputs;
@@ -289,7 +288,7 @@ struct HistogramAgent {
   int feature_stride;
   SharedMemoryHistogram shared_histogram;
 
-  __device__ HistogramAgent(const MatrixT& X,
+  __device__ HistogramAgent(const DenseXMatrix<T>& X,
                             const legate::AccessorRO<double, 3>& g,
                             const legate::AccessorRO<double, 3>& h,
                             const size_t& n_outputs,
@@ -342,8 +341,7 @@ struct HistogramAgent {
           sample_node, node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node)));
       if (!computeHistogram) { continue; }
 
-      auto x = X.Get(X.RowRange().lo[0] + local_sample_idx, feature);
-      // int bin_idx = shared_split_proposals.FindBin(x, feature);
+      auto x            = X.Get(X.RowRange().lo[0] + local_sample_idx, feature);
       int const bin_idx = split_proposals.FindBin(x, feature);
 
       legate::Point<3> p = {X.RowRange().lo[0] + local_sample_idx, 0, output};
@@ -454,19 +452,19 @@ struct HistogramAgent {
 };
 
 // NOLINTBEGIN(performance-unnecessary-value-param)
-template <typename MatrixT, int kBlockThreads, int kItemsPerThread>
+template <typename T, int kBlockThreads, int kItemsPerThread>
 __global__ void __launch_bounds__(kBlockThreads)
-  fill_histogram_shared(MatrixT X,
-                        legate::AccessorRO<double, 3> g,
-                        legate::AccessorRO<double, 3> h,
-                        size_t n_outputs,
-                        SparseSplitProposals<typename MatrixT::value_type> split_proposals,
-                        NodeBatch batch,
-                        Histogram<IntegerGPair> histogram,
-                        legate::Buffer<IntegerGPair, 2> node_sums,
-                        GradientQuantiser quantiser,
-                        legate::Buffer<int> feature_groups,
-                        int64_t seed)
+  fill_histogram_dense(DenseXMatrix<T> X,
+                       legate::AccessorRO<double, 3> g,
+                       legate::AccessorRO<double, 3> h,
+                       size_t n_outputs,
+                       SparseSplitProposals<T> split_proposals,
+                       NodeBatch batch,
+                       Histogram<IntegerGPair> histogram,
+                       legate::Buffer<IntegerGPair, 2> node_sums,
+                       GradientQuantiser quantiser,
+                       legate::Buffer<int> feature_groups,
+                       int64_t seed)
 {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays,hicpp-avoid-c-arrays)
   __shared__ char shared_char[kMaxSharedBins * sizeof(SharedMemoryHistogramType)];
@@ -474,19 +472,66 @@ __global__ void __launch_bounds__(kBlockThreads)
   auto* shared_memory =
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     reinterpret_cast<SharedMemoryHistogramType*>(shared_char);
-  HistogramAgent<MatrixT, kBlockThreads, kItemsPerThread> agent(X,
-                                                                g,
-                                                                h,
-                                                                n_outputs,
-                                                                split_proposals,
-                                                                batch,
-                                                                histogram,
-                                                                node_sums,
-                                                                quantiser,
-                                                                feature_groups,
-                                                                seed,
-                                                                shared_memory);
+  HistogramAgent<T, kBlockThreads, kItemsPerThread> agent(X,
+                                                          g,
+                                                          h,
+                                                          n_outputs,
+                                                          split_proposals,
+                                                          batch,
+                                                          histogram,
+                                                          node_sums,
+                                                          quantiser,
+                                                          feature_groups,
+                                                          seed,
+                                                          shared_memory);
   agent.BuildHistogram();
+}
+// NOLINTEND(performance-unnecessary-value-param)
+
+// NOLINTBEGIN(performance-unnecessary-value-param)
+template <typename T, int kBlockThreads>
+__global__ void __launch_bounds__(kBlockThreads)
+  fill_histogram_csr(CSRXMatrix<T> X,
+                     legate::AccessorRO<double, 3> g,
+                     legate::AccessorRO<double, 3> h,
+                     size_t n_outputs,
+                     SparseSplitProposals<T> split_proposals,
+                     NodeBatch batch,
+                     Histogram<IntegerGPair> histogram,
+                     legate::Buffer<IntegerGPair, 2> node_sums,
+                     GradientQuantiser quantiser,
+                     int64_t seed)
+{
+  // Grid stride loop over rows
+  for (std::size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < batch.InstancesInBatch();
+       idx += blockDim.x * gridDim.x) {
+    auto [sample_node, local_sample_idx] = batch.instances[idx];
+    // If we don't need to compute this node, skip
+    if (!ComputeHistogramBin(
+          sample_node, node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node)))) {
+      continue;
+    }
+    // Which matrix elements belong to this row?
+    std::size_t const global_sample_idx = X.RowRange().lo[0] + local_sample_idx;
+    auto elements                       = X.row_ranges[global_sample_idx];
+    for (std::size_t element = elements.lo[0]; element <= elements.hi[0]; element++) {
+      auto feature      = X.column_indices[X.vals_shape.lo[0] + element];
+      auto x            = X.values[X.vals_shape.lo[0] + element];
+      int const bin_idx = split_proposals.FindBin(x, feature);
+      if (bin_idx == SparseSplitProposals<T>::NOT_FOUND) continue;
+      for (int output = 0; output < n_outputs; output++) {
+        legate::Point<3> p = {global_sample_idx, 0, output};
+        auto gpair_quantised =
+          quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        auto* addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
+          &histogram[{sample_node, output, bin_idx}]);
+        atomicAdd(addPosition, gpair_quantised.grad);
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        atomicAdd(addPosition + 1, gpair_quantised.hess);
+      }
+    }
+  }
 }
 // NOLINTEND(performance-unnecessary-value-param)
 
@@ -506,10 +551,7 @@ struct HistogramKernel {
     CHECK_CUDA(cudaDeviceGetAttribute(&n_mps, cudaDevAttrMultiProcessorCount, device));
     std::int32_t n_blocks_per_mp = 0;
     CHECK_CUDA(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-      &n_blocks_per_mp,
-      fill_histogram_shared<MatrixT, kBlockThreads, kItemsPerThread>,
-      kBlockThreads,
-      0));
+      &n_blocks_per_mp, fill_histogram_dense<T, kBlockThreads, kItemsPerThread>, kBlockThreads, 0));
     this->maximum_blocks_for_occupancy = n_blocks_per_mp * n_mps;
     FindFeatureGroups(split_proposals, stream);
   }
@@ -561,24 +603,35 @@ struct HistogramKernel {
                       int64_t seed,
                       cudaStream_t stream)
   {
-    int const average_features_per_group = split_proposals.num_features / num_groups;
-    std::size_t const average_elements_per_group =
-      batch.InstancesInBatch() * average_features_per_group;
-    auto min_blocks  = (average_elements_per_group + kItemsPerTile - 1) / kItemsPerTile;
-    auto x_grid_size = std::min(static_cast<uint64_t>(maximum_blocks_for_occupancy), min_blocks);
-    // Launch the kernel
-    fill_histogram_shared<MatrixT, kBlockThreads, kItemsPerThread>
-      <<<dim3(x_grid_size, num_groups, n_outputs), kBlockThreads, 0, stream>>>(X,
-                                                                               g,
-                                                                               h,
-                                                                               n_outputs,
-                                                                               split_proposals,
-                                                                               batch,
-                                                                               histogram,
-                                                                               node_sums,
-                                                                               quantiser,
-                                                                               feature_groups,
-                                                                               seed);
+    if constexpr (std::is_same_v<MatrixT, DenseXMatrix<T>>) {
+      int const average_features_per_group = split_proposals.num_features / num_groups;
+      std::size_t const average_elements_per_group =
+        batch.InstancesInBatch() * average_features_per_group;
+      auto min_blocks  = (average_elements_per_group + kItemsPerTile - 1) / kItemsPerTile;
+      auto x_grid_size = std::min(static_cast<uint64_t>(maximum_blocks_for_occupancy), min_blocks);
+      // Launch the kernel
+      fill_histogram_dense<T, kBlockThreads, kItemsPerThread>
+        <<<dim3(x_grid_size, num_groups, n_outputs), kBlockThreads, 0, stream>>>(X,
+                                                                                 g,
+                                                                                 h,
+                                                                                 n_outputs,
+                                                                                 split_proposals,
+                                                                                 batch,
+                                                                                 histogram,
+                                                                                 node_sums,
+                                                                                 quantiser,
+                                                                                 feature_groups,
+                                                                                 seed);
+    } else {
+      // For sparse data we don't currently make use of feature groups or shared memory
+      // Use 1 thread per row for lack of a better option currently
+      // Other methods might involve complicated load balancing
+      auto min_blocks  = (batch.InstancesInBatch() + kItemsPerTile - 1) / kItemsPerTile;
+      auto x_grid_size = std::min(static_cast<uint64_t>(maximum_blocks_for_occupancy), min_blocks);
+      // Launch the kernel
+      fill_histogram_csr<T, kBlockThreads><<<dim3(x_grid_size), kBlockThreads, 0, stream>>>(
+        X, g, h, n_outputs, split_proposals, batch, histogram, node_sums, quantiser, seed);
+    }
   }
 };
 
@@ -684,6 +737,36 @@ struct GainFeaturePair {
   }
 };
 
+// In the case where we have a sparse matrix, gradients for 0's have not been accumulated in the
+// histogram We can infer the gradients at the matrix zeroes by subtracting the sum of the gradients
+// at the last bin (which contains gradients from every non-zero element)
+// from the sum of the gradients in the node (this sum always includes gradients for every element
+// in that node)
+template <typename T>
+__device__ auto GetSparseSum(Histogram<IntegerGPair>& histogram,
+                             const SparseSplitProposals<T>& split_proposals,
+                             const IntegerGPair& node_sum,
+                             int node_id,
+                             int output,
+                             int bin_idx)
+{
+  auto left_sum                     = vectorised_load(&histogram[{node_id, output, bin_idx}]);
+  auto right_sum                    = node_sum - left_sum;
+  auto feature                      = split_proposals.FindFeature(bin_idx);
+  auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature);
+  auto scan_sum   = vectorised_load(&histogram[{node_id, output, feature_end - 1}]);
+  auto zero_bin   = split_proposals.FindBin(0.0, feature);
+  auto sparse_sum = node_sum - scan_sum;
+  if (zero_bin == SparseSplitProposals<T>::NOT_FOUND || bin_idx < zero_bin) {
+    // Do nothing, this amount is already on the right
+  } else {
+    // Move it to the left
+    left_sum += sparse_sum;
+    right_sum -= sparse_sum;
+  }
+  return std::make_tuple(left_sum, right_sum);
+}
+
 // NOLINTBEGIN(performance-unnecessary-value-param)
 template <typename TYPE, int BLOCK_THREADS>
 __global__ void __launch_bounds__(BLOCK_THREADS)
@@ -718,9 +801,13 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
        bin_idx += BLOCK_THREADS) {
     double gain = 0;
     for (int output = 0; output < n_outputs; ++output) {
-      auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
-      auto left_sum  = vectorised_load(&histogram[{node_id, output, bin_idx}]);
-      auto right_sum = node_sum - left_sum;
+      auto node_sum = vectorised_load(&node_sums[{node_id, output}]);
+
+      auto [left_sum, right_sum] =
+        GetSparseSum(histogram, split_proposals, node_sum, node_id, output, bin_idx);
+      // printf("node %d , bin %d,  left sum %ld %ld right sum %ld %ld \n", node_id ,bin_idx,
+      // left_sum.grad, left_sum.hess, right_sum.grad, right_sum.hess);
+
       if (left_sum.hess <= 0 || right_sum.hess <= 0) {
         gain = 0;
         break;
@@ -755,9 +842,11 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
   if (node_best_gain > eps) {
     int const node_best_feature = split_proposals.FindFeature(node_best_bin_idx);
     for (int output = narrow_cast<int>(threadIdx.x); output < n_outputs; output += BLOCK_THREADS) {
-      auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
-      auto left_sum  = vectorised_load(&histogram[{node_id, output, node_best_bin_idx}]);
-      auto right_sum = node_sum - left_sum;
+      auto node_sum = vectorised_load(&node_sums[{node_id, output}]);
+
+      auto [left_sum, right_sum] =
+        GetSparseSum(histogram, split_proposals, node_sum, node_id, output, node_best_bin_idx);
+
       node_sums[{BinaryTree::LeftChild(node_id), output}]  = left_sum;
       node_sums[{BinaryTree::RightChild(node_id), output}] = right_sum;
 
@@ -1069,6 +1158,8 @@ struct TreeBuilder {
                 X.Get(X.RowRange().lo[0] + static_cast<int64_t>(row), tree_feature_span[pos]);
               bool left = x_value <= tree_split_value_span[pos];
               pos       = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
+              // printf("Row %d, feature %d, value %f pos %d\n", row, tree_feature_span[pos],
+              // x_value, pos);
               sorted_positions[idx] = cuda::std::make_tuple(pos, row);
             });
     CHECK_CUDA_STREAM(stream);
@@ -1370,8 +1461,13 @@ struct build_tree_csr_fn {
     auto num_features  = context.scalars().at(6).value<int64_t>();
 
     auto* stream = context.get_task_stream();
-    CSRXMatrix<T> X_matrix(
-      X_vals_accessor, X_coords_accessor, X_offsets_accessor, X_offsets_shape, num_features);
+    CSRXMatrix<T> X_matrix(X_vals_accessor,
+                           X_coords_accessor,
+                           X_offsets_accessor,
+                           X_vals_shape,
+                           X_offsets_shape,
+                           num_features,
+                           X_vals_shape.volume());
     const SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows, stream);
 

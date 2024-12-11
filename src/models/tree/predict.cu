@@ -109,8 +109,13 @@ struct predict_csr_fn {
     auto pred_accessor = pred.write_accessor<double, 3>();
 
     auto num_features = context.scalars().at(0).value<int32_t>();
-    CSRXMatrix<T> X(
-      X_vals_accessor, X_coords_accessor, X_offsets_accessor, X_offsets_shape, num_features);
+    CSRXMatrix<T> X(X_vals_accessor,
+                    X_coords_accessor,
+                    X_offsets_accessor,
+                    X_vals_shape,
+                    X_offsets_shape,
+                    num_features,
+                    X_vals_shape.volume());
 
     EXPECT_AXIS_ALIGNED(0, X_offsets_shape, pred_shape);
 

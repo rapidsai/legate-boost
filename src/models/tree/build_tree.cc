@@ -536,8 +536,13 @@ struct build_tree_csr_fn {
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
     auto num_features  = context.scalars().at(6).value<int64_t>();
 
-    CSRXMatrix<T> X_matrix(
-      X_vals_accessor, X_coords_accessor, X_offsets_accessor, X_offsets_shape, num_features);
+    CSRXMatrix<T> X_matrix(X_vals_accessor,
+                           X_coords_accessor,
+                           X_offsets_accessor,
+                           X_vals_shape,
+                           X_offsets_shape,
+                           num_features,
+                           X_vals_shape.volume());
     const SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
 
