@@ -20,7 +20,15 @@
 
 namespace legateboost {
 
-class PredictTask : public Task<PredictTask, PREDICT> {
+class PredictTreeTask : public Task<PredictTreeTask, PREDICT_TREE> {
+ public:
+  static void cpu_variant(legate::TaskContext context);
+#ifdef LEGATEBOOST_USE_CUDA
+  static void gpu_variant(legate::TaskContext context);
+#endif
+};
+
+class PredictTreeCSRTask : public Task<PredictTreeCSRTask, PREDICT_TREE_CSR> {
  public:
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA

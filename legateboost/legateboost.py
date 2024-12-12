@@ -91,6 +91,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
                 ),
                 "check_dtype_object": ("object type data not supported."),
             },
+            "X_types": ["2darray", "sparse"],
         }
 
     def _setup_metrics(self) -> list[BaseMetric]:
