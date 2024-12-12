@@ -29,7 +29,7 @@ void PredictRows(const MatrixT& X,
                  legate::AccessorRO<int32_t, 1> feature,
                  legate::AccessorRO<double, 2> leaf_value)
 {
-  for (int64_t i = X.RowRange().lo[0]; i <= X.RowRange().hi[0]; i++) {
+  for (int64_t i = X.RowSubset().lo[0]; i <= X.RowSubset().hi[0]; i++) {
     int pos = 0;
     // Use a max depth of 100 to avoid infinite loops
     const int max_depth = 100;

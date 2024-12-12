@@ -42,7 +42,7 @@ class DenseXMatrix {
     return x[legate::Point<3>{global_row_idx, feature_idx, 0}];
   }
   __host__ __device__ int NumFeatures() const { return shape.hi[1] - shape.lo[1] + 1; }
-  __host__ __device__ legate::Rect<1, legate::coord_t> RowRange() const
+  __host__ __device__ legate::Rect<1, legate::coord_t> RowSubset() const
   {
     return {shape.lo[0], shape.hi[0]};
   }
@@ -106,5 +106,8 @@ class CSRXMatrix {
   auto NNZ() const { return nnz; }
 
   __host__ __device__ int NumFeatures() const { return num_features; }
-  __host__ __device__ legate::Rect<1, legate::coord_t> RowRange() const { return row_ranges_shape; }
+  __host__ __device__ legate::Rect<1, legate::coord_t> RowSubset() const
+  {
+    return row_ranges_shape;
+  }
 };

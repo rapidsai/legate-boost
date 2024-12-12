@@ -88,4 +88,5 @@ def test_csr():
         .set_random_state(np.random.RandomState(2))
         .fit(X, g, h)
     )
+    print(model)
     assert np.allclose(model.predict(X), -g / h)

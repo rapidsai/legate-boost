@@ -341,10 +341,10 @@ struct HistogramAgent {
           sample_node, node_sums, histogram.ContainsNode(BinaryTree::Parent(sample_node)));
       if (!computeHistogram) { continue; }
 
-      auto x            = X.Get(X.RowRange().lo[0] + local_sample_idx, feature);
+      auto x            = X.Get(X.RowSubset().lo[0] + local_sample_idx, feature);
       int const bin_idx = split_proposals.FindBin(x, feature);
 
-      legate::Point<3> p = {X.RowRange().lo[0] + local_sample_idx, 0, output};
+      legate::Point<3> p = {X.RowSubset().lo[0] + local_sample_idx, 0, output};
       auto gpair_quantised =
         quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
       // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -391,7 +391,7 @@ struct HistogramAgent {
     std::array<T, kItemsPerThread> x{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      x[i] = X.Get(X.RowRange().lo[0] + local_sample_idx[i], feature[i]);
+      x[i] = X.Get(X.RowSubset().lo[0] + local_sample_idx[i], feature[i]);
     }
 
     std::array<int, kItemsPerThread> bin_idx{};
@@ -402,7 +402,7 @@ struct HistogramAgent {
     std::array<IntegerGPair, kItemsPerThread> gpair{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      legate::Point<3> p = {X.RowRange().lo[0] + local_sample_idx[i], 0, output};
+      legate::Point<3> p = {X.RowSubset().lo[0] + local_sample_idx[i], 0, output};
       gpair[i] =
         bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND
           ? quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]))
@@ -512,7 +512,7 @@ __global__ void __launch_bounds__(kBlockThreads)
       continue;
     }
     // Which matrix elements belong to this row?
-    std::size_t const global_sample_idx = X.RowRange().lo[0] + local_sample_idx;
+    std::size_t const global_sample_idx = X.RowSubset().lo[0] + local_sample_idx;
     auto elements                       = X.row_ranges[global_sample_idx];
     for (std::size_t element = elements.lo[0]; element <= elements.hi[0]; element++) {
       auto feature      = X.column_indices[X.vals_shape.lo[0] + element];
@@ -737,42 +737,12 @@ struct GainFeaturePair {
   }
 };
 
-// In the case where we have a sparse matrix, gradients for 0's have not been accumulated in the
-// histogram We can infer the gradients at the matrix zeroes by subtracting the sum of the gradients
-// at the last bin (which contains gradients from every non-zero element)
-// from the sum of the gradients in the node (this sum always includes gradients for every element
-// in that node)
-template <typename T>
-__device__ auto GetSparseSum(Histogram<IntegerGPair>& histogram,
-                             const SparseSplitProposals<T>& split_proposals,
-                             const IntegerGPair& node_sum,
-                             int node_id,
-                             int output,
-                             int bin_idx)
-{
-  auto left_sum                     = vectorised_load(&histogram[{node_id, output, bin_idx}]);
-  auto right_sum                    = node_sum - left_sum;
-  auto feature                      = split_proposals.FindFeature(bin_idx);
-  auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature);
-  auto scan_sum   = vectorised_load(&histogram[{node_id, output, feature_end - 1}]);
-  auto zero_bin   = split_proposals.FindBin(0.0, feature);
-  auto sparse_sum = node_sum - scan_sum;
-  if (zero_bin == SparseSplitProposals<T>::NOT_FOUND || bin_idx < zero_bin) {
-    // Do nothing, this amount is already on the right
-  } else {
-    // Move it to the left
-    left_sum += sparse_sum;
-    right_sum -= sparse_sum;
-  }
-  return std::make_tuple(left_sum, right_sum);
-}
-
 // NOLINTBEGIN(performance-unnecessary-value-param)
-template <typename TYPE, int BLOCK_THREADS>
+template <typename T, int BLOCK_THREADS>
 __global__ void __launch_bounds__(BLOCK_THREADS)
   perform_best_split(Histogram<IntegerGPair> histogram,
                      size_t n_outputs,
-                     SparseSplitProposals<TYPE> split_proposals,
+                     SparseSplitProposals<T> split_proposals,
                      double eps,
                      double alpha,
                      legate::Buffer<double, 2> tree_leaf_value,
@@ -781,7 +751,8 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
                      legate::Buffer<double, 1> tree_split_value,
                      legate::Buffer<double, 1> tree_gain,
                      NodeBatch batch,
-                     GradientQuantiser quantiser)
+                     GradientQuantiser quantiser,
+                     bool is_sparse)
 {
   // using one block per (level) node to have blockwise reductions
   int const node_id = narrow<int>(batch.node_idx_begin + blockIdx.x);
@@ -803,10 +774,9 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
     for (int output = 0; output < n_outputs; ++output) {
       auto node_sum = vectorised_load(&node_sums[{node_id, output}]);
 
-      auto [left_sum, right_sum] =
-        GetSparseSum(histogram, split_proposals, node_sum, node_id, output, bin_idx);
-      // printf("node %d , bin %d,  left sum %ld %ld right sum %ld %ld \n", node_id ,bin_idx,
-      // left_sum.grad, left_sum.hess, right_sum.grad, right_sum.hess);
+      auto feature               = split_proposals.FindFeature(bin_idx);
+      auto [left_sum, right_sum] = InferSplitSums(
+        histogram, split_proposals, node_sum, node_id, output, bin_idx, feature, is_sparse);
 
       if (left_sum.hess <= 0 || right_sum.hess <= 0) {
         gain = 0;
@@ -844,8 +814,14 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
     for (int output = narrow_cast<int>(threadIdx.x); output < n_outputs; output += BLOCK_THREADS) {
       auto node_sum = vectorised_load(&node_sums[{node_id, output}]);
 
-      auto [left_sum, right_sum] =
-        GetSparseSum(histogram, split_proposals, node_sum, node_id, output, node_best_bin_idx);
+      auto [left_sum, right_sum] = InferSplitSums(histogram,
+                                                  split_proposals,
+                                                  node_sum,
+                                                  node_id,
+                                                  output,
+                                                  node_best_bin_idx,
+                                                  node_best_feature,
+                                                  is_sparse);
 
       node_sums[{BinaryTree::LeftChild(node_id), output}]  = left_sum;
       node_sums[{BinaryTree::RightChild(node_id), output}] = right_sum;
@@ -978,7 +954,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
     auto i                  = idx / X.NumFeatures();
     auto j                  = idx % X.NumFeatures();
     auto row                = row_samples[i];
-    bool has_data           = X.RowRange().contains(row);
+    bool has_data           = X.RowSubset().contains(row);
     draft_proposals[{j, i}] = has_data ? X.Get(row, j) : T(0);
   });
 
@@ -1155,7 +1131,7 @@ struct TreeBuilder {
               }
 
               double x_value =
-                X.Get(X.RowRange().lo[0] + static_cast<int64_t>(row), tree_feature_span[pos]);
+                X.Get(X.RowSubset().lo[0] + static_cast<int64_t>(row), tree_feature_span[pos]);
               bool left = x_value <= tree_split_value_span[pos];
               pos       = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
               // printf("Row %d, feature %d, value %f pos %d\n", row, tree_feature_span[pos],
@@ -1255,7 +1231,8 @@ struct TreeBuilder {
                                                            tree.split_value,
                                                            tree.gain,
                                                            batch,
-                                                           quantiser);
+                                                           quantiser,
+                                                           std::is_same_v<MatrixT, CSRXMatrix<T>>);
     CHECK_CUDA_STREAM(stream);
   }
   void InitialiseRoot(legate::TaskContext context,

@@ -37,7 +37,7 @@ void PredictRows(const MatrixT& X,
   // rowwise kernel
   auto prediction_lambda = [=] __device__(size_t idx) {
     int64_t pos         = 0;
-    auto global_row_idx = X.RowRange().lo + idx;
+    auto global_row_idx = X.RowSubset().lo + idx;
     // Use a max depth of 100 to avoid infinite loops
     const int max_depth = 100;
     for (int depth = 0; depth < max_depth; depth++) {
@@ -50,7 +50,7 @@ void PredictRows(const MatrixT& X,
     }
   };  // NOLINT(readability/braces)
 
-  LaunchN(X.RowRange().volume(), stream, prediction_lambda);
+  LaunchN(X.RowSubset().volume(), stream, prediction_lambda);
   CHECK_CUDA_STREAM(stream);
 }
 

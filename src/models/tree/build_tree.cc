@@ -146,7 +146,7 @@ auto SelectSplitSamples(legate::TaskContext context,
   auto draft_proposals = legate::create_buffer<T, 2>({X.NumFeatures(), split_samples});
   for (int i = 0; i < split_samples; i++) {
     auto row            = row_samples[i];
-    const bool has_data = X.RowRange().contains(row);
+    const bool has_data = X.RowSubset().contains(row);
     for (int j = 0; j < X.NumFeatures(); j++) {
       draft_proposals[{j, i}] = has_data ? X.Get(row, j) : T(0);
     }
@@ -230,24 +230,22 @@ struct TreeBuilder {
     return tree;
   }
 
-  void ComputeHistogram(Histogram<GPair> histogram,
-                        legate::TaskContext context,
-                        Tree& tree,
-                        const MatrixT& X,
-                        const legate::AccessorRO<double, 3>& g,
-                        const legate::AccessorRO<double, 3>& h,
-                        NodeBatch batch)
+  void DenseHistogramKernel(const Tree& tree,
+                            Histogram<GPair>& histogram,
+                            const DenseXMatrix<T>& X,
+                            legate::AccessorRO<double, 3> g,
+                            legate::AccessorRO<double, 3> h,
+                            NodeBatch batch)
   {
     // Build the histogram
     for (auto [position, index_local] : batch) {
-      auto index_global  = index_local + X.RowRange().lo[0];
+      auto index_global  = index_local + X.RowSubset().lo[0];
       bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
       if (position < 0 || !compute) { continue; }
       for (int64_t j = 0; j < num_features; j++) {
         auto x_value      = X.Get(index_global, j);
         int const bin_idx = split_proposals.FindBin(x_value, j);
-
         if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
           for (int64_t k = 0; k < num_outputs; ++k) {
             histogram[{position, k, bin_idx}] +=
@@ -255,6 +253,50 @@ struct TreeBuilder {
           }
         }
       }
+    }
+  }
+
+  // Kernel specialised to iterate only over the non-zero elements of the sparse matrix
+  void CSRHistogramKernel(const Tree& tree,
+                          Histogram<GPair>& histogram,
+                          const CSRXMatrix<T>& X,
+                          legate::AccessorRO<double, 3> g,
+                          legate::AccessorRO<double, 3> h,
+                          NodeBatch batch)
+  {
+    // Build the histogram
+    for (auto [position, index_local] : batch) {
+      auto index_global  = index_local + X.RowSubset().lo[0];
+      bool const compute = ComputeHistogramBin(
+        position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
+      if (position < 0 || !compute) { continue; }
+      auto row_range = X.row_ranges[index_global];
+      for (auto element_idx = row_range.lo[0]; element_idx <= row_range.hi[0]; element_idx++) {
+        auto feature      = X.column_indices[element_idx];
+        auto x            = X.values[element_idx];
+        int const bin_idx = split_proposals.FindBin(x, feature);
+        if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
+          for (int64_t k = 0; k < num_outputs; ++k) {
+            histogram[{position, k, bin_idx}] +=
+              GPair{g[{index_global, 0, k}], h[{index_global, 0, k}]};
+          }
+        }
+      }
+    }
+  }
+
+  void ComputeHistogram(Histogram<GPair> histogram,
+                        legate::TaskContext context,
+                        const Tree& tree,
+                        const MatrixT& X,
+                        const legate::AccessorRO<double, 3>& g,
+                        const legate::AccessorRO<double, 3>& h,
+                        NodeBatch batch)
+  {
+    if constexpr (std::is_same_v<MatrixT, DenseXMatrix<T>>) {
+      this->DenseHistogramKernel(tree, histogram, X, g, h, batch);
+    } else {
+      this->CSRHistogramKernel(tree, histogram, X, g, h, batch);
     }
 
     // NCCL cannot allreduce custom types, need to reinterpret as double
@@ -266,7 +308,7 @@ struct TreeBuilder {
     this->Scan(histogram, batch, tree);
   }
 
-  void Scan(Histogram<GPair> histogram, NodeBatch batch, Tree& tree)
+  void Scan(Histogram<GPair> histogram, NodeBatch batch, const Tree& tree)
   {
     auto scan_node_histogram = [&](int node_idx) {
       for (int feature = 0; feature < num_features; feature++) {
@@ -319,6 +361,7 @@ struct TreeBuilder {
   }
   void PerformBestSplit(Tree& tree, Histogram<GPair> histogram, double alpha, NodeBatch batch)
   {
+    const bool is_sparse_matrix = std::is_same_v<MatrixT, CSRXMatrix<T>>;
     for (int node_id = batch.node_idx_begin; node_id < batch.node_idx_end; node_id++) {
       double best_gain = 0;
       int best_feature = -1;
@@ -328,10 +371,18 @@ struct TreeBuilder {
         for (int bin_idx = feature_begin; bin_idx < feature_end; bin_idx++) {
           double gain = 0;
           for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L]  = histogram[{node_id, output, bin_idx}];
-            auto [G, H]      = tree.node_sums[{node_id, output}];
-            auto G_R         = G - G_L;
-            auto H_R         = H - H_L;
+            auto [left_sum, right_sum] = InferSplitSums(histogram,
+                                                        split_proposals,
+                                                        tree.node_sums[{node_id, output}],
+                                                        node_id,
+                                                        output,
+                                                        bin_idx,
+                                                        feature,
+                                                        is_sparse_matrix);
+            auto [G_L, H_L]            = left_sum;
+            auto [G_R, H_R]            = right_sum;
+            auto [G, H]                = tree.node_sums[{node_id, output}];
+
             double const reg = std::max(eps, alpha);  // Regularisation term
             gain +=
               0.5 * ((G_L * G_L) / (H_L + reg) + (G_R * G_R) / (H_R + reg) - (G * G) / (H + reg));
@@ -344,29 +395,33 @@ struct TreeBuilder {
         }
       }
       if (best_gain > eps) {
-        std::vector<double> left_leaf(num_outputs);
-        std::vector<double> right_leaf(num_outputs);
-        std::vector<GPair> left_sum(num_outputs);
-        std::vector<GPair> right_sum(num_outputs);
+        std::vector<double> left_leaves(num_outputs);
+        std::vector<double> right_leaves(num_outputs);
+        std::vector<GPair> left_sums(num_outputs);
+        std::vector<GPair> right_sums(num_outputs);
         for (int output = 0; output < num_outputs; ++output) {
-          auto [G_L, H_L]    = histogram[{node_id, output, best_bin}];
-          auto [G, H]        = tree.node_sums[{node_id, output}];
-          auto G_R           = G - G_L;
-          auto H_R           = H - H_L;
-          left_leaf[output]  = CalculateLeafValue(G_L, H_L, alpha);
-          right_leaf[output] = CalculateLeafValue(G_R, H_R, alpha);
-          left_sum[output]   = {G_L, H_L};
-          right_sum[output]  = {G_R, H_R};
+          auto [left_sum, right_sum] = InferSplitSums(histogram,
+                                                      split_proposals,
+                                                      tree.node_sums[{node_id, output}],
+                                                      node_id,
+                                                      output,
+                                                      best_bin,
+                                                      best_feature,
+                                                      is_sparse_matrix);
+          left_leaves[output]        = CalculateLeafValue(left_sum.grad, left_sum.hess, alpha);
+          right_leaves[output]       = CalculateLeafValue(right_sum.grad, right_sum.hess, alpha);
+          left_sums[output]          = left_sum;
+          right_sums[output]         = right_sum;
         }
-        if (left_sum[0].hess <= 0.0 || right_sum[0].hess <= 0.0) { continue; }
+        if (left_sums[0].hess <= 0.0 || right_sums[0].hess <= 0.0) { continue; }
         tree.AddSplit(node_id,
                       best_feature,
                       split_proposals.split_proposals[legate::coord_t{best_bin}],
-                      left_leaf,
-                      right_leaf,
+                      left_leaves,
+                      right_leaves,
                       best_gain,
-                      left_sum,
-                      right_sum);
+                      left_sums,
+                      right_sums);
       }
     }
   }
@@ -379,7 +434,7 @@ struct TreeBuilder {
         sorted_positions[i] = {-1, index_local};
         continue;
       }
-      auto x              = X.Get(X.RowRange().lo[0] + index_local, tree.feature[pos]);
+      auto x              = X.Get(X.RowSubset().lo[0] + index_local, tree.feature[pos]);
       bool const left     = x <= tree.split_value[pos];
       pos                 = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
       sorted_positions[i] = {pos, index_local};
