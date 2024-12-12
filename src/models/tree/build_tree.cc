@@ -17,6 +17,7 @@
 #include <legate.h>
 #include <cstddef>
 #include <random>
+#include <limits>
 #include <set>
 #include <tuple>
 #include <vector>
@@ -169,6 +170,14 @@ auto SelectSplitSamples(legate::TaskContext context,
 
   auto split_proposals = legate::create_buffer<T, 1>(split_proposals_tmp.size());
   std::copy(split_proposals_tmp.begin(), split_proposals_tmp.end(), split_proposals.ptr(0));
+
+  // Set the largest split sample to +inf such that an element must belong to one of the bins
+  // i.e. we cannot go off the end when searching for a bin
+  for (int feature = 0; feature < num_features; feature++) {
+    auto end                 = row_pointers[feature + 1];
+    split_proposals[end - 1] = std::numeric_limits<T>::infinity();
+  }
+
   return SparseSplitProposals<T>(
     split_proposals, row_pointers, num_features, split_proposals_tmp.size());
 }
@@ -222,11 +231,9 @@ struct TreeBuilder {
         auto x_value      = X[{index_global, j, 0}];
         int const bin_idx = split_proposals.FindBin(x_value, j);
 
-        if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
-          for (int64_t k = 0; k < num_outputs; ++k) {
-            histogram[{position, k, bin_idx}] +=
-              GPair{g[{index_global, 0, k}], h[{index_global, 0, k}]};
-          }
+        for (int64_t k = 0; k < num_outputs; ++k) {
+          histogram[{position, k, bin_idx}] +=
+            GPair{g[{index_global, 0, k}], h[{index_global, 0, k}]};
         }
       }
     }
