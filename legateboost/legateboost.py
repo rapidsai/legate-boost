@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple, Union
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.exceptions import DataConversionWarning
+from sklearn.utils import Tags
 from sklearn.utils.validation import check_is_fitted, check_random_state, validate_data
 from typing_extensions import Self, TypeAlias
 
@@ -80,7 +81,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             }
         )
 
-    def __sklearn_tags__(self):
+    def __sklearn_tags__(self) -> Tags:
         tags = super().__sklearn_tags__()
         tags.input_tags.sparse = False
         tags.input_tags.categorical = False
@@ -724,7 +725,7 @@ class LBRegressor(RegressorMixin, LBBase):
             random_state=random_state,
         )
 
-    def __sklearn_tags__(self):
+    def __sklearn_tags__(self) -> Tags:
         tags = super().__sklearn_tags__()
         tags.target_tags.multi_output = True
         return tags
