@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple, Union
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.exceptions import DataConversionWarning
-from sklearn.utils.validation import check_is_fitted, check_random_state
+from sklearn.utils.validation import check_is_fitted, check_random_state, validate_data
 from typing_extensions import Self, TypeAlias
 
 import cupynumeric as cn
 
-from .input_validation import check_sample_weight, check_X_y
+from .input_validation import check_sample_weight, lb_check_X, lb_check_X_y
 from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
@@ -54,7 +54,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         self.callbacks = callbacks
         self.metrics_: list[BaseMetric]
         if not isinstance(base_models, tuple):
-            raise ValueError("base_models must be a tuple")
+            warnings.warn("base_models should be a tuple")
         self.base_models = base_models
 
         # define what happens to the attributes when two models are added
@@ -80,18 +80,12 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             }
         )
 
-    def _more_tags(self) -> Any:
-        return {
-            "_xfail_checks": {
-                "check_sample_weights_invariance": (
-                    "zero sample_weight is not equivalent to removing samples"
-                ),
-                "check_complex_data": (
-                    "LegateBoost does not currently support complex data."
-                ),
-                "check_dtype_object": ("object type data not supported."),
-            },
-        }
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.input_tags.sparse = False
+        tags.input_tags.categorical = False
+        tags.input_tags.string = False
+        return tags
 
     def _setup_metrics(self) -> list[BaseMetric]:
         iterable = (self.metric,) if not isinstance(self.metric, list) else self.metric
@@ -181,11 +175,11 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             assert len(tuple) in [2, 3]
             if len(tuple) == 2:
                 new_eval_set.append(
-                    check_X_y(tuple[0], tuple[1]) + (cn.ones(tuple[1].shape[0]),)
+                    lb_check_X_y(tuple[0], tuple[1]) + (cn.ones(tuple[1].shape[0]),)
                 )
             else:
                 new_eval_set.append(
-                    check_X_y(tuple[0], tuple[1])
+                    lb_check_X_y(tuple[0], tuple[1])
                     + (check_sample_weight(tuple[2], tuple[1].shape[0]),)
                 )
 
@@ -242,16 +236,10 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         eval_result: EvalResult = {},
     ) -> Self:
         # check inputs
-        X, y = check_X_y(X, y)
+        X, y = lb_check_X_y(X, y)
+        validate_data(self, X, reset=False, skip_check_array=True)
         _eval_set = self._process_eval_set(eval_set)
         sample_weight = check_sample_weight(sample_weight, y.shape[0])
-
-        if self.n_features_in_ != X.shape[1]:
-            raise ValueError(
-                "X.shape[1] = {} should be equal to {}".format(
-                    X.shape[1], self.n_features_in_
-                )
-            )
 
         # avoid appending to an existing eval result
         eval_result.clear()
@@ -349,19 +337,13 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         """
 
         # check inputs
-        X, y = check_X_y(X, y)
+        X, y = lb_check_X_y(X, y)
+        validate_data(self, X, y, reset=False, skip_check_array=True)
         _eval_set = self._process_eval_set(eval_set)
 
         sample_weight = check_sample_weight(sample_weight, y.shape[0])
 
         assert hasattr(self, "is_fitted_") and self.is_fitted_
-
-        if self.n_features_in_ != X.shape[1]:
-            raise ValueError(
-                "X.shape[1] = {} should be equal to {}".format(
-                    X.shape[1], self.n_features_in_
-                )
-            )
 
         # avoid appending to an existing eval result
         eval_result.clear()
@@ -655,7 +637,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         )
 
 
-class LBRegressor(LBBase, RegressorMixin):
+class LBRegressor(RegressorMixin, LBBase):
     """Implementation of a gradient boosting algorithm for regression problems.
     Learns component models to iteratively improve a loss function.
 
@@ -742,10 +724,10 @@ class LBRegressor(LBBase, RegressorMixin):
             random_state=random_state,
         )
 
-    def _more_tags(self) -> Any:
-        return {
-            "multioutput": True,
-        }
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.target_tags.multi_output = True
+        return tags
 
     def partial_fit(
         self,
@@ -803,7 +785,8 @@ class LBRegressor(LBBase, RegressorMixin):
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> "LBRegressor":
-        X, y = check_X_y(X, y)
+        X, y = lb_check_X_y(X, y)
+        validate_data(self, X, y, skip_check_array=True)
         return super().fit(
             X,
             y,
@@ -825,7 +808,8 @@ class LBRegressor(LBBase, RegressorMixin):
         cn.ndarray
             Predicted labels for X.
         """
-        X = check_X_y(X)
+        X = lb_check_X(X)
+        validate_data(self, X, reset=False, skip_check_array=True)
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
         if pred.shape[1] == 1:
@@ -833,7 +817,7 @@ class LBRegressor(LBBase, RegressorMixin):
         return pred
 
 
-class LBClassifier(LBBase, ClassifierMixin):
+class LBClassifier(ClassifierMixin, LBBase):
     """Implements a gradient boosting algorithm for classification problems.
 
     Parameters
@@ -1011,7 +995,8 @@ class LBClassifier(LBBase, ClassifierMixin):
                 "A column-vector y was passed when a 1d array was expected.",
                 DataConversionWarning,
             )
-        X, y = check_X_y(X, y)
+        X, y = lb_check_X_y(X, y)
+        validate_data(self, X, y, skip_check_array=True)
 
         # Validate classifier inputs
         if y.size <= 1:
@@ -1052,7 +1037,8 @@ class LBClassifier(LBBase, ClassifierMixin):
         y :
             The predicted raw values for each sample in X.
         """
-        X = check_X_y(X)
+        X = lb_check_X(X)
+        validate_data(self, X, reset=False, skip_check_array=True)
         return super()._predict(X)
 
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
@@ -1070,7 +1056,8 @@ class LBClassifier(LBBase, ClassifierMixin):
         y :
             The predicted class probabilities for each sample in X.
         """
-        X = check_X_y(X)
+        X = lb_check_X(X)
+        validate_data(self, X, reset=False, skip_check_array=True)
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
         if pred.shape[1] == 1:
