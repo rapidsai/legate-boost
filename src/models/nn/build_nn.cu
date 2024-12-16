@@ -352,13 +352,13 @@ void forward(NNContext* nn_context,
              std::vector<Matrix<T>>& biases,
              std::vector<Matrix<T>>& activations)
 {
-  dot(nn_context, X, coefficients.at(0), activations.at(1));
-  add_bias(nn_context, activations.at(1), biases.at(0));
+  dot(nn_context, X, coefficients.at(0), activations.at(0));
+  add_bias(nn_context, activations.at(0), biases.at(0));
 
   for (int i = 1; i < coefficients.size(); i++) {
-    tanh(nn_context, activations.at(i));
-    dot(nn_context, activations.at(i), coefficients.at(i), activations.at(i + 1));
-    add_bias(nn_context, activations.at(i + 1), biases.at(i));
+    tanh(nn_context, activations.at(i - 1));
+    dot(nn_context, activations.at(i - 1), coefficients.at(i), activations.at(i));
+    add_bias(nn_context, activations.at(i), biases.at(i));
   }
 }
 
@@ -379,14 +379,13 @@ auto backward(NNContext* nn_context,
   auto [coefficient_grads, bias_grads] = nn_context->Unpack(grads);
   forward(nn_context, X, coefficients, bias, activations);
 
-  // Cannot be X because there must be at least one more activation
   deltas.back() = eval_cost_prime(nn_context, activations.back(), g, h);
 
   for (int i = coefficients.size() - 1; i > 0; i--) {
-    dot<true, false>(nn_context, activations.at(i), deltas.at(i), coefficient_grads.at(i));
+    dot<true, false>(nn_context, activations.at(i - 1), deltas.at(i), coefficient_grads.at(i));
     bias_grad(nn_context, deltas.at(i), bias_grads.at(i));
     dot<false, true>(nn_context, deltas.at(i), coefficients.at(i), deltas.at(i - 1));
-    tanh_prime(nn_context, activations.at(i), deltas.at(i - 1));
+    tanh_prime(nn_context, activations.at(i - 1), deltas.at(i - 1));
   }
 
   dot<true, false>(nn_context, X, deltas.at(0), coefficient_grads.at(0));
@@ -615,7 +614,7 @@ struct build_nn_fn {
     Matrix<double> g = Matrix<double>::Project3dStore(g_store, 1);
     Matrix<double> h = Matrix<double>::Project3dStore(h_store, 1);
 
-    std::vector<Matrix<T>> activations({X});
+    std::vector<Matrix<T>> activations;
     std::vector<Matrix<T>> deltas;
     for (const auto& c : coefficients) {
       activations.push_back(Matrix<T>::Create({X.extent[0], c.extent[1]}));
