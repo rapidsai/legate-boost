@@ -280,8 +280,8 @@ void apply_alpha(NNContext* context, Matrix<T>& grad, Matrix<T>& coeff, double a
 template <typename T>
 auto eval_cost(NNContext* context,
                Matrix<T>& pred,
-               Matrix<double>& g,
-               Matrix<double>& h,
+               Matrix<const double>& g,
+               Matrix<const double>& h,
                std::vector<Matrix<T>>& coefficients,
                int64_t total_rows,
                double alpha) -> T
@@ -324,8 +324,10 @@ auto eval_cost(NNContext* context,
 }
 
 template <typename T>
-auto eval_cost_prime(NNContext* context, Matrix<T>& pred, Matrix<double>& g, Matrix<double>& h)
-  -> Matrix<T>
+auto eval_cost_prime(NNContext* context,
+                     Matrix<T>& pred,
+                     Matrix<const double>& g,
+                     Matrix<const double>& h) -> Matrix<T>
 {
   Matrix<T> cost_prime = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
@@ -347,7 +349,7 @@ void bias_grad(NNContext* nn_context, Matrix<T>& delta, Matrix<T>& bias_grad)
 
 template <typename T>
 void forward(NNContext* nn_context,
-             Matrix<T>& X,
+             Matrix<const T>& X,
              std::vector<Matrix<T>>& coefficients,
              std::vector<Matrix<T>>& biases,
              std::vector<Matrix<T>>& activations)
@@ -364,13 +366,13 @@ void forward(NNContext* nn_context,
 
 template <typename T>
 auto backward(NNContext* nn_context,
-              Matrix<T>& X,
+              Matrix<const T>& X,
               std::vector<Matrix<T>>& coefficients,
               std::vector<Matrix<T>>& bias,
               std::vector<Matrix<T>>& activations,
               std::vector<Matrix<T>>& deltas,
-              Matrix<double>& g,
-              Matrix<double>& h,
+              Matrix<const double>& g,
+              Matrix<const double>& h,
               std::size_t total_rows,
               double alpha) -> Matrix<T>
 {
@@ -436,14 +438,14 @@ void update_coefficients(NNContext* nn_context,
 
 template <typename T>
 auto line_search(NNContext* nn_context,
-                 Matrix<T>& X,
+                 Matrix<const T>& X,
                  std::vector<Matrix<T>>& coefficients,
                  std::vector<Matrix<T>>& bias,
                  Matrix<T>& direction,
                  Matrix<T>& grad,
                  std::vector<Matrix<T>>& activations,
-                 Matrix<double>& g,
-                 Matrix<double>& h,
+                 Matrix<const double>& g,
+                 Matrix<const double>& h,
                  std::size_t total_rows,
                  T cost,
                  double alpha) -> std::tuple<T, T>
@@ -610,9 +612,9 @@ struct build_nn_fn {
 
     NNContext nn_context(context, coefficients, bias);
 
-    auto X           = Matrix<T>::Project3dStore(X_store, 2);
-    Matrix<double> g = Matrix<double>::Project3dStore(g_store, 1);
-    Matrix<double> h = Matrix<double>::Project3dStore(h_store, 1);
+    auto X                 = Matrix<const T>::Project3dStore(X_store, 2);
+    Matrix<const double> g = Matrix<const double>::Project3dStore(g_store, 1);
+    Matrix<const double> h = Matrix<const double>::Project3dStore(h_store, 1);
 
     std::vector<Matrix<T>> activations;
     std::vector<Matrix<T>> deltas;
