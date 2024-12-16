@@ -57,7 +57,7 @@ def check_array(x: Any) -> cn.ndarray:
     return x
 
 
-def lb_check_X(X: Any) -> Any:
+def _lb_check_X(X: Any) -> Any:
     X = check_array(X)
     if len(X.shape) != 2:
         raise ValueError("X must be 2-dimensional. Reshape your data.")
@@ -75,11 +75,11 @@ def lb_check_X(X: Any) -> Any:
     return X
 
 
-def lb_check_X_y(X: Any, y: Any = None) -> Any:
+def _lb_check_X_y(X: Any, y: Any = None) -> Any:
     if y is None:
         raise ValueError("requires y to be passed, but the target y is None")
 
-    X = lb_check_X(X)
+    X = _lb_check_X(X)
 
     y = check_array(y)
     y = y.astype(cn.float64)

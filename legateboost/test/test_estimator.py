@@ -107,8 +107,6 @@ def test_name(request):
     },
 )
 def test_sklearn_compatible_estimator(estimator, check, test_name):
-    # if "check_classifiers_classes" in test_name:
-    # pytest.skip("Legateboost cannot handle string class labels.")
     check(estimator)
 
 

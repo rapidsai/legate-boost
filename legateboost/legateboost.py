@@ -13,7 +13,7 @@ from typing_extensions import Self, TypeAlias
 
 import cupynumeric as cn
 
-from .input_validation import check_sample_weight, lb_check_X, lb_check_X_y
+from .input_validation import _lb_check_X, _lb_check_X_y, check_sample_weight
 from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
 from .objectives import BaseObjective, objectives
@@ -176,11 +176,11 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             assert len(tuple) in [2, 3]
             if len(tuple) == 2:
                 new_eval_set.append(
-                    lb_check_X_y(tuple[0], tuple[1]) + (cn.ones(tuple[1].shape[0]),)
+                    _lb_check_X_y(tuple[0], tuple[1]) + (cn.ones(tuple[1].shape[0]),)
                 )
             else:
                 new_eval_set.append(
-                    lb_check_X_y(tuple[0], tuple[1])
+                    _lb_check_X_y(tuple[0], tuple[1])
                     + (check_sample_weight(tuple[2], tuple[1].shape[0]),)
                 )
 
@@ -237,7 +237,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         eval_result: EvalResult = {},
     ) -> Self:
         # check inputs
-        X, y = lb_check_X_y(X, y)
+        X, y = _lb_check_X_y(X, y)
         validate_data(self, X, reset=False, skip_check_array=True)
         _eval_set = self._process_eval_set(eval_set)
         sample_weight = check_sample_weight(sample_weight, y.shape[0])
@@ -338,7 +338,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         """
 
         # check inputs
-        X, y = lb_check_X_y(X, y)
+        X, y = _lb_check_X_y(X, y)
         validate_data(self, X, y, reset=False, skip_check_array=True)
         _eval_set = self._process_eval_set(eval_set)
 
@@ -786,7 +786,7 @@ class LBRegressor(RegressorMixin, LBBase):
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> "LBRegressor":
-        X, y = lb_check_X_y(X, y)
+        X, y = _lb_check_X_y(X, y)
         validate_data(self, X, y, skip_check_array=True)
         return super().fit(
             X,
@@ -809,7 +809,7 @@ class LBRegressor(RegressorMixin, LBBase):
         cn.ndarray
             Predicted labels for X.
         """
-        X = lb_check_X(X)
+        X = _lb_check_X(X)
         validate_data(self, X, reset=False, skip_check_array=True)
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
@@ -996,7 +996,7 @@ class LBClassifier(ClassifierMixin, LBBase):
                 "A column-vector y was passed when a 1d array was expected.",
                 DataConversionWarning,
             )
-        X, y = lb_check_X_y(X, y)
+        X, y = _lb_check_X_y(X, y)
         validate_data(self, X, y, skip_check_array=True)
 
         # Validate classifier inputs
@@ -1038,7 +1038,7 @@ class LBClassifier(ClassifierMixin, LBBase):
         y :
             The predicted raw values for each sample in X.
         """
-        X = lb_check_X(X)
+        X = _lb_check_X(X)
         validate_data(self, X, reset=False, skip_check_array=True)
         return super()._predict(X)
 
@@ -1057,7 +1057,7 @@ class LBClassifier(ClassifierMixin, LBBase):
         y :
             The predicted class probabilities for each sample in X.
         """
-        X = lb_check_X(X)
+        X = _lb_check_X(X)
         validate_data(self, X, reset=False, skip_check_array=True)
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
