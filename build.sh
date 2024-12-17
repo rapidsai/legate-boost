@@ -35,6 +35,7 @@ fi
 PIP_INSTALL_ARGS=(
     --no-build-isolation
     --no-deps
+    --config-settings rapidsai.disable-cuda=true
 )
 
 # ensure 'native' is used if CUDAARCHS isn't set
