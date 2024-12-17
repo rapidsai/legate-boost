@@ -14,6 +14,7 @@
  *
  */
 #pragma once
+#include "../../cpp_utils/cpp_utils.h"
 #include "legate_library.h"
 #include "legateboost.h"
 #ifdef __CUDACC__
@@ -114,6 +115,7 @@ class SparseSplitProposals {
   legate::Buffer<int32_t, 1> row_pointers;
   int32_t num_features;
   int32_t histogram_size;
+  // The rightmost split proposal for each feature must be +inf
   SparseSplitProposals(const legate::Buffer<T, 1>& split_proposals,
                        const legate::Buffer<int32_t, 1>& row_pointers,
                        int32_t num_features,
@@ -134,6 +136,8 @@ class SparseSplitProposals {
     auto feature_row_end   = row_pointers[feature + 1];
     auto* ptr              = thrust::lower_bound(
       thrust::seq, split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
+    EXPECT_DEVICE(ptr != split_proposals.ptr(feature_row_end),
+                  "Value not found in split proposals");
     return ptr - split_proposals.ptr(0);
   }
 #else
@@ -143,6 +147,7 @@ class SparseSplitProposals {
     auto feature_row_end   = legate::coord_t{row_pointers[feature + 1]};
     auto* ptr              = std::lower_bound(
       split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
+    EXPECT(ptr != split_proposals.ptr(feature_row_end), "Value not found in split proposals");
     return ptr - split_proposals.ptr(0);
   }
 #endif

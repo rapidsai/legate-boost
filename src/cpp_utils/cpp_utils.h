@@ -15,11 +15,12 @@
  */
 
 #pragma once
-#include <assert.h>
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/execution_policy.h>
 #include <legate/type/type_info.h>
+#include <assert.h>
+#include <cstdio>
 #include <string>
 #include <utility>
 #include <vector>
@@ -69,12 +70,29 @@ constexpr auto narrow_cast(U&& u) noexcept -> T
   return static_cast<T>(std::forward<U>(u));
 }
 
-// These macros can be replaced with the C++20 std::source_location when this code base moves to
-// C++20 The nolint can then be removed
+#ifdef __CUDACC__
+inline __device__ void expect_device(bool condition,
+                                     const char* message,
+                                     const char* file,
+                                     int line)
+{
+  if (!condition) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+    printf("%s(%d): %s\n", file, line, message);
+    __trap();
+  }
+}
+#endif
 inline void expect(bool condition, const std::string& message, const std::string& file, int line)
 {
   if (!condition) { throw std::runtime_error(file + "(" + std::to_string(line) + "): " + message); }
 }
+// These macros can be replaced with the C++20 std::source_location when this code base moves to
+// C++20 The nolint can then be removed
+#ifdef __CUDACC__
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define EXPECT_DEVICE(condition, message) (expect_device(condition, message, __FILE__, __LINE__))
+#endif
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define EXPECT(condition, message) (expect(condition, message, __FILE__, __LINE__))
 
