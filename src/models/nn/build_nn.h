@@ -89,7 +89,7 @@ struct Matrix {
     } else {
       extent = {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1};
     }
-    return Matrix<T>({const_cast<T*>(data), narrow<std::size_t>(extent[0] * extent[1])}, extent);
+    return Matrix<T>({data, narrow<std::size_t>(extent[0] * extent[1])}, extent);
   }
 
   static auto Create(std::array<int64_t, 2> extent) -> Matrix<T>
