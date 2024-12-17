@@ -14,14 +14,14 @@ files:
       - run
       - test
       - clang_tidy
-  py_build:
+  py_build_legateboost:
     output: pyproject
     pyproject_dir: .
     extras:
       table: build-system
     includes:
       - rapids_build_skbuild
-  py_rapids_build:
+  py_rapids_build_legateboost:
     output: pyproject
     pyproject_dir: .
     extras:
