@@ -91,8 +91,8 @@ requirements:
     - openblas
     - python
     - pip
-    - scikit-build >=0.18.0
-    - setuptools >=70.0
+    - rapids-build-backend >=0.3.0,<0.4.0.dev0
+    - scikit-build-core >=0.10.0
     # try to expose what's pulling in 'mkl'
     - nomkl
   run:

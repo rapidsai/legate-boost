@@ -19,6 +19,7 @@ HELP="$0 [<target> ...] [<flag> ...]
 
    --editable        - install Python wheel in editable mode
    --fix             - clang-tidy will attempt to fix issues.
+   -v                - Pass on verbosity to cmake and pip
    -h | --help       - print the help text
 "
 
@@ -35,6 +36,7 @@ fi
 PIP_INSTALL_ARGS=(
     --no-build-isolation
     --no-deps
+    --config-settings rapidsai.disable-cuda=true
 )
 
 # ensure 'native' is used if CUDAARCHS isn't set
@@ -46,6 +48,18 @@ if hasArg --editable; then
     PIP_INSTALL_ARGS+=("--editable")
 fi
 
+if hasArg -v; then
+    CMAKE_VERBOSE_FLAG="-v"
+    PIP_INSTALL_ARGS+=(
+         "-v"
+         "--config-settings=build.verbose=true"
+         "--config-settings=logging.level=INFO"
+    )
+    set -x
+else
+    CMAKE_VERBOSE_FLAG=""
+fi
+
 legate_root=$(
     python -c 'import legate.install_info as i; from pathlib import Path; print(Path(i.libpath).parent.resolve())'
 )
@@ -54,7 +68,7 @@ if hasArg liblegateboost || hasArg --editable; then
     echo "Using Legate at '${legate_root}'"
 
     cmake -S . -B build -Dlegate_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}"
-    cmake --build build -j
+    cmake --build build -j ${CMAKE_VERBOSE_FLAG}
     echo "done building liblegateboost"
 fi
 
