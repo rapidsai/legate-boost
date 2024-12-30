@@ -31,9 +31,6 @@ class LegateboostMapper : public legate::mapping::Mapper {
 
   // Legate mapping functions
 
-  auto task_target(const legate::mapping::Task& task,
-                   const std::vector<legate::mapping::TaskTarget>& options)
-    -> legate::mapping::TaskTarget override;
   auto store_mappings(const legate::mapping::Task& task,
                       const std::vector<legate::mapping::StoreTarget>& options)
     -> std::vector<legate::mapping::StoreMapping> override;
