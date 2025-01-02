@@ -24,13 +24,6 @@ namespace legateboost {
 
 LegateboostMapper::LegateboostMapper() = default;
 
-auto LegateboostMapper::task_target(const legate::mapping::Task& /*task*/,
-                                    const std::vector<legate::mapping::TaskTarget>& options)
-  -> legate::mapping::TaskTarget
-{
-  return *options.begin();
-}
-
 auto LegateboostMapper::tunable_value(legate::TunableID /*tunable_id*/) -> legate::Scalar
 {
   return legate::Scalar{};
