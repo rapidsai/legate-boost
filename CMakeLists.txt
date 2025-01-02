@@ -12,6 +12,10 @@ else()
   )
 endif()
 
+include(cmake/legateboost/get_rapids_cmake.cmake)
+legateboost_get_rapids_cmake()
+
+rapids_cuda_init_architectures(legateboost)
 project(legateboost VERSION "${_legateboost_version}" LANGUAGES C CXX CUDA)
 
 option(SANITIZE "Build with address sanitizer" OFF)
@@ -40,9 +44,6 @@ if (SANITIZE)
   add_compile_options(-fsanitize=address)
   add_link_options(-fsanitize=address)
 endif()
-
-include(cmake/legateboost/get_rapids_cmake.cmake)
-legateboost_get_rapids_cmake()
 
 add_subdirectory(src)
 
