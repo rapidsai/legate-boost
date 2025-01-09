@@ -17,6 +17,7 @@ dependencies:
 - hypothesis>=6
 - legate==25.01.*,>=0.0.0.dev0
 - libcublas-dev
+- llvm-openmp
 - make
 - matplotlib>=3.9
 - mypy>=1.13
