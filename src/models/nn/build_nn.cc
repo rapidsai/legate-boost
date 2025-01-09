@@ -212,8 +212,8 @@ void apply_alpha(Matrix<T>& grad, Matrix<T>& coeff, double alpha)
 template <typename T>
 auto eval_cost(NNContext* context,
                Matrix<T>& pred,
-               Matrix<double>& g,
-               Matrix<double>& h,
+               Matrix<const double>& g,
+               Matrix<const double>& h,
                std::vector<Matrix<T>>& coefficients,
                int64_t total_rows,
                double alpha) -> T
@@ -245,7 +245,7 @@ auto eval_cost(NNContext* context,
 }
 
 template <typename T>
-auto eval_cost_prime(Matrix<T>& pred, Matrix<double>& g, Matrix<double>& h) -> Matrix<T>
+auto eval_cost_prime(Matrix<T>& pred, Matrix<const double>& g, Matrix<const double>& h) -> Matrix<T>
 {
   Matrix<T> cost_prime = Matrix<T>::Create({pred.extent[0], pred.extent[1]});
   EXPECT(pred.extent == g.extent, "Preds not equal to gradient size");
@@ -268,43 +268,49 @@ void bias_grad(Matrix<T>& delta, Matrix<T>& bias_grad)
 }
 
 template <typename T>
-void forward(std::vector<Matrix<T>>& coefficients,
+void forward(Matrix<const T>& X,
+             std::vector<Matrix<T>>& coefficients,
              std::vector<Matrix<T>>& biases,
              std::vector<Matrix<T>>& activations)
 {
-  for (int i = 0; i < coefficients.size(); i++) {
-    dot(activations.at(i), coefficients.at(i), activations.at(i + 1));
-    add_bias(activations.at(i + 1), biases.at(i));
-    if (i < coefficients.size() - 1) { tanh(activations.at(i + 1)); }
+  dot(X, coefficients.at(0), activations.at(0));
+  add_bias(activations.at(0), biases.at(0));
+
+  for (int i = 1; i < coefficients.size(); i++) {
+    tanh(activations.at(i - 1));
+    dot(activations.at(i - 1), coefficients.at(i), activations.at(i));
+    add_bias(activations.at(i), biases.at(i));
   }
 }
 
 template <typename T>
 auto backward(NNContext* nn_context,
+              Matrix<const T>& X,
               std::vector<Matrix<T>>& coefficients,
               std::vector<Matrix<T>>& bias,
               std::vector<Matrix<T>>& activations,
               std::vector<Matrix<T>>& deltas,
-              Matrix<double>& g,
-              Matrix<double>& h,
+              Matrix<const double>& g,
+              Matrix<const double>& h,
               std::size_t total_rows,
               double alpha) -> Matrix<T>
 {
   auto grads = Matrix<T>::Create({nn_context->num_parameters, 1});
   fill(grads, 0.0);
   auto [coefficient_grads, bias_grads] = nn_context->Unpack(grads);
-  forward(coefficients, bias, activations);
+  forward(X, coefficients, bias, activations);
 
   deltas.back() = eval_cost_prime(activations.back(), g, h);
-  dot<true, false>(activations.at(activations.size() - 2), deltas.back(), coefficient_grads.back());
-  bias_grad(deltas.back(), bias_grads.back());
 
   for (int i = coefficients.size() - 1; i > 0; i--) {
+    dot<true, false>(activations.at(i - 1), deltas.at(i), coefficient_grads.at(i));
+    bias_grad(deltas.at(i), bias_grads.at(i));
     dot<false, true>(deltas.at(i), coefficients.at(i), deltas.at(i - 1));
-    tanh_prime(activations.at(i), deltas.at(i - 1));
-    dot<true, false>(activations.at(i - 1), deltas.at(i - 1), coefficient_grads.at(i - 1));
-    bias_grad(deltas.at(i - 1), bias_grads.at(i - 1));
+    tanh_prime(activations.at(i - 1), deltas.at(i - 1));
   }
+
+  dot<true, false>(X, deltas.at(0), coefficient_grads.at(0));
+  bias_grad(deltas.at(0), bias_grads.at(0));
 
   if (alpha > 0.0) {
     for (int i = 0; i < coefficients.size(); i++) {
@@ -348,13 +354,14 @@ void update_coefficients(NNContext* nn_context,
 
 template <typename T>
 auto line_search(NNContext* nn_context,
+                 Matrix<const T>& X,
                  std::vector<Matrix<T>>& coefficients,
                  std::vector<Matrix<T>>& bias,
                  Matrix<T>& direction,
                  Matrix<T>& grad,
                  std::vector<Matrix<T>>& activations,
-                 Matrix<double>& g,
-                 Matrix<double>& h,
+                 Matrix<const double>& g,
+                 Matrix<const double>& h,
                  std::size_t total_rows,
                  T cost,
                  double alpha) -> std::tuple<T, T>
@@ -369,7 +376,7 @@ auto line_search(NNContext* nn_context,
   auto [coefficient_proposals, bias_proposals] = nn_context->Unpack(coeff_proposal_storage);
   update_coefficients(
     nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, lr);
-  forward(coefficient_proposals, bias_proposals, activations);
+  forward(X, coefficient_proposals, bias_proposals, activations);
   T new_cost =
     eval_cost(nn_context, activations.back(), g, h, coefficient_proposals, total_rows, alpha);
 
@@ -378,7 +385,7 @@ auto line_search(NNContext* nn_context,
     lr *= rho;
     update_coefficients(
       nn_context, coefficients, coefficient_proposals, bias, bias_proposals, direction, lr);
-    forward(coefficient_proposals, bias_proposals, activations);
+    forward(X, coefficient_proposals, bias_proposals, activations);
     new_cost =
       eval_cost(nn_context, activations.back(), g, h, coefficient_proposals, total_rows, alpha);
   }
@@ -507,11 +514,11 @@ struct build_nn_fn {
 
     NNContext nn_context(context, coefficients, bias);
 
-    Matrix<T> X      = Matrix<T>::Project3dStore(X_store, 2);
-    Matrix<double> g = Matrix<double>::Project3dStore(g_store, 1);
-    Matrix<double> h = Matrix<double>::Project3dStore(h_store, 1);
+    auto X = Matrix<const T>::Project3dStore(X_store, 2);
+    auto g = Matrix<const double>::Project3dStore(g_store, 1);
+    auto h = Matrix<const double>::Project3dStore(h_store, 1);
 
-    std::vector<Matrix<T>> activations({X});
+    std::vector<Matrix<T>> activations;
     std::vector<Matrix<T>> deltas;
     for (const auto& c : coefficients) {
       activations.push_back(Matrix<T>::Create({X.extent[0], c.extent[1]}));
@@ -520,7 +527,7 @@ struct build_nn_fn {
 
     LBfgs<T> lbfgs(m, verbose);
     auto grad =
-      backward(&nn_context, coefficients, bias, activations, deltas, g, h, total_rows, alpha);
+      backward(&nn_context, X, coefficients, bias, activations, deltas, g, h, total_rows, alpha);
     T grad_norm = vector_norm(grad);
     T cost      = eval_cost(&nn_context, activations.back(), g, h, coefficients, total_rows, alpha);
 
@@ -529,6 +536,7 @@ struct build_nn_fn {
     while (!monitor.IsConverged(cost, grad_norm)) {
       auto direction      = lbfgs.GetDirection(grad);
       auto [lr, new_cost] = line_search(&nn_context,
+                                        X,
                                         coefficients,
                                         bias,
                                         direction,
@@ -544,7 +552,7 @@ struct build_nn_fn {
       update_coefficients(&nn_context, coefficients, coefficients, bias, bias, direction, lr);
 
       auto new_grad =
-        backward(&nn_context, coefficients, bias, activations, deltas, g, h, total_rows, alpha);
+        backward(&nn_context, X, coefficients, bias, activations, deltas, g, h, total_rows, alpha);
 
       lbfgs.Add(multiply(direction, lr), subtract(new_grad, grad));
       grad      = new_grad;

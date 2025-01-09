@@ -348,18 +348,11 @@ struct HistogramAgent {
       auto gpair_quantised =
         quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
       // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-      auto* addPosition = reinterpret_cast<typename IntegerGPair::value_type*>(
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      auto* addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
         &histogram[{sample_node, output, bin_idx}]);
-
-      if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        auto* addPosition = reinterpret_cast<Histogram<IntegerGPair>::atomic_add_type*>(
-          &histogram[{sample_node, output, bin_idx}]);
-        atomicAdd(addPosition, gpair_quantised.grad);
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        atomicAdd(addPosition + 1, gpair_quantised.hess);
-      }
+      atomicAdd(addPosition, gpair_quantised.grad);
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      atomicAdd(addPosition + 1, gpair_quantised.hess);
     }
   }
 
@@ -402,18 +395,11 @@ struct HistogramAgent {
     std::array<IntegerGPair, kItemsPerThread> gpair{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      legate::Point<3> p = {X.RowSubset().lo[0] + local_sample_idx[i], 0, output};
-      gpair[i] =
-        bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND
-          ? quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]))
-          : IntegerGPair{0, 0};
+      legate::Point<3> p = {sample_offset + local_sample_idx[i], 0, output};
+      gpair[i] = quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
     }
 #pragma unroll
-    for (int i = 0; i < kItemsPerThread; i++) {
-      if (bin_idx[i] != SparseSplitProposals<T>::NOT_FOUND) {
-        shared_histogram.Add(bin_idx[i], gpair[i]);
-      }
-    }
+    for (int i = 0; i < kItemsPerThread; i++) { shared_histogram.Add(bin_idx[i], gpair[i]); }
     // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
   }
 
@@ -1011,6 +997,13 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
                          row_pointers_span.begin() + 1,
                          row_pointers_span.begin() + 1 + X.NumFeatures(),
                          row_pointers_span.begin() + 1);
+
+  // Set the largest split sample to +inf such that an element must belong to one of the bins
+  // i.e. we cannot go off the end when searching for a bin
+  LaunchN(num_features, stream, [=] __device__(int i) {
+    auto end                 = row_pointers_span[i + 1];
+    split_proposals[end - 1] = std::numeric_limits<T>::infinity();
+  });
 
   CHECK_CUDA(cudaStreamSynchronize(stream));
   row_samples.destroy();

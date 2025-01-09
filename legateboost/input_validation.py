@@ -60,7 +60,7 @@ def check_array(x: Any) -> cn.ndarray:
     return x
 
 
-def check_X_y(X: Any, y: Any = None) -> Any:
+def _lb_check_X(X: Any) -> Any:
     X = check_array(X)
     if len(X.shape) != 2:
         raise ValueError("X must be 2-dimensional. Reshape your data.")
@@ -73,19 +73,24 @@ def check_X_y(X: Any, y: Any = None) -> Any:
             )
         )
 
-    if y is not None:
-        y = check_array(y)
-        y = y.astype(cn.float64)
-        y = cn.atleast_1d(y)
-
-        if y.ndim == 1:
-            y = y[:, cn.newaxis]
-        if y.shape[0] != X.shape[0]:
-            raise ValueError("Number of labels does not match number of samples.")
-
     if np.issubdtype(X.dtype, np.integer):
         X = X.astype(cn.float32)
-
-    if y is not None:
-        return X, y
     return X
+
+
+def _lb_check_X_y(X: Any, y: Any = None) -> Any:
+    if y is None:
+        raise ValueError("requires y to be passed, but the target y is None")
+
+    X = _lb_check_X(X)
+
+    y = check_array(y)
+    y = y.astype(cn.float64)
+    y = cn.atleast_1d(y)
+
+    if y.ndim == 1:
+        y = y[:, cn.newaxis]
+    if y.shape[0] != X.shape[0]:
+        raise ValueError("Number of labels does not match number of samples.")
+
+    return X, y

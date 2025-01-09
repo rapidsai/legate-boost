@@ -98,10 +98,20 @@ def test_name(request):
     return request.node.name
 
 
-@parametrize_with_checks([lb.LBRegressor(), lb.LBClassifier()])
+@parametrize_with_checks(
+    [lb.LBRegressor(), lb.LBClassifier()],
+    expected_failed_checks=lambda x: {
+        "check_sample_weight_equivalence_on_dense_data": (
+            "zero sample_weight is not equivalent to removing samples"
+        ),
+        "check_sample_weight_equivalence_on_sparse_data": (
+            "zero sample_weight is not equivalent to removing samples"
+        ),
+        "check_dtype_object": ("legate-boost does not support non-numeric inputs"),
+        "check_classifiers_classes": ("legate-boost does not support string inputs"),
+    },
+)
 def test_sklearn_compatible_estimator(estimator, check, test_name):
-    if "check_classifiers_classes" in test_name:
-        pytest.skip("Legateboost cannot handle string class labels.")
     check(estimator)
 
 
