@@ -31,6 +31,8 @@ class LegateboostMapper : public legate::mapping::Mapper {
 
   // Legate mapping functions
 
+  std::optional<std::size_t> allocation_pool_size(
+    const legate::mapping::Task& task, legate::mapping::StoreTarget memory_kind) override;
   auto store_mappings(const legate::mapping::Task& task,
                       const std::vector<legate::mapping::StoreTarget>& options)
     -> std::vector<legate::mapping::StoreMapping> override;

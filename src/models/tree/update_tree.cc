@@ -118,6 +118,8 @@ struct update_tree_fn {
 };
 
 class UpdateTreeTask : public Task<UpdateTreeTask, UPDATE_TREE> {
+  static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+
  public:
   static void cpu_variant(legate::TaskContext context)
   {

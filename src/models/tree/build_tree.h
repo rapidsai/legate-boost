@@ -246,6 +246,9 @@ class Histogram {
 };
 
 class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
+  static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+  static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+
  public:
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA
