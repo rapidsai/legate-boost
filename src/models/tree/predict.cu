@@ -27,11 +27,11 @@ namespace {
 
 template <typename MatrixT>
 void PredictRows(const MatrixT& X,
-                 legate::AccessorWO<double, 3> pred_accessor,
+                 const legate::AccessorWO<double, 3>& pred_accessor,
                  legate::Rect<3, legate::coord_t> pred_shape,
-                 legate::AccessorRO<double, 1> split_value,
-                 legate::AccessorRO<int32_t, 1> feature,
-                 legate::AccessorRO<double, 2> leaf_value,
+                 const legate::AccessorRO<double, 1>& split_value,
+                 const legate::AccessorRO<int32_t, 1>& feature,
+                 const legate::AccessorRO<double, 2>& leaf_value,
                  cudaStream_t stream)
 {
   // rowwise kernel
@@ -109,13 +109,13 @@ struct predict_csr_fn {
     auto pred_accessor = pred.write_accessor<double, 3>();
 
     auto num_features = context.scalars().at(0).value<int32_t>();
-    CSRXMatrix<T> X(X_vals_accessor,
-                    X_coords_accessor,
-                    X_offsets_accessor,
-                    X_vals_shape,
-                    X_offsets_shape,
-                    num_features,
-                    X_vals_shape.volume());
+    CSRXMatrix<T> const X(X_vals_accessor,
+                          X_coords_accessor,
+                          X_offsets_accessor,
+                          X_vals_shape,
+                          X_offsets_shape,
+                          num_features,
+                          X_vals_shape.volume());
 
     EXPECT_AXIS_ALIGNED(0, X_offsets_shape, pred_shape);
 

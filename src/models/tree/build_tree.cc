@@ -172,7 +172,7 @@ auto SelectSplitSamples(legate::TaskContext context,
 
   // Set the largest split sample to +inf such that an element must belong to one of the bins
   // i.e. we cannot go off the end when searching for a bin
-  for (int feature = 0; feature < num_features; feature++) {
+  for (int feature = 0; feature < X.NumFeatures(); feature++) {
     auto end                 = row_pointers[feature + 1];
     split_proposals[end - 1] = std::numeric_limits<T>::infinity();
   }
@@ -213,12 +213,12 @@ struct TreeBuilder {
     max_batch_size = max_histogram_nodes;
   }
 
-  Tree Build(legate::TaskContext context,
+  auto Build(legate::TaskContext context,
              const MatrixT& X_matrix,
-             legate::AccessorRO<double, 3> g_accessor,
-             legate::AccessorRO<double, 3> h_accessor,
+             const legate::AccessorRO<double, 3>& g_accessor,
+             const legate::AccessorRO<double, 3>& h_accessor,
              legate::Rect<3> g_shape,
-             double alpha)
+             double alpha) -> Tree
   {
     // Begin building the tree
     Tree tree(max_nodes, narrow<int>(num_outputs));
@@ -242,8 +242,8 @@ struct TreeBuilder {
   void DenseHistogramKernel(const Tree& tree,
                             Histogram<GPair>& histogram,
                             const DenseXMatrix<T>& X,
-                            legate::AccessorRO<double, 3> g,
-                            legate::AccessorRO<double, 3> h,
+                            const legate::AccessorRO<double, 3>& g,
+                            const legate::AccessorRO<double, 3>& h,
                             NodeBatch batch)
   {
     // Build the histogram
@@ -268,8 +268,8 @@ struct TreeBuilder {
   void CSRHistogramKernel(const Tree& tree,
                           Histogram<GPair>& histogram,
                           const CSRXMatrix<T>& X,
-                          legate::AccessorRO<double, 3> g,
-                          legate::AccessorRO<double, 3> h,
+                          const legate::AccessorRO<double, 3>& g,
+                          const legate::AccessorRO<double, 3>& h,
                           NodeBatch batch)
   {
     // Build the histogram
@@ -283,11 +283,9 @@ struct TreeBuilder {
         auto feature      = X.column_indices[element_idx];
         auto x            = X.values[element_idx];
         int const bin_idx = split_proposals.FindBin(x, feature);
-        if (bin_idx != SparseSplitProposals<T>::NOT_FOUND) {
-          for (int64_t k = 0; k < num_outputs; ++k) {
-            histogram[{position, k, bin_idx}] +=
-              GPair{g[{index_global, 0, k}], h[{index_global, 0, k}]};
-          }
+        for (int64_t k = 0; k < num_outputs; ++k) {
+          histogram[{position, k, bin_idx}] +=
+            GPair{g[{index_global, 0, k}], h[{index_global, 0, k}]};
         }
       }
     }
@@ -367,7 +365,10 @@ struct TreeBuilder {
       }
     }
   }
-  void PerformBestSplit(Tree& tree, Histogram<GPair> histogram, double alpha, NodeBatch batch)
+  void PerformBestSplit(Tree& tree,
+                        const Histogram<GPair>& histogram,
+                        double alpha,
+                        NodeBatch batch)
   {
     const bool is_sparse_matrix = std::is_same_v<MatrixT, CSRXMatrix<T>>;
     for (int node_id = batch.node_idx_begin; node_id < batch.node_idx_end; node_id++) {
@@ -560,7 +561,7 @@ struct build_tree_dense_fn {
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
-    DenseXMatrix<T> X_matrix(X_accessor, X_shape);
+    DenseXMatrix<T> const X_matrix(X_accessor, X_shape);
 
     SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
@@ -599,13 +600,13 @@ struct build_tree_csr_fn {
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
     auto num_features  = context.scalars().at(6).value<int64_t>();
 
-    CSRXMatrix<T> X_matrix(X_vals_accessor,
-                           X_coords_accessor,
-                           X_offsets_accessor,
-                           X_vals_shape,
-                           X_offsets_shape,
-                           num_features,
-                           X_vals_shape.volume());
+    CSRXMatrix<T> const X_matrix(X_vals_accessor,
+                                 X_coords_accessor,
+                                 X_offsets_accessor,
+                                 X_vals_shape,
+                                 X_offsets_shape,
+                                 num_features,
+                                 X_vals_shape.volume());
     const SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows);
 

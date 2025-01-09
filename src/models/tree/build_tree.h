@@ -249,6 +249,12 @@ class Histogram {
   {
     return buffer_[{p[0] - node_begin_, p[1], p[2]}];
   }
+
+  // Node, output, bin
+  __host__ __device__ auto operator[](legate::Point<3> p) const -> GPairT
+  {
+    return buffer_[{p[0] - node_begin_, p[1], p[2]}];
+  }
 };
 
 // From the scanned histogram gradients and the node sums, infer the gradients for the left and
@@ -259,7 +265,7 @@ class Histogram {
 // non-zero element) from the sum of the gradients in the node (this sum always includes gradients
 // for every element in that node)
 template <typename T, typename GPairT>
-__host__ __device__ auto InferSplitSums(Histogram<GPairT>& scanned_histogram,
+__host__ __device__ auto InferSplitSums(const Histogram<GPairT>& scanned_histogram,
                                         const SparseSplitProposals<T>& split_proposals,
                                         const GPairT& node_sum,
                                         int node_id,
@@ -275,7 +281,7 @@ __host__ __device__ auto InferSplitSums(Histogram<GPairT>& scanned_histogram,
   auto scan_sum                     = scanned_histogram[{node_id, output, feature_end - 1}];
   auto zero_bin                     = split_proposals.FindBin(0.0, feature);
   auto sparse_sum                   = node_sum - scan_sum;
-  if (zero_bin == SparseSplitProposals<T>::NOT_FOUND || bin_idx < zero_bin) {
+  if (bin_idx < zero_bin) {
     // Do nothing, this amount is already on the right
   } else {
     // Move it to the left

@@ -21,11 +21,11 @@
 #include <thrust/sort.h>
 #include <thrust/random.h>
 #include <thrust/unique.h>
-#include <cstddef>
 #include <numeric>
 #include <limits>
 #include <vector>
 #include <algorithm>
+#include <cstddef>
 #include "legate_library.h"
 #include "legateboost.h"
 #include "../../cpp_utils/cpp_utils.h"
@@ -395,7 +395,7 @@ struct HistogramAgent {
     std::array<IntegerGPair, kItemsPerThread> gpair{};
 #pragma unroll
     for (int i = 0; i < kItemsPerThread; i++) {
-      legate::Point<3> p = {sample_offset + local_sample_idx[i], 0, output};
+      legate::Point<3> p = {sample_node[i] + local_sample_idx[i], 0, output};
       gpair[i] = quantiser.QuantiseStochasticRounding({g[p], h[p]}, hash_combine(seed, p[0], p[2]));
     }
 #pragma unroll
@@ -489,8 +489,8 @@ __global__ void __launch_bounds__(kBlockThreads)
                      int64_t seed)
 {
   // Grid stride loop over rows
-  for (std::size_t idx = blockIdx.x * blockDim.x + threadIdx.x; idx < batch.InstancesInBatch();
-       idx += blockDim.x * gridDim.x) {
+  for (std::size_t idx = (blockIdx.x * blockDim.x) + threadIdx.x; idx < batch.InstancesInBatch();
+       idx += static_cast<std::size_t>(blockDim.x * gridDim.x)) {
     auto [sample_node, local_sample_idx] = batch.instances[idx];
     // If we don't need to compute this node, skip
     if (!ComputeHistogramBin(
@@ -504,7 +504,6 @@ __global__ void __launch_bounds__(kBlockThreads)
       auto feature      = X.column_indices[X.vals_shape.lo[0] + element];
       auto x            = X.values[X.vals_shape.lo[0] + element];
       int const bin_idx = split_proposals.FindBin(x, feature);
-      if (bin_idx == SparseSplitProposals<T>::NOT_FOUND) continue;
       for (int output = 0; output < n_outputs; output++) {
         legate::Point<3> p = {global_sample_idx, 0, output};
         auto gpair_quantised =
@@ -872,7 +871,7 @@ struct Tree {
 
   void WriteTreeOutput(legate::TaskContext context, GradientQuantiser quantiser)
   {
-    auto stream       = context.get_task_stream();
+    auto* stream      = context.get_task_stream();
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
 
@@ -904,8 +903,8 @@ struct Tree {
   legate::Buffer<double, 1> split_value;
   legate::Buffer<double, 1> gain;
   legate::Buffer<IntegerGPair, 2> node_sums;
-  const int num_outputs;
-  const int max_nodes;
+  int num_outputs;
+  int max_nodes;
   cudaStream_t stream;
 };
 
@@ -914,12 +913,12 @@ struct Tree {
 // Remove any duplicates
 // Return sparse matrix of split samples for each feature
 template <typename T, template <typename> class XMatrix>
-SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
-                                           const XMatrix<T>& X,
-                                           int split_samples,
-                                           int seed,
-                                           int64_t dataset_rows,
-                                           cudaStream_t stream)
+auto SelectSplitSamples(legate::TaskContext context,
+                        const XMatrix<T>& X,
+                        int split_samples,
+                        int seed,
+                        int64_t dataset_rows,
+                        cudaStream_t stream) -> SparseSplitProposals<T>
 {
   auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
   auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
@@ -940,7 +939,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
     auto i                  = idx / X.NumFeatures();
     auto j                  = idx % X.NumFeatures();
     auto row                = row_samples[i];
-    bool has_data           = X.RowSubset().contains(row);
+    bool const has_data     = X.RowSubset().contains(row);
     draft_proposals[{j, i}] = has_data ? X.Get(row, j) : T(0);
   });
 
@@ -1000,7 +999,7 @@ SparseSplitProposals<T> SelectSplitSamples(legate::TaskContext context,
 
   // Set the largest split sample to +inf such that an element must belong to one of the bins
   // i.e. we cannot go off the end when searching for a bin
-  LaunchN(num_features, stream, [=] __device__(int i) {
+  LaunchN(X.NumFeatures(), stream, [=] __device__(int i) {
     auto end                 = row_pointers_span[i + 1];
     split_proposals[end - 1] = std::numeric_limits<T>::infinity();
   });
@@ -1069,14 +1068,14 @@ struct TreeBuilder {
     max_batch_size = max_histogram_nodes;
   }
 
-  Tree Build(legate::TaskContext context,
+  auto Build(legate::TaskContext context,
              const MatrixT& X_matrix,
-             legate::AccessorRO<double, 3> g_accessor,
-             legate::AccessorRO<double, 3> h_accessor,
+             const legate::AccessorRO<double, 3>& g_accessor,
+             const legate::AccessorRO<double, 3>& h_accessor,
              legate::Rect<3> g_shape,
-             double alpha)
+             double alpha) -> Tree
   {
-    auto stream             = context.get_task_stream();
+    auto* stream            = context.get_task_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
 
@@ -1107,7 +1106,7 @@ struct TreeBuilder {
   auto operator=(TreeBuilder&&) -> TreeBuilder&      = delete;
   ~TreeBuilder()                                     = default;
 
-  void UpdatePositions(Tree& tree, const MatrixT X)
+  void UpdatePositions(Tree& tree, const MatrixT& X)
   {
     tcb::span<int32_t> const tree_feature_span(tree.feature.ptr(0), max_nodes);
     tcb::span<double> const tree_split_value_span(tree.split_value.ptr(0), max_nodes);
@@ -1123,10 +1122,10 @@ struct TreeBuilder {
                 return;
               }
 
-              double x_value =
+              double const x_value =
                 X.Get(X.RowSubset().lo[0] + static_cast<int64_t>(row), tree_feature_span[pos]);
-              bool left = x_value <= tree_split_value_span[pos];
-              pos       = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
+              bool const left = x_value <= tree_split_value_span[pos];
+              pos             = left ? BinaryTree::LeftChild(pos) : BinaryTree::RightChild(pos);
               // printf("Row %d, feature %d, value %f pos %d\n", row, tree_feature_span[pos],
               // x_value, pos);
               sorted_positions[idx] = cuda::std::make_tuple(pos, row);
@@ -1168,7 +1167,7 @@ struct TreeBuilder {
   void ComputeHistogram(Histogram<IntegerGPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
-                        const MatrixT X,
+                        const MatrixT& X,
                         const legate::AccessorRO<double, 3>& g,
                         const legate::AccessorRO<double, 3>& h,
                         NodeBatch batch)
@@ -1359,7 +1358,7 @@ struct build_tree_fn {
     auto [g, g_shape, g_accessor] = GetInputStore<double, 3>(context.input(1).data());
     auto [h, h_shape, h_accessor] = GetInputStore<double, 3>(context.input(2).data());
 
-    DenseXMatrix X_matrix(X_accessor, X_shape);
+    DenseXMatrix const X_matrix(X_accessor, X_shape);
 
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
@@ -1431,17 +1430,17 @@ struct build_tree_csr_fn {
     auto num_features  = context.scalars().at(6).value<int64_t>();
 
     auto* stream = context.get_task_stream();
-    CSRXMatrix<T> X_matrix(X_vals_accessor,
-                           X_coords_accessor,
-                           X_offsets_accessor,
-                           X_vals_shape,
-                           X_offsets_shape,
-                           num_features,
-                           X_vals_shape.volume());
+    CSRXMatrix<T> const X_matrix(X_vals_accessor,
+                                 X_coords_accessor,
+                                 X_offsets_accessor,
+                                 X_vals_shape,
+                                 X_offsets_shape,
+                                 num_features,
+                                 X_vals_shape.volume());
     const SparseSplitProposals<T> split_proposals =
       SelectSplitSamples(context, X_matrix, split_samples, seed, dataset_rows, stream);
 
-    GradientQuantiser quantiser(context, g_accessor, h_accessor, g_shape, stream);
+    GradientQuantiser const quantiser(context, g_accessor, h_accessor, g_shape, stream);
 
     // Begin building the tree
     auto tree = TreeBuilder<CSRXMatrix<T>>(num_rows,

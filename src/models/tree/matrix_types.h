@@ -16,12 +16,14 @@
 #pragma once
 #include <legate.h>
 #include <cstdint>
+#include <utility>
 #ifdef __CUDACC__
 #include <thrust/binary_search.h>
 #else
 #include <algorithm>
 #endif
 
+namespace legateboost {
 // Create a uniform interface to two matrix formats
 // Dense and CSR
 template <typename T>
@@ -34,15 +36,22 @@ class DenseXMatrix {
   legate::Rect<3> shape;
 
  public:
-  DenseXMatrix(legate::AccessorRO<T, 3> x, legate::Rect<3> shape) : x(x), shape(shape) {}
+  DenseXMatrix(const legate::AccessorRO<T, 3>& x, legate::Rect<3> shape)
+    : x(std::move(x)), shape(shape)
+  {
+  }
   // Global row index refers to the index across partitions
   // For features, each worker has every feature so the global is the same as the local index
-  __host__ __device__ T Get(std::size_t global_row_idx, uint32_t feature_idx) const
+  [[nodiscard]] __host__ __device__ auto Get(std::size_t global_row_idx, uint32_t feature_idx) const
+    -> T
   {
     return x[legate::Point<3>{global_row_idx, feature_idx, 0}];
   }
-  __host__ __device__ int NumFeatures() const { return shape.hi[1] - shape.lo[1] + 1; }
-  __host__ __device__ legate::Rect<1, legate::coord_t> RowSubset() const
+  [[nodiscard]] __host__ __device__ auto NumFeatures() const -> int
+  {
+    return shape.hi[1] - shape.lo[1] + 1;
+  }
+  [[nodiscard]] __host__ __device__ auto RowSubset() const -> legate::Rect<1, legate::coord_t>
   {
     return {shape.lo[0], shape.hi[0]};
   }
@@ -61,14 +70,14 @@ class CSRXMatrix {
   int num_features;
   std::size_t nnz;  // The number of nnz in ths local partition
 
-  CSRXMatrix(legate::AccessorRO<T, 1> values,
-             legate::AccessorRO<int64_t, 1> column_indices,
-             legate::AccessorRO<legate::Rect<1, legate::coord_t>, 1> row_ranges,
+  CSRXMatrix(const legate::AccessorRO<T, 1>& values,
+             const legate::AccessorRO<int64_t, 1>& column_indices,
+             const legate::AccessorRO<legate::Rect<1, legate::coord_t>, 1>& row_ranges,
              legate::Rect<1, legate::coord_t> vals_shape,
              legate::Rect<1, legate::coord_t> row_ranges_shape,
              int num_features,
              std::size_t nnz)
-    : values(values),
+    : values(std::move(values)),
       column_indices(column_indices),
       row_ranges(row_ranges),
       num_features(num_features),
@@ -82,18 +91,19 @@ class CSRXMatrix {
   // For features, each worker has every feature so the global is the same as the local index
   // This method is less efficient than its Dense counterpart due to the need to search for the
   // feature
-  __host__ __device__ T Get(std::size_t global_row_idx, uint32_t feature_idx) const
+  [[nodiscard]] __host__ __device__ auto Get(std::size_t global_row_idx, uint32_t feature_idx) const
+    -> T
   {
-    auto row_range = row_ranges[global_row_idx];
+    auto row_range = row_ranges[narrow<int64_t>(global_row_idx)];
 
-    tcb::span<const int64_t> column_indices_span(column_indices.ptr(row_range.lo),
-                                                 row_range.volume());
+    tcb::span<const int64_t> const column_indices_span(column_indices.ptr(row_range.lo),
+                                                       row_range.volume());
 
 #ifdef __CUDACC__
-    auto result = thrust::lower_bound(
+    const auto* result = thrust::lower_bound(
       thrust::seq, column_indices_span.begin(), column_indices_span.end(), feature_idx);
 #else
-    auto result =
+    const auto* result =
       std::lower_bound(column_indices_span.begin(), column_indices_span.end(), feature_idx);
 #endif
 
@@ -103,11 +113,12 @@ class CSRXMatrix {
     return 0;
   }
 
-  auto NNZ() const { return nnz; }
+  [[nodiscard]] auto NNZ() const { return nnz; }
 
-  __host__ __device__ int NumFeatures() const { return num_features; }
-  __host__ __device__ legate::Rect<1, legate::coord_t> RowSubset() const
+  [[nodiscard]] __host__ __device__ auto NumFeatures() const -> int { return num_features; }
+  [[nodiscard]] __host__ __device__ auto RowSubset() const -> legate::Rect<1, legate::coord_t>
   {
     return row_ranges_shape;
   }
 };
+}  // namespace legateboost
