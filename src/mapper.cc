@@ -24,8 +24,9 @@ namespace legateboost {
 
 LegateboostMapper::LegateboostMapper() = default;
 
-std::optional<std::size_t> LegateboostMapper::allocation_pool_size(
-  const legate::mapping::Task& task, legate::mapping::StoreTarget memory_kind)
+auto LegateboostMapper::allocation_pool_size(const legate::mapping::Task& /* task */,
+                                             legate::mapping::StoreTarget memory_kind)
+  -> std::optional<std::size_t>
 {
   if (memory_kind == legate::mapping::StoreTarget::ZCMEM) { return 0; }
   // TODO(seberg): nullopt means we give no upper bound.  For tasks that use
