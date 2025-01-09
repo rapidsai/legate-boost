@@ -88,6 +88,7 @@ dependencies:
           - cuda-toolkit
           - clang-tools>=19.0
           - clangxx>=19.0
+          - rich
   build_tools:
     common:
       - output_types: [conda]
