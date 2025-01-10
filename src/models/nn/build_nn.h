@@ -165,6 +165,9 @@ class LearningMonitor {
 
 class BuildNNTask : public Task<BuildNNTask, BUILD_NN> {
  public:
+  static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+  static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA
   static void gpu_variant(legate::TaskContext context);

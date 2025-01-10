@@ -24,6 +24,17 @@ namespace legateboost {
 
 LegateboostMapper::LegateboostMapper() = default;
 
+auto LegateboostMapper::allocation_pool_size(const legate::mapping::Task& /* task */,
+                                             legate::mapping::StoreTarget memory_kind)
+  -> std::optional<std::size_t>
+{
+  if (memory_kind == legate::mapping::StoreTarget::ZCMEM) { return 0; }
+  // TODO(seberg): nullopt means we give no upper bound.  For tasks that use
+  // `legate::VariantOptions{}.with_has_allocations(true);` giving a bound
+  // may improve parallelism.
+  return std::nullopt;
+}
+
 auto LegateboostMapper::tunable_value(legate::TunableID /*tunable_id*/) -> legate::Scalar
 {
   return legate::Scalar{};

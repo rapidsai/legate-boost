@@ -21,6 +21,9 @@ namespace legateboost {
 
 class GatherTask : public Task<GatherTask, GATHER> {
  public:
+  // GPU variant may create buffer to copy from host
+  static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA
   static void gpu_variant(legate::TaskContext context);
