@@ -18,6 +18,7 @@ dependencies:
 - legate-sparse
 - legate==25.01.*,>=0.0.0.dev0
 - libcublas-dev
+- llvm-openmp
 - make
 - matplotlib>=3.9
 - mypy>=1.13
@@ -32,6 +33,7 @@ dependencies:
 - python-build>=1.2.0
 - python=3.12
 - rapids-build-backend>=0.3.2,<0.4.0.dev0
+- rich
 - scikit-build-core>=0.10.0
 - scikit-learn>=1.6
 - seaborn>=0.13
