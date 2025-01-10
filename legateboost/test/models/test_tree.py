@@ -72,3 +72,21 @@ def test_alpha():
     )
     model.fit(X, y)
     assert np.isclose(model.predict(X)[0], y.sum() / (y.size + alpha))
+
+
+def test_csr():
+    csr_matrix = pytest.importorskip("legate_sparse").csr_matrix
+    X = csr_matrix(
+        (cn.array([1.0, 2.0, 3.0]), cn.array([0, 1, 2]), cn.array([0, 2, 3])),
+        shape=(2, 3),
+    )
+    g = cn.array([[1.0], [-1.0]])
+    h = cn.array([[1.0], [1.0]])
+
+    model = (
+        lb.models.Tree(alpha=0.0)
+        .set_random_state(np.random.RandomState(2))
+        .fit(X, g, h)
+    )
+    print(model)
+    assert np.allclose(model.predict(X), -g / h)

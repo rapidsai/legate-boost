@@ -16,11 +16,34 @@
 #include "predict.h"
 #include <cstdint>
 #include "../../cpp_utils/cpp_utils.h"
+#include "matrix_types.h"
 
 namespace legateboost {
 
 namespace {
-struct predict_fn {
+template <typename MatrixT>
+void PredictRows(const MatrixT& X,
+                 const legate::AccessorWO<double, 3>& pred_accessor,
+                 legate::Rect<3, legate::coord_t> pred_shape,
+                 const legate::AccessorRO<double, 1>& split_value,
+                 const legate::AccessorRO<int32_t, 1>& feature,
+                 const legate::AccessorRO<double, 2>& leaf_value)
+{
+  for (int64_t i = X.RowSubset().lo[0]; i <= X.RowSubset().hi[0]; i++) {
+    int pos = 0;
+    // Use a max depth of 100 to avoid infinite loops
+    const int max_depth = 100;
+    for (int depth = 0; depth < max_depth; depth++) {
+      if (feature[pos] == -1) { break; }
+      auto x = X.Get(i, feature[pos]);
+      pos    = x <= split_value[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
+    }
+    for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
+      pred_accessor[{i, 0, j}] = leaf_value[{pos, j}];
+    }
+  }
+}
+struct predict_dense_fn {
   template <typename T>
   void operator()(legate::TaskContext context)
   {
@@ -45,27 +68,59 @@ struct predict_fn {
     EXPECT_IS_BROADCAST(context.input(2).data().shape<1>());
     EXPECT_IS_BROADCAST(context.input(3).data().shape<1>());
 
-    for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
-      int pos = 0;
-      // Use a max depth of 100 to avoid infinite loops
-      const int max_depth = 100;
-      for (int depth = 0; depth < max_depth; depth++) {
-        if (feature[pos] == -1) { break; }
-        auto x = X_accessor[{i, feature[pos], 0}];
-        pos    = x <= split_value[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
-      }
-      for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
-        pred_accessor[{i, 0, j}] = leaf_value[{pos, j}];
-      }
-    }
+    PredictRows(DenseXMatrix<T>(X_accessor, X_shape),
+                pred_accessor,
+                pred_shape,
+                split_value,
+                feature,
+                leaf_value);
+  }
+};
+
+struct predict_csr_fn {
+  template <typename T>
+  void operator()(legate::TaskContext context)
+  {
+    auto [X_vals, X_vals_shape, X_vals_accessor] = GetInputStore<T, 1>(context.input(0).data());
+    auto [X_coords, X_coords_shape, X_coords_accessor] =
+      GetInputStore<int64_t, 1>(context.input(1).data());
+    auto [X_offsets, X_offsets_shape, X_offsets_accessor] =
+      GetInputStore<legate::Rect<1, legate::coord_t>, 1>(context.input(2).data());
+
+    auto leaf_value  = context.input(3).data().read_accessor<double, 2>();
+    auto feature     = context.input(4).data().read_accessor<int32_t, 1>();
+    auto split_value = context.input(5).data().read_accessor<double, 1>();
+
+    auto pred          = context.output(0).data();
+    auto pred_shape    = pred.shape<3>();
+    auto pred_accessor = pred.write_accessor<double, 3>();
+
+    auto num_features = context.scalars().at(0).value<int32_t>();
+    CSRXMatrix<T> const X(X_vals_accessor,
+                          X_coords_accessor,
+                          X_offsets_accessor,
+                          X_vals_shape,
+                          X_offsets_shape,
+                          num_features,
+                          X_vals_shape.volume());
+
+    EXPECT_AXIS_ALIGNED(0, X_offsets_shape, pred_shape);
+
+    PredictRows(X, pred_accessor, pred_shape, split_value, feature, leaf_value);
   }
 };
 }  // namespace
 
-/*static*/ void PredictTask::cpu_variant(legate::TaskContext context)
+/*static*/ void PredictTreeTask::cpu_variant(legate::TaskContext context)
 {
   const auto& X = context.input(0).data();
-  type_dispatch_float(X.code(), predict_fn(), context);
+  type_dispatch_float(X.code(), predict_dense_fn(), context);
+}
+
+/*static*/ void PredictTreeCSRTask::cpu_variant(legate::TaskContext context)
+{
+  const auto& X = context.input(0).data();
+  type_dispatch_float(X.code(), predict_csr_fn(), context);
 }
 
 }  // namespace legateboost
@@ -74,6 +129,7 @@ namespace  // unnamed
 {
 void __attribute__((constructor)) register_tasks()
 {
-  legateboost::PredictTask::register_variants();
+  legateboost::PredictTreeTask::register_variants();
+  legateboost::PredictTreeCSRTask::register_variants();
 }
 }  // namespace

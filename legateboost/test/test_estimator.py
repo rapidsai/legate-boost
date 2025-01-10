@@ -1,12 +1,17 @@
 import numpy as np
 import pytest
+import scipy
 from sklearn.datasets import make_regression
 from sklearn.model_selection import train_test_split
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import cupynumeric as cn
 import legateboost as lb
-from legateboost.testing.utils import non_increasing, sanity_check_models
+from legateboost.testing.utils import (
+    all_base_models,
+    non_increasing,
+    sanity_check_models,
+)
 
 
 def test_init():
@@ -225,3 +230,56 @@ def test_iterator_methods():
     assert list(model) == list(model.models_)
     for i, est in enumerate(model):
         assert est == model[i]
+
+
+@pytest.mark.parametrize(
+    "base_model", filter(lambda m: m.supports_csr(), all_base_models()), ids=type
+)
+def test_csr_input(base_model):
+    csr_matrix = pytest.importorskip("legate_sparse").csr_matrix
+    X_dense = cn.array([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0]])
+    X_scipy = scipy.sparse.csr_matrix(X_dense)
+    X_legate_sparse = csr_matrix(X_scipy)
+    y = cn.array([1.0, 2.0])
+    model = lb.LBRegressor(
+        init=None,
+        n_estimators=1,
+        base_models=(base_model,),
+        learning_rate=1.0,
+    )
+    sparse_pred = model.fit(X_scipy, y).predict(X_scipy)
+    legate_sparse_pred = model.fit(X_legate_sparse, y).predict(X_legate_sparse)
+    dense_pred = model.fit(X_dense, y).predict(X_dense)
+    assert cn.allclose(sparse_pred, legate_sparse_pred)
+    assert cn.allclose(sparse_pred, dense_pred)
+
+    # Generate a sparse dataset and check that dense and sparse
+    # input give equivalent results
+    # unfortunately we can't test that they are bitwise identical
+    # the changing order of floating point sums can lead to different results
+    # so instead assert that sparse models are roughly as accurate as dense ones
+    rng = np.random.RandomState(0)
+    X = rng.binomial(1, 0.1, (100, 100)).astype(np.float32)
+    y = rng.randint(0, 5, 100)
+    X_scipy = scipy.sparse.csr_matrix(X)
+
+    # regression
+    params = {"base_models": (base_model,), "n_estimators": 5, "random_state": 0}
+    sparse_model = lb.LBRegressor(**params)
+    dense_model = lb.LBRegressor(**params)
+    dense_pred = dense_model.fit(X, y).predict(X)
+    X_csr = csr_matrix(X)
+    assert X_csr.nnz < X.size
+    sparse_pred = sparse_model.fit(X_csr, y).predict(X_csr)
+    assert sparse_model.score(X, y) > 0.4
+    assert dense_model.score(X, y) > 0.4
+    sanity_check_models(sparse_model)
+
+    # classification
+    sparse_model = lb.LBClassifier(**params)
+    dense_model = lb.LBClassifier(**params)
+    dense_pred = dense_model.fit(X, y).predict_proba(X)
+    sparse_pred = sparse_model.fit(X_csr, y).predict_proba(X_csr)
+    assert sparse_model.score(X, y) > 0.8
+    assert dense_model.score(X, y) > 0.8
+    sanity_check_models(sparse_model)

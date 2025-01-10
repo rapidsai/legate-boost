@@ -41,6 +41,12 @@ struct GPairBase {
     this->hess += b.hess;
     return *this;
   }
+  __host__ __device__ auto operator-=(const GPairBase<T>& b) -> GPairBase<T>&
+  {
+    this->grad -= b.grad;
+    this->hess -= b.hess;
+    return *this;
+  }
 };
 
 template <typename T>
@@ -243,9 +249,57 @@ class Histogram {
   {
     return buffer_[{p[0] - node_begin_, p[1], p[2]}];
   }
+
+  // Node, output, bin
+  __host__ __device__ auto operator[](legate::Point<3> p) const -> GPairT
+  {
+    return buffer_[{p[0] - node_begin_, p[1], p[2]}];
+  }
 };
 
-class BuildTreeTask : public Task<BuildTreeTask, BUILD_TREE> {
+// From the scanned histogram gradients and the node sums, infer the gradients for the left and
+// right partitions For a dense matrix the left sum is the scanned histogram and the right sum is
+// the node sum minus the left sum In the case where we have a sparse matrix, gradients for 0's have
+// not been accumulated in the histogram. We can infer the gradients at the matrix zeroes by
+// subtracting the sum of the gradients at the last bin (which contains gradients from every
+// non-zero element) from the sum of the gradients in the node (this sum always includes gradients
+// for every element in that node)
+template <typename T, typename GPairT>
+__host__ __device__ auto InferSplitSums(const Histogram<GPairT>& scanned_histogram,
+                                        const SparseSplitProposals<T>& split_proposals,
+                                        const GPairT& node_sum,
+                                        int node_id,
+                                        int output,
+                                        int bin_idx,
+                                        int feature,
+                                        bool is_sparse) -> std::tuple<GPairT, GPairT>
+{
+  auto left_sum  = scanned_histogram[{node_id, output, bin_idx}];
+  auto right_sum = node_sum - left_sum;
+  if (!is_sparse) { return std::make_tuple(left_sum, right_sum); }
+  auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature);
+  auto scan_sum                     = scanned_histogram[{node_id, output, feature_end - 1}];
+  auto zero_bin                     = split_proposals.FindBin(0.0, feature);
+  auto sparse_sum                   = node_sum - scan_sum;
+  if (bin_idx < zero_bin) {
+    // Do nothing, this amount is already on the right
+  } else {
+    // Move it to the left
+    left_sum += sparse_sum;
+    right_sum -= sparse_sum;
+  }
+  return std::make_tuple(left_sum, right_sum);
+}
+
+class BuildTreeDenseTask : public Task<BuildTreeDenseTask, BUILD_TREE> {
+ public:
+  static void cpu_variant(legate::TaskContext context);
+#ifdef LEGATEBOOST_USE_CUDA
+  static void gpu_variant(legate::TaskContext context);
+#endif
+};
+
+class BuildTreeCSRTask : public Task<BuildTreeCSRTask, BUILD_TREE_CSR> {
  public:
   static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
   static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);

@@ -18,6 +18,7 @@ set -e -E -u -o pipefail
 cd legateboost/test
 
 legate \
+    --gpus 0 \
     --sysmem 28000 \
     --module pytest \
     . \

@@ -15,6 +15,7 @@ dependencies:
 - cuda-version>=12.2
 - cupynumeric==25.01.*,>=0.0.0.dev0
 - hypothesis>=6
+- legate-sparse
 - legate==25.01.*,>=0.0.0.dev0
 - libcublas-dev
 - llvm-openmp

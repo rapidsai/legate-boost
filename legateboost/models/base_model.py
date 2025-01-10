@@ -91,6 +91,16 @@ class BaseModel(PickleCupynumericMixin, ABC):
         """
         pass
 
+    def supports_csr(self) -> bool:
+        """Whether the model supports CSR matrix input.
+
+        Returns
+        -------
+        bool
+            True if the model supports CSR matrix input, False otherwise.
+        """
+        return False
+
     @abstractmethod
     def __str__(self) -> str:
         pass
