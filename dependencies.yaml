@@ -64,6 +64,7 @@ files:
       - test
 
 channels:
+  - rapidsai
   - legate
   - legate/label/experimental
   - conda-forge
