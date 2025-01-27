@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Tuple
+from typing import Any, List, Tuple
 
 import cupynumeric as cn
 
@@ -109,6 +109,13 @@ class Linear(BaseModel):
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         return self.betas_[0] + X.dot(self.betas_[1:].astype(X.dtype))
+
+    @staticmethod
+    def batch_predict(models: List["Linear"], X: cn.ndarray) -> cn.ndarray:
+        # summing together the coeffiecients of each model then predicting
+        # saves a lot of work
+        betas = cn.sum([model.betas_ for model in models], axis=0)
+        return betas[0] + X.dot(betas[1:].astype(X.dtype))
 
     def __str__(self) -> str:
         return (

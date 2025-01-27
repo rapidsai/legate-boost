@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Any, Set, Tuple
+from typing import Any, List, Set, Tuple
 
 import numpy as np
 from scipy.special import lambertw
@@ -193,6 +193,10 @@ class KRR(BaseModel):
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         K = self._apply_kernel(X)
         return K.dot(self.betas_.astype(K.dtype))
+
+    @staticmethod
+    def batch_predict(models: List[KRR], X: cn.ndarray) -> cn.ndarray:
+        return sum(model.predict(X) for model in models)
 
     def clear(self) -> None:
         self.betas_.fill(0)

@@ -1,6 +1,6 @@
 import copy
 from enum import IntEnum
-from typing import Any
+from typing import Any, List
 
 import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
@@ -199,6 +199,10 @@ class Tree(BaseModel):
         task.execute()
 
         return cn.array(pred, copy=False)
+
+    @staticmethod
+    def batch_predict(models: List["Tree"], X: cn.ndarray) -> cn.ndarray:
+        return sum([model.predict(X) for model in models])
 
     def is_leaf(self, id: int) -> Any:
         return self.feature[id] == -1

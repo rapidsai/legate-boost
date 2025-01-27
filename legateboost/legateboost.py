@@ -512,8 +512,18 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             )
         pred = cn.empty((X.shape[0],) + self.model_init_.shape, dtype=cn.float64)
         pred[:] = self.model_init_
+
+        # get a list of models for each type
+        model_types = {}
         for m in self.models_:
-            pred += m.predict(X)
+            if type(m) not in model_types:
+                model_types[type(m)] = []
+            model_types[type(m)].append(m)
+        # call batch prediction for each model type
+        # this may be faster than adding predictions one by one
+        # e.g. linear models can be added together first then predict
+        for Type, models in model_types.items():
+            pred += Type.batch_predict(models, X)
         return pred
 
     def dump_models(self) -> str:

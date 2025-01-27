@@ -117,6 +117,13 @@ class NN(BaseModel):
         activations = [X] + [None] * len(self.hidden_layer_sizes) + [None]
         return self.forward(X, activations)[-1]
 
+    @staticmethod
+    def batch_predict(models: List["NN"], X: cn.ndarray) -> cn.ndarray:
+        pred = cn.zeros((X.shape[0], models[0].coefficients_[-1].shape[1]))
+        for model in models:
+            pred += model.predict(X)
+        return pred
+
     def clear(self) -> None:
         for c in self.coefficients_:
             c.fill(0)
