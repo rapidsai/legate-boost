@@ -1,6 +1,6 @@
 import copy
 from enum import IntEnum
-from typing import Any, List
+from typing import Any, List, Sequence, cast
 
 import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
@@ -172,7 +172,9 @@ class Tree(BaseModel):
         return Tree.batch_predict([self], X)
 
     @staticmethod
-    def batch_predict(models: List["Tree"], X: cn.ndarray) -> cn.ndarray:
+    def batch_predict(models: Sequence[BaseModel], X: cn.ndarray) -> cn.ndarray:
+        assert all(isinstance(m, Tree) for m in models)
+        models = cast(List[Tree], models)
         n_rows = X.shape[0]
         n_features = X.shape[1]
         n_outputs = models[0].leaf_value.shape[1]

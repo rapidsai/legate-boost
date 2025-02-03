@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
@@ -514,7 +514,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         pred[:] = self.model_init_
 
         # get a list of models for each type
-        model_types = {}
+        model_types: Dict[type[BaseModel], List[BaseModel]] = {}
         for m in self.models_:
             if type(m) not in model_types:
                 model_types[type(m)] = []
