@@ -33,7 +33,7 @@ classifiers = [
 ]
 dependencies = [
     "cupynumeric==25.01.*,>=0.0.0.dev0",
-    "legate==25.01.*,>=0.0.0.dev0",
+    "legate==25.01.*,!=25.01.00.rc2",
     "numpy",
     "scikit-learn>=1.6",
     "typing-extensions>=4.0",
