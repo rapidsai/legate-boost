@@ -15,7 +15,6 @@ if(Legion_USE_CUDA)
     list(APPEND LB_CUDA_FLAGS --expt-extended-lambda )
     list(APPEND LB_CUDA_FLAGS --expt-relaxed-constexpr )
 
-    list(APPEND LB_CUDA_FLAGS --Werror all-warnings)
     if(CMAKE_BUILD_TYPE MATCHES Debug)
       list(APPEND LB_CUDA_FLAGS -G -Xcompiler=-rdynamic)
     else()
