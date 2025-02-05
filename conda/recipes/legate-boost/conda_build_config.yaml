@@ -28,4 +28,4 @@ gpu_enabled:
 cupynumeric_version:
   - "=25.01.*,>=0.0.0.dev0"
 legate_version:
-  - "=25.01.*,>=0.0.0.dev0"
+  - "=25.01.*,>=0.0.0.dev0,!=25.01.00.rc2"
