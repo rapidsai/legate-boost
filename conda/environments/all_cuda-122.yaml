@@ -13,7 +13,7 @@ dependencies:
 - cuda-nvcc
 - cuda-toolkit
 - cuda-version>=12.2
-- cupynumeric=25.01.*,>=0.0.0.dev0,!=25.01.0.dev62,!=25.01.0.dev61,!=25.01.0.dev60,!=25.01.0.rc1,!=25.01.0.rc2
+- cupynumeric==25.01.*,>=0.0.0.dev0
 - hypothesis>=6
 - legate==25.01.*,>=0.0.0.dev0
 - libcublas-dev
