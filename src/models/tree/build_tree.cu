@@ -57,10 +57,11 @@ class GradientQuantiser {
     int num_outputs;
     legate::AccessorRO<double, 3> g;
     legate::AccessorRO<double, 3> h;
+    legate::Rect<3> g_shape;
     __device__ auto operator()(int n) const -> GPair
     {
       legate::Point<3> const p = {n / num_outputs, 0, n % num_outputs};
-      return GPair{abs(g[p]), abs(h[p])};
+      return GPair{abs(g[g_shape.lo + p]), abs(h[g_shape.lo + p])};
     }
   };
 
@@ -76,8 +77,8 @@ class GradientQuantiser {
     auto counting     = thrust::make_counting_iterator(0);
     auto num_outputs  = g_shape.hi[2] - g_shape.lo[2] + 1;
     auto n            = (g_shape.hi[0] - g_shape.lo[0] + 1) * num_outputs;
-    auto zip_gpair =
-      thrust::make_transform_iterator(counting, GetAbsGPair{narrow<int>(num_outputs), g, h});
+    auto zip_gpair    = thrust::make_transform_iterator(
+      counting, GetAbsGPair{narrow<int>(num_outputs), g, h, g_shape});
     GPair local_abs_sum =
       thrust::reduce(policy, zip_gpair, zip_gpair + n, GPair{0.0, 0.0}, thrust::plus<GPair>());
 
