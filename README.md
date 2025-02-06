@@ -39,14 +39,13 @@ legate example_script.py
 ```
 
 ```python
-import cupynumeric as cn
-import legateboost as lb
+>>> import cupynumeric as cn
+>>> import legateboost as lb
 
-X = cn.random.random((1000, 10))
-y = cn.random.random(X.shape[0])
-model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2).fit(
-    X, y
-)
+>>> X = cn.random.random((1000, 10))
+>>> y = cn.random.random(X.shape[0])
+>>> model = lb.LBRegressor().fit(X, y)
+
 ```
 
 ## Features
@@ -56,9 +55,26 @@ model = lb.LBRegressor(verbose=1, n_estimators=100, random_state=0, max_depth=2)
 `legate-boost` can create models from linear combinations of other models. Ensembling is as easy as:
 
 ```python
-model_a = lb.LBClassifier().fit(X_train_a, y_train_a)
-model_b = lb.LBClassifier().fit(X_train_b, y_train_b)
-model_c = (model_a + model_b) * 0.5
+>>> import cupynumeric as cn
+>>> import legateboost as lb
+
+>>> X = cn.random.random((1000, 10))
+>>> X_train_a = X[:500]
+>>> X_train_b = X[500:]
+>>> y = cn.random.random(X.shape[0])
+>>> y_train_a = y[:500]
+>>> y_train_b = y[500:]
+
+>>> model_a = lb.LBRegressor().fit(X_train_a, y_train_a)
+>>> len(model_a)
+100
+>>> model_b = lb.LBRegressor().fit(X_train_b, y_train_b)
+>>> len(model_b)
+100
+>>> model_c = (model_a + model_b) * 0.5
+>>> len(model_c)
+200
+
 ```
 
 
@@ -75,14 +91,22 @@ The above example can be found here: [examples/probabilistic_regression](https:/
 `legate-boost` can train on datasets that do not fit into memory by splitting the dataset into batches and training the model with `partial_fit`.
 
 ```python
-total_estimators = 100
-model = lb.LBRegressor(n_estimators=estimators_per_batch)
-for i in range(total_estimators // estimators_per_batch):
-    X_batch, y_batch = train_batches[i % n_batches]
-    model.partial_fit(
-        X_batch,
-        y_batch,
-    )
+>>> import cupynumeric as cn
+>>> import legateboost as lb
+>>> from sklearn.utils import gen_even_slices
+>>> X = cn.random.random((1000, 10))
+>>> y = cn.random.random(X.shape[0])
+
+>>> total_estimators = 100
+>>> estimators_per_batch = 10
+>>> n_batches = total_estimators // estimators_per_batch
+
+>>> train_batches = [(X[i], y[i]) for i in gen_even_slices(X.shape[0], n_batches)]
+>>> model = lb.LBRegressor(n_estimators=estimators_per_batch)
+>>> for i in range(total_estimators // estimators_per_batch):
+...     X_batch, y_batch = train_batches[i % n_batches]
+...     model = model.partial_fit(X_batch, y_batch)
+
 ```
 
 <img src="examples/batch_training/batch_training.png" alt="drawing" width="600"/>

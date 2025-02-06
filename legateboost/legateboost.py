@@ -693,9 +693,7 @@ class LBRegressor(RegressorMixin, LBBase):
     >>> import legateboost as lbst
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.random(X.shape[0])
-    >>> model = lbst.LBRegressor(verbose=1,
-    ... n_estimators=100, random_state=0, max_depth=2).fit(X, y)
-    >>> model.predict(X)
+    >>> model = lbst.LBRegressor(n_estimators=5).fit(X, y)
     """
 
     def __init__(
@@ -870,12 +868,10 @@ class LBClassifier(ClassifierMixin, LBBase):
     Examples
     --------
     >>> import cupynumeric as cn
-    >>> import legateboost as lbst
+    >>> import legateboost as lb
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.randint(0, 2, X.shape[0])
-    >>> model = lbst.LBClassifier(verbose=1, n_estimators=100,
-    ...     random_state=0, max_depth=2).fit(X, y)
-    >>> model.predict(X)
+    >>> model = lb.LBClassifier(n_estimators=5).fit(X, y)
     """
 
     def __init__(
