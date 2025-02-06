@@ -29,33 +29,38 @@ struct predict_fn {
     auto X_accessor = X.read_accessor<T, 3>();
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
 
-    auto leaf_value  = context.input(1).data().read_accessor<double, 2>();
-    auto feature     = context.input(2).data().read_accessor<int32_t, 1>();
-    auto split_value = context.input(3).data().read_accessor<double, 1>();
-
     auto pred          = context.output(0).data();
     auto pred_shape    = pred.shape<3>();
     auto pred_accessor = pred.write_accessor<double, 3>();
 
+    // Zero predictions
+    for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
+      for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
+        pred_accessor[{i, 0, j}] = 0.0;
+      }
+    }
+
     // We should have one output prediction per row of X
     EXPECT_AXIS_ALIGNED(0, X_shape, pred_shape);
 
-    // We should have the whole tree
-    EXPECT_IS_BROADCAST(context.input(1).data().shape<2>());
-    EXPECT_IS_BROADCAST(context.input(2).data().shape<1>());
-    EXPECT_IS_BROADCAST(context.input(3).data().shape<1>());
+    // Loop over each tree
+    for (int i = 1; i < context.inputs().size(); i += 3) {
+      auto leaf_accessor    = context.input(i).data().read_accessor<double, 2>();
+      auto feature_accessor = context.input(i + 1).data().read_accessor<int32_t, 1>();
+      auto split_accessor   = context.input(i + 2).data().read_accessor<double, 1>();
 
-    for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
-      int pos = 0;
-      // Use a max depth of 100 to avoid infinite loops
-      const int max_depth = 100;
-      for (int depth = 0; depth < max_depth; depth++) {
-        if (feature[pos] == -1) { break; }
-        auto x = X_accessor[{i, feature[pos], 0}];
-        pos    = x <= split_value[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
-      }
-      for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
-        pred_accessor[{i, 0, j}] = leaf_value[{pos, j}];
+      for (int64_t i = X_shape.lo[0]; i <= X_shape.hi[0]; i++) {
+        int pos = 0;
+        // Use a max depth of 100 to avoid infinite loops
+        const int max_depth = 100;
+        for (int depth = 0; depth < max_depth; depth++) {
+          if (feature_accessor[pos] == -1) { break; }
+          auto x = X_accessor[{i, feature_accessor[pos], 0}];
+          pos    = x <= split_accessor[pos] ? (pos * 2) + 1 : (pos * 2) + 2;
+        }
+        for (int64_t j = pred_shape.lo[2]; j <= pred_shape.hi[2]; j++) {
+          pred_accessor[{i, 0, j}] += leaf_accessor[{pos, j}];
+        }
       }
     }
   }

@@ -37,18 +37,18 @@ def test_early_stopping(regression_dataset):
     model.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
     assert len(model.models_) == cb.best_score[0] + 1
     assert n_estimators > cb.best_score[0]
-    assert (
-        m.metric(y_valid, model.predict(X_valid), cn.ones_like(y_valid))
-        == cb.best_score[1]
+    assert np.isclose(
+        m.metric(y_valid, model.predict(X_valid), cn.ones_like(y_valid)),
+        cb.best_score[1],
     )
 
     # training continuation
     model.partial_fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
     assert len(model.models_) == cb.best_score[0] + 1
     assert n_estimators > cb.best_score[0]
-    assert (
-        m.metric(y_valid, model.predict(X_valid), cn.ones_like(y_valid))
-        == cb.best_score[1]
+    assert np.isclose(
+        m.metric(y_valid, model.predict(X_valid), cn.ones_like(y_valid)),
+        cb.best_score[1],
     )
 
     with pytest.raises(

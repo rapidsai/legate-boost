@@ -1,5 +1,5 @@
 import copy
-from typing import Any, List, Tuple
+from typing import Any, List, Sequence, Tuple, cast
 
 import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
@@ -116,6 +116,15 @@ class NN(BaseModel):
     def predict(self, X: cn.ndarray) -> cn.ndarray:
         activations = [X] + [None] * len(self.hidden_layer_sizes) + [None]
         return self.forward(X, activations)[-1]
+
+    @staticmethod
+    def batch_predict(models: Sequence[BaseModel], X: cn.ndarray) -> cn.ndarray:
+        assert all(isinstance(m, NN) for m in models)
+        models = cast(List[NN], models)
+        pred = cn.zeros((X.shape[0], models[0].coefficients_[-1].shape[1]))
+        for model in models:
+            pred += model.predict(X)
+        return pred
 
     def clear(self) -> None:
         for c in self.coefficients_:

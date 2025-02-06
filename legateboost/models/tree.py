@@ -1,6 +1,6 @@
 import copy
 from enum import IntEnum
-from typing import Any
+from typing import Any, List, Sequence, cast
 
 import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
@@ -169,29 +169,37 @@ class Tree(BaseModel):
         return self
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
+        return Tree.batch_predict([self], X)
+
+    @staticmethod
+    def batch_predict(models: Sequence[BaseModel], X: cn.ndarray) -> cn.ndarray:
+        assert all(isinstance(m, Tree) for m in models)
+        models = cast(List[Tree], models)
         n_rows = X.shape[0]
         n_features = X.shape[1]
-        n_outputs = self.leaf_value.shape[1]
+        n_outputs = models[0].leaf_value.shape[1]
         task = get_legate_runtime().create_auto_task(
             user_context, LegateBoostOpCode.PREDICT
         )
 
         pred = get_legate_runtime().create_store(types.float64, (n_rows, n_outputs))
+
         X_ = get_store(X).promote(2, n_outputs)
         pred_ = get_store(pred).promote(1, n_features)
         task.add_input(X_)
         task.add_broadcast(X_, 1)
 
-        # broadcast the tree structure
-        leaf_value_ = get_store(self.leaf_value)
-        feature_ = get_store(self.feature)
-        split_value_ = get_store(self.split_value)
-        task.add_input(leaf_value_)
-        task.add_input(feature_)
-        task.add_input(split_value_)
-        task.add_broadcast(leaf_value_)
-        task.add_broadcast(feature_)
-        task.add_broadcast(split_value_)
+        # add and broadcast the tree structures
+        for m in models:
+            leaf_value_ = get_store(m.leaf_value)
+            feature_ = get_store(m.feature)
+            split_value_ = get_store(m.split_value)
+            task.add_input(leaf_value_)
+            task.add_input(feature_)
+            task.add_input(split_value_)
+            task.add_broadcast(leaf_value_)
+            task.add_broadcast(feature_)
+            task.add_broadcast(split_value_)
 
         task.add_output(pred_)
 

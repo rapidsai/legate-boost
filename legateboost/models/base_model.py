@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -77,7 +77,7 @@ class BaseModel(PickleCupynumericMixin, ABC):
 
     @abstractmethod
     def predict(self, X: cn.ndarray) -> cn.ndarray:
-        """Predict class labels for samples in X.
+        """Predict for samples in X.
 
         Parameters
         ----------
@@ -87,7 +87,27 @@ class BaseModel(PickleCupynumericMixin, ABC):
         Returns
         -------
         y_pred : ndarray of shape (n_samples,)
-            The predicted class labels.
+        """
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def batch_predict(models: Sequence["BaseModel"], X: cn.ndarray) -> cn.ndarray:
+        """Predict labels for samples in X with given list of models. Is
+        implemented as a static method with a list of model inputs to allow the
+        underlying implementation to parallelize or otherwise optimise over a
+        batch of models.
+
+        Parameters
+        ----------
+        models : list of BaseModel
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+
+        Returns
+        -------
+        y_pred : ndarray of shape (n_samples,)
+            The predicted labels.
         """
         pass
 
