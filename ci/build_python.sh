@@ -11,6 +11,7 @@ CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
 LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
 rapids-conda-retry mambabuild \
     --channel legate \
+    --channel legate/label/branch-25.01 \
     --channel legate/label/experimental \
     --channel conda-forge \
     --channel nvidia \
