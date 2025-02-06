@@ -1,3 +1,4 @@
+import doctest
 import importlib
 import os
 import subprocess
@@ -10,6 +11,7 @@ from legate.core import TaskTarget, get_legate_runtime
 
 dirname = Path(__file__).parent
 example_dir = dirname / "../../examples"
+legateboost_dir = example_dir.parent
 sys.path.append(str(example_dir))
 noteboook_dir = example_dir / "notebook"
 sys.path.append(str(noteboook_dir))
@@ -73,3 +75,24 @@ def test_benchmark(benchmark_dir):
         cwd=benchmark_dir,
         env=env,
     )
+
+
+def assert_docstrings_run(files):
+    for f in files:
+        print(f)
+        result = doctest.testfile(str(f), verbose=True, module_relative=False)
+        assert result.failed == 0
+
+
+def test_markdown():
+    markdown = list(legateboost_dir.glob("*.md"))
+    markdown += list(example_dir.glob("*.md"))
+    assert_docstrings_run(markdown)
+
+
+def test_docstrings():
+    python_files = list((legateboost_dir / "legateboost").glob("**/*.py"))
+    # remove tests
+    test_dir = legateboost_dir / "legateboost" / "test"
+    python_files = list(filter(lambda x: test_dir not in x.parents, python_files))
+    assert_docstrings_run(python_files)
