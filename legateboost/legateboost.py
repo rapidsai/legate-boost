@@ -694,6 +694,7 @@ class LBRegressor(RegressorMixin, LBBase):
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.random(X.shape[0])
     >>> model = lbst.LBRegressor(n_estimators=5).fit(X, y)
+    >>>
     """
 
     def __init__(
@@ -872,6 +873,7 @@ class LBClassifier(ClassifierMixin, LBBase):
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.randint(0, 2, X.shape[0])
     >>> model = lb.LBClassifier(n_estimators=5).fit(X, y)
+    >>>
     """
 
     def __init__(
