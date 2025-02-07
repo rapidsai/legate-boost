@@ -47,12 +47,16 @@ class Tree(BaseModel):
         max_depth: int = 8,
         split_samples: int = 256,
         alpha: float = 1.0,
+        lambd: float = 0.0,
+        gamma: float = 0.0,
     ) -> None:
         self.max_depth = max_depth
         if split_samples > 2048:
             raise ValueError("split_samples must be <= 2048")
         self.split_samples = split_samples
         self.alpha = alpha
+        self.lambd = lambd
+        self.gamma = gamma
 
     def fit(
         self,
@@ -78,6 +82,8 @@ class Tree(BaseModel):
         task.add_scalar_arg(self.split_samples, types.int32)
         task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
         task.add_scalar_arg(X.shape[0], types.int64)
+        task.add_scalar_arg(self.lambd, types.float64)
+        task.add_scalar_arg(self.gamma, types.float64)
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
@@ -139,6 +145,7 @@ class Tree(BaseModel):
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
         task.add_scalar_arg(self.alpha, types.float64)
+        task.add_scalar_arg(self.lambd, types.float64)
         task.add_input(X_)
         task.add_broadcast(X_, 1)
         task.add_input(g_)

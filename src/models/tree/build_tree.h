@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <utility>
 #include <tuple>
+#include <algorithm>
 #include <tcb/span.hpp>
 
 namespace legateboost {
@@ -102,9 +103,47 @@ inline __host__ __device__ auto ComputeHistogramBin(int node_id,
   return histogram_node == node_id;
 }
 
-__host__ __device__ inline auto CalculateLeafValue(double G, double H, double alpha) -> double
+namespace detail {
+__host__ __device__ inline auto CalculateLeafGain(const GPair& sum, double alpha_reg, double lambda)
+  -> double
 {
-  return -G / (H + alpha);
+  // l1 threshold
+  double z = 0.0;
+  if (sum.grad > lambda) {
+    z = sum.grad - lambda;
+  } else if (sum.grad < -lambda) {
+    z = sum.grad + lambda;
+  }
+  // Note: we could use the cuda __ddiv_rn intrinsic here if this becomes a bottleneck
+  return (z * z) / (sum.hess + alpha_reg);
+}
+}  // namespace detail
+
+__host__ __device__ inline auto CalculateGain(const GPair& left_sum,
+                                              const GPair& right_sum,
+                                              const GPair& parent_sum,
+                                              double alpha,
+                                              double lambda,
+                                              double gamma) -> double
+{
+  double const reg = std::max(1e-5, alpha);
+  return (0.5 * (detail::CalculateLeafGain(left_sum, reg, lambda) +
+                 detail::CalculateLeafGain(right_sum, reg, lambda) -
+                 detail::CalculateLeafGain(parent_sum, reg, lambda))) -
+         gamma;
+}
+
+__host__ __device__ inline auto CalculateLeafValue(double G, double H, double alpha, double lambda)
+  -> double
+{
+  // l1 threshold
+  double z = 0.0;
+  if (G > lambda) {
+    z = G - lambda;
+  } else if (G < -lambda) {
+    z = G + lambda;
+  }
+  return -z / (H + alpha);
 }
 
 // Container for the CSR matrix containing the split proposals

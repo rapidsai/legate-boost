@@ -241,6 +241,8 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         validate_data(self, X, reset=False, skip_check_array=True)
         _eval_set = self._process_eval_set(eval_set)
         sample_weight = check_sample_weight(sample_weight, y.shape[0])
+        if not isinstance(self.base_models, tuple) or len(self.base_models) == 0:
+            raise ValueError("base_models should be a tuple")
 
         # avoid appending to an existing eval result
         eval_result.clear()

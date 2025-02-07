@@ -18,7 +18,6 @@
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/execution_policy.h>
-#include <legate/type/type_info.h>
 #include <assert.h>
 #include <cstdio>
 #include <string>

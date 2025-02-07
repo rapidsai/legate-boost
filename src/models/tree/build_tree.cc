@@ -298,7 +298,12 @@ struct TreeBuilder {
       }
     }
   }
-  void PerformBestSplit(Tree& tree, Histogram<GPair> histogram, double alpha, NodeBatch batch)
+  void PerformBestSplit(Tree& tree,
+                        Histogram<GPair> histogram,
+                        double alpha,
+                        NodeBatch batch,
+                        double lambda,
+                        double gamma)
   {
     for (int node_id = batch.node_idx_begin; node_id < batch.node_idx_end; node_id++) {
       double best_gain = 0;
@@ -309,13 +314,10 @@ struct TreeBuilder {
         for (int bin_idx = feature_begin; bin_idx < feature_end; bin_idx++) {
           double gain = 0;
           for (int output = 0; output < num_outputs; ++output) {
-            auto [G_L, H_L]  = histogram[{node_id, output, bin_idx}];
-            auto [G, H]      = tree.node_sums[{node_id, output}];
-            auto G_R         = G - G_L;
-            auto H_R         = H - H_L;
-            double const reg = std::max(eps, alpha);  // Regularisation term
-            gain +=
-              0.5 * ((G_L * G_L) / (H_L + reg) + (G_R * G_R) / (H_R + reg) - (G * G) / (H + reg));
+            auto left   = histogram[{node_id, output, bin_idx}];
+            auto parent = tree.node_sums[{node_id, output}];
+            auto right  = parent - left;
+            gain += CalculateGain(left, right, parent, alpha, lambda, gamma);
           }
           if (gain > best_gain) {
             best_gain    = gain;
@@ -334,8 +336,8 @@ struct TreeBuilder {
           auto [G, H]        = tree.node_sums[{node_id, output}];
           auto G_R           = G - G_L;
           auto H_R           = H - H_L;
-          left_leaf[output]  = CalculateLeafValue(G_L, H_L, alpha);
-          right_leaf[output] = CalculateLeafValue(G_R, H_R, alpha);
+          left_leaf[output]  = CalculateLeafValue(G_L, H_L, alpha, lambda);
+          right_leaf[output] = CalculateLeafValue(G_R, H_R, alpha, lambda);
           left_sum[output]   = {G_L, H_L};
           right_sum[output]  = {G_R, H_R};
         }
@@ -425,7 +427,8 @@ struct TreeBuilder {
                       const legate::AccessorRO<double, 3>& g_accessor,
                       const legate::AccessorRO<double, 3>& h_accessor,
                       const legate::Rect<3>& g_shape,
-                      double alpha)
+                      double alpha,
+                      double lambda)
   {
     for (auto i = g_shape.lo[0]; i <= g_shape.hi[0]; ++i) {
       for (auto j = 0; j < num_outputs; ++j) {
@@ -439,7 +442,7 @@ struct TreeBuilder {
                                    static_cast<size_t>(num_outputs * 2)));
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = tree.node_sums[{0, i}];
-      tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, alpha);
+      tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, alpha, lambda);
     }
   }
 
@@ -476,6 +479,8 @@ struct build_tree_fn {
     auto split_samples = context.scalars().at(3).value<int>();
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
+    auto lambda        = context.scalars().at(6).value<double>();
+    auto gamma         = context.scalars().at(7).value<double>();
 
     Tree tree(max_nodes, narrow<int>(num_outputs));
     SparseSplitProposals<T> const split_proposals =
@@ -485,7 +490,7 @@ struct build_tree_fn {
     TreeBuilder<T> builder(
       num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha);
+    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha, lambda);
     for (int depth = 0; depth < max_depth; ++depth) {
       auto batches = builder.PrepareBatches(depth);
       for (auto batch : batches) {
@@ -494,7 +499,7 @@ struct build_tree_fn {
         builder.ComputeHistogram(
           histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
 
-        builder.PerformBestSplit(tree, histogram, alpha, batch);
+        builder.PerformBestSplit(tree, histogram, alpha, batch, lambda, gamma);
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
