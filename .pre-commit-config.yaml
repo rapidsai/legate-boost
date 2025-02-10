@@ -7,10 +7,10 @@ repos:
         - id: check-yaml
           exclude: '^conda/recipes/.*meta\.yaml$'
         - id: check-added-large-files
-    # - repo: https://github.com/shellcheck-py/shellcheck-py
-    #   rev: v0.10.0.1
-    #   hooks:
-    #     - id: shellcheck
+    - repo: https://github.com/shellcheck-py/shellcheck-py
+      rev: v0.10.0.1
+      hooks:
+        - id: shellcheck
     - repo: https://github.com/PyCQA/isort
       rev: 5.13.2
       hooks:
