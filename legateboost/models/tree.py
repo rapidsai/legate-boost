@@ -57,7 +57,7 @@ class Tree(BaseModel):
         l1_regularization: float = 0.0,
         l2_regularization: float = 1.0,
         min_split_gain: float = 0.0,
-        alpha: str = "deprecated",
+        alpha: Any = "deprecated",
     ) -> None:
         self.max_depth = max_depth
         if split_samples > 2048:

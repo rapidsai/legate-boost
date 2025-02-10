@@ -84,7 +84,7 @@ class KRR(BaseModel):
     def __init__(
         self,
         n_components: int = 100,
-        alpha: str = "deprecated",
+        alpha: Any = "deprecated",
         l2_regularization: float = 1e-5,
         sigma: float | None = None,
         solver: str = "direct",

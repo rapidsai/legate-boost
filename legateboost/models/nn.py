@@ -35,7 +35,7 @@ class NN(BaseModel):
         self,
         max_iter: int = 100,
         hidden_layer_sizes: Tuple[int] = (100,),
-        alpha: str = "deprecated",
+        alpha: Any = "deprecated",
         l2_regularization: float = 1e-5,
         verbose: bool = False,
         m: int = 10,
