@@ -36,12 +36,18 @@ set -u
 
 rapids-print-env
 
+# Evaluate conda channels in order, and prefer the first one found per-package.
+# (this ensures that the 'legate-boost' built in CI is used, instead of one hosted on the 'legate' channel)
+conda config --set channel_priority strict
+
 # Install legate-boost conda package built in the previous CI job
 rapids-mamba-retry install \
   --name test-env \
+  --override-channels \
   --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
   --channel legate \
   --channel legate/label/branch-25.01 \
   --channel legate/label/experimental \
   --channel conda-forge \
+  --channel nvidia \
     "${RAPIDS_LOCAL_CONDA_CHANNEL}::legate-boost<25"
