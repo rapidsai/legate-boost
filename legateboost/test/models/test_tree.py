@@ -12,7 +12,7 @@ def test_basic():
     g = cn.array([[0.0], [-1.0]])
     h = cn.array([[1.0], [1.0]])
     model = (
-        lb.models.Tree(max_depth=1, alpha=0.0)
+        lb.models.Tree(max_depth=1, l2_regularization=0.0)
         .set_random_state(np.random.RandomState(2))
         .fit(X, g, h)
     )
@@ -62,35 +62,39 @@ def test_max_depth():
 def test_l2_regularization():
     X = cn.array([[0.0], [0.0]])
     y = cn.array([500.0, 500.0])
-    alpha = 10.0
+    l2_regularization = 10.0
     model = lb.LBRegressor(
         init=None,
-        base_models=(lb.models.Tree(alpha=alpha, max_depth=0),),
+        base_models=(lb.models.Tree(l2_regularization=l2_regularization, max_depth=0),),
         learning_rate=1.0,
         n_estimators=1,
         random_state=0,
     )
     model.fit(X, y)
-    assert np.isclose(model.predict(X)[0], y.sum() / (y.size + alpha))
+    assert np.isclose(model.predict(X)[0], y.sum() / (y.size + l2_regularization))
     model.update(X, y)
-    assert np.isclose(model.predict(X)[0], y.sum() / (y.size + alpha))
+    assert np.isclose(model.predict(X)[0], y.sum() / (y.size + l2_regularization))
 
 
 def test_l1_regularization():
     X = cn.array([[0.0], [0.0]])
     y = cn.array([500.0, 500.0])
-    lambd = 1.5
+    l1_regularization = 1.5
     model = lb.LBRegressor(
         init=None,
-        base_models=(lb.models.Tree(alpha=0.0, lambd=lambd, max_depth=0),),
+        base_models=(
+            lb.models.Tree(
+                l2_regularization=0.0, l1_regularization=l1_regularization, max_depth=0
+            ),
+        ),
         learning_rate=1.0,
         n_estimators=1,
         random_state=0,
     )
     model.fit(X, y)
-    assert np.isclose(model.predict(X)[0], (y.sum() - lambd) / (y.size))
+    assert np.isclose(model.predict(X)[0], (y.sum() - l1_regularization) / (y.size))
     model.update(X, y)
-    assert np.isclose(model.predict(X)[0], (y.sum() - lambd) / (y.size))
+    assert np.isclose(model.predict(X)[0], (y.sum() - l1_regularization) / (y.size))
 
     y = cn.array([0.5, 0.5])
     model.fit(X, y)
@@ -99,15 +103,15 @@ def test_l1_regularization():
     assert np.isclose(model.predict(X)[0], 0.0)
 
 
-def test_gamma_regularization():
-    # grow two trees with the same data, but one with gamma=10.0
-    # we should observe a smaller tree with higher gamma
+def test_min_split_gain():
+    # grow two trees with the same data, but one with min_split_gain=10.0
+    # we should observe a smaller tree with higher min_split_gain
     rng = np.random.RandomState(0)
     X = rng.random((100, 1))
     y = rng.random(100)
     model = lb.LBRegressor(
         init=None,
-        base_models=(lb.models.Tree(gamma=0.0, max_depth=12),),
+        base_models=(lb.models.Tree(min_split_gain=0.0, max_depth=12),),
         learning_rate=1.0,
         n_estimators=1,
         random_state=0,
@@ -116,7 +120,7 @@ def test_gamma_regularization():
     num_leaves_a = cn.sum(model[0].hessian > 0.0)
     model = lb.LBRegressor(
         init=None,
-        base_models=(lb.models.Tree(gamma=0.01, max_depth=12),),
+        base_models=(lb.models.Tree(min_split_gain=0.01, max_depth=12),),
         learning_rate=1.0,
         n_estimators=1,
         random_state=0,

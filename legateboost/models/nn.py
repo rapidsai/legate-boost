@@ -1,4 +1,5 @@
 import copy
+import warnings
 from typing import Any, List, Sequence, Tuple, cast
 
 import cupynumeric as cn
@@ -10,11 +11,32 @@ from .base_model import BaseModel
 
 
 class NN(BaseModel):
+    """A multi-layer perceptron base model.
+
+    Parameters
+    ----------
+    max_iter : int, default=100
+        Maximum number of lbfgs iterations.
+    hidden_layer_sizes : Tuple[int], default=(100,)
+        The ith element represents the number of neurons in the ith hidden layer.
+    alpha : str, default="deprecated"
+        Deprecated parameter for L2 regularization. Use `l2_regularization` instead.
+    l2_regularization : float, default=1e-5
+        L2 regularization term.
+    verbose : bool, default=False
+        Whether to print progress messages to stdout.
+    m : int, default=10
+        L-BFGS optimization parameter - number of previos steps to store.
+    gtol : float, default=1e-5
+        Gradient norm tolerance for L-BFGS optimization.
+    """
+
     def __init__(
         self,
         max_iter: int = 100,
         hidden_layer_sizes: Tuple[int] = (100,),
-        alpha: float = 0.0001,
+        alpha: str = "deprecated",
+        l2_regularization: float = 1e-5,
         verbose: bool = False,
         m: int = 10,
         gtol: float = 1e-5,
@@ -24,7 +46,15 @@ class NN(BaseModel):
         self.verbose = verbose
         self.m = m
         self.alpha = alpha
+        self.l2_regularization = l2_regularization
         self.gtol = gtol
+        if alpha != "deprecated":
+            warnings.warn(
+                "`alpha` was renamed to `l2_regularization` in 23.03"
+                " and will be removed in 23.05",
+                FutureWarning,
+            )
+            self.l2_regularization = alpha
 
     def tanh(self, x: cn.ndarray) -> cn.ndarray:
         cn.tanh(x, out=x)
@@ -55,7 +85,7 @@ class NN(BaseModel):
         task.add_scalar_arg(self.verbose, types.int32)
         task.add_scalar_arg(self.m, types.int32)
         task.add_scalar_arg(self.max_iter, types.int32)
-        task.add_scalar_arg(self.alpha, types.float64)
+        task.add_scalar_arg(self.l2_regularization, types.float64)
         task.add_input(X_)
         task.add_input(g_)
         task.add_input(h_)
