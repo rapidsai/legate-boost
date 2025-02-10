@@ -10,6 +10,7 @@ from legateboost.testing.utils import non_increasing, sanity_check_models
 
 
 def test_init():
+    # regressor
     np.random.seed(2)
     X = np.random.random((100, 10))
     y = np.random.random((X.shape[0], 2))
@@ -20,6 +21,14 @@ def test_init():
     w[50:100] = 0.0
     model = model.fit(X, y, sample_weight=w)
     assert cn.allclose(model.model_init_, y[0:50].mean(axis=0))
+
+    # classifier
+    y = np.random.randint(0, 2, X.shape[0])
+    model = lb.LBClassifier(n_estimators=0, init="average").fit(X, y)
+    obj = lb.LogLossObjective()
+    assert cn.allclose(obj.transform(model.model_init_.reshape(-1, 1)), y.mean())
+    model = lb.LBClassifier(n_estimators=0, init=None).fit(X, y)
+    assert cn.allclose(model.model_init_, 0.0)
 
 
 @pytest.mark.parametrize("init", [None, "average"])
@@ -225,3 +234,16 @@ def test_iterator_methods():
     assert list(model) == list(model.models_)
     for i, est in enumerate(model):
         assert est == model[i]
+
+
+def test_multi_label():
+    np.random.seed(2)
+    X = np.random.random((100, 10))
+    y = np.random.randint(0, 2, (X.shape[0], 5))
+    eval_result = {}
+    model = lb.LBClassifier(
+        n_estimators=5, base_models=(lb.models.Linear(),), objective="multi_label"
+    ).fit(X, y, eval_result=eval_result)
+    assert model.predict(X).shape == y.shape
+    assert model.predict_proba(X).shape == (X.shape[0], 5, 2)
+    assert non_increasing(eval_result["train"]["multi_label"])

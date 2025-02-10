@@ -17,6 +17,7 @@ __all__ = [
     "GammaDevianceMetric",
     "QuantileMetric",
     "LogLossMetric",
+    "MultiLabelMetric",
     "ExponentialMetric",
 ]
 
@@ -273,7 +274,7 @@ class LogLossMetric(BaseMetric):
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y = y.squeeze()
         eps = cn.finfo(pred.dtype).eps
-        cn.clip(pred, eps, 1 - eps, out=pred)
+        pred = cn.clip(pred, eps, 1 - eps)
 
         w_sum = w.sum()
 
@@ -294,6 +295,27 @@ class LogLossMetric(BaseMetric):
 
     def name(self) -> str:
         return "log_loss"
+
+
+class MultiLabelMetric(BaseMetric):
+    """Multi-label metric is a binary log-loss metric averaged over multiple
+    labels.
+
+    See also:
+        :class:`legateboost.objectives.MultiLabelObjective`
+    """  # noqa: E501
+
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
+        y = y.squeeze()
+        eps = cn.finfo(pred.dtype).eps
+        pred = cn.clip(pred, eps, 1 - eps)
+        w_sum = w.sum()
+        pos = pred[:, :, 1]
+        logloss = -(y * cn.log(pos) + (self.one - y) * cn.log(self.one - pos))
+        return (logloss * w[:, cn.newaxis]).sum() / w_sum
+
+    def name(self) -> str:
+        return "multi_label"
 
 
 class ExponentialMetric(BaseMetric):

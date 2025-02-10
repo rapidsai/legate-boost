@@ -1069,9 +1069,6 @@ class LBClassifier(ClassifierMixin, LBBase):
         validate_data(self, X, reset=False, skip_check_array=True)
         check_is_fitted(self, "is_fitted_")
         pred = self._objective_instance.transform(super()._predict(X))
-        if pred.shape[1] == 1:
-            pred = pred.reshape(-1)
-            pred = cn.stack([1.0 - pred, pred], axis=1)
         return pred
 
     def predict(self, X: cn.ndarray) -> cn.ndarray:
@@ -1089,4 +1086,4 @@ class LBClassifier(ClassifierMixin, LBBase):
         y :
             The predicted class labels for each sample in X.
         """
-        return cn.argmax(self.predict_proba(X), axis=1)
+        return cn.argmax(self.predict_proba(X), axis=-1)

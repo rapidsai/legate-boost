@@ -14,6 +14,7 @@ from .metrics import (
     GammaLLMetric,
     LogLossMetric,
     MSEMetric,
+    MultiLabelMetric,
     NormalLLMetric,
     QuantileMetric,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "SquaredErrorObjective",
     "NormalObjective",
     "LogLossObjective",
+    "MultiLabelObjective",
     "ExponentialObjective",
     "QuantileObjective",
     "GammaDevianceObjective",
@@ -454,7 +456,7 @@ class QuantileObjective(BaseObjective):
         return cn.zeros_like(self.quantiles)
 
 
-class LogLossObjective(FitInterceptRegMixIn):
+class LogLossObjective(BaseObjective):
     """The Log Loss objective function for binary and multi-class
     classification problems.
 
@@ -483,7 +485,9 @@ class LogLossObjective(FitInterceptRegMixIn):
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         assert len(pred.shape) == 2
         if pred.shape[1] == 1:
-            return self.one / (self.one + cn.exp(-pred))
+            out = self.one / (self.one + cn.exp(-pred))
+            return cn.stack([1.0 - out, out], axis=-1)
+
         # softmax function
         s = cn.max(pred, axis=1)
         e_x = cn.exp(pred - s[:, cn.newaxis])
@@ -500,12 +504,46 @@ class LogLossObjective(FitInterceptRegMixIn):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
         n_targets = num_class if num_class > 2 else 1
+        if not boost_from_average:
+            return cn.zeros((1, n_targets), dtype=cn.float64)
         if n_targets == 1:
             prob = y.sum() / y.size
             return -cn.log(1 / prob - 1).reshape(1)
         else:
             prob = cn.bincount(y.squeeze().astype(cn.int32)) / y.size
             return cn.log(prob)
+
+
+class MultiLabelObjective(BaseObjective):
+    """Used for multi-label classification problems. i.e. the model can predict
+    more than one output class.
+
+    We apply an independent sigmoid function/logloss to each class.
+
+    See also:
+        :class:`legateboost.metrics.MultiLabelMetric`
+    """
+
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
+        positive = pred[:, :, 1]
+        return positive - y, positive * (self.one - positive)
+
+    def transform(self, pred: cn.ndarray) -> cn.ndarray:
+        out = self.one / (self.one + cn.exp(-pred))
+        return cn.stack([1.0 - out, out], axis=-1)
+
+    def metric(self) -> MultiLabelMetric:
+        return MultiLabelMetric()
+
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        if not cn.all((y == 1.0) | (y == 0.0)):
+            raise ValueError("Expected labels to be in [0, 1]")
+        if not boost_from_average:
+            return cn.zeros((1, y.shape[1]), dtype=cn.float64)
+        prob = y.sum(axis=0) / y.shape[0]
+        return -cn.log(1 / prob - 1)
 
 
 class ExponentialObjective(FitInterceptRegMixIn):
@@ -577,6 +615,7 @@ objectives = {
     "normal": NormalObjective,
     "log_loss": LogLossObjective,
     "exp": ExponentialObjective,
+    "multi_label": MultiLabelObjective,
     "quantile": QuantileObjective,
     "gamma_deviance": GammaDevianceObjective,
     "gamma": GammaObjective,
