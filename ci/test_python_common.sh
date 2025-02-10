@@ -50,4 +50,4 @@ rapids-mamba-retry install \
   --channel legate/label/experimental \
   --channel conda-forge \
   --channel nvidia \
-    "${RAPIDS_LOCAL_CONDA_CHANNEL}::legate-boost<25"
+    "legate-boost<25"
