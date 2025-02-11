@@ -109,22 +109,26 @@ def test_min_split_gain():
     rng = np.random.RandomState(0)
     X = rng.random((100, 1))
     y = rng.random(100)
-    model = lb.LBRegressor(
+    model_a = lb.LBRegressor(
         init=None,
         base_models=(lb.models.Tree(min_split_gain=0.0, max_depth=12),),
         learning_rate=1.0,
         n_estimators=1,
         random_state=0,
     )
-    model.fit(X, y)
-    num_leaves_a = cn.sum(model[0].hessian > 0.0)
-    model = lb.LBRegressor(
+    model_a.fit(X, y)
+    num_leaves_a = cn.sum(model_a[0].hessian > 0.0)
+    min_split_gain = 0.03
+    model_b = lb.LBRegressor(
         init=None,
-        base_models=(lb.models.Tree(min_split_gain=0.01, max_depth=12),),
+        base_models=(lb.models.Tree(min_split_gain=min_split_gain, max_depth=12),),
         learning_rate=1.0,
         n_estimators=1,
         random_state=0,
     )
-    model.fit(X, y)
-    num_leaves_b = cn.sum(model[0].hessian > 0.0)
+    model_b.fit(X, y)
+    num_leaves_b = cn.sum(model_b[0].hessian > 0.0)
     assert num_leaves_b < num_leaves_a
+    model_a_root_gain = model_a[0].gain[0]
+    model_b_root_gain = model_b[0].gain[0]
+    assert np.isclose(model_a_root_gain, model_b_root_gain + min_split_gain)
