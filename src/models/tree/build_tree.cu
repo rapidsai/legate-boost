@@ -682,9 +682,9 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
                      size_t n_outputs,
                      SparseSplitProposals<TYPE> split_proposals,
                      double eps,
-                     double alpha,
-                     double lambda,
-                     double gamma,
+                     double l2_regularization,
+                     double l1_regularization,
+                     double min_split_gain,
                      legate::Buffer<double, 2> tree_leaf_value,
                      legate::Buffer<IntegerGPair, 2> node_sums,
                      legate::Buffer<int32_t, 1> tree_feature,
@@ -721,7 +721,8 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
       auto parent = quantiser.Dequantise(node_sum);
       auto left   = quantiser.Dequantise(left_sum);
       auto right  = quantiser.Dequantise(right_sum);
-      gain += CalculateGain(left, right, parent, alpha, lambda, gamma);
+      gain +=
+        CalculateGain(left, right, parent, l2_regularization, l1_regularization, min_split_gain);
     }
     if (gain > thread_best_gain) {
       thread_best_gain    = gain;
@@ -750,11 +751,11 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
 
       auto [G_L, H_L] = quantiser.Dequantise(left_sum);
       tree_leaf_value[{BinaryTree::LeftChild(node_id), output}] =
-        CalculateLeafValue(G_L, H_L, alpha, lambda);
+        CalculateLeafValue(G_L, H_L, l2_regularization, l1_regularization);
 
       auto [G_R, H_R] = quantiser.Dequantise(right_sum);
       tree_leaf_value[{BinaryTree::RightChild(node_id), output}] =
-        CalculateLeafValue(G_R, H_R, alpha, lambda);
+        CalculateLeafValue(G_R, H_R, l2_regularization, l1_regularization);
 
       if (output == 0) {
         tree_feature[node_id]     = node_best_feature;
@@ -820,7 +821,7 @@ struct Tree {
     auto hessian                        = context.output(4).data();
     const legate::Rect<2> hessian_shape = hessian.shape<2>();
     auto hessian_acc                    = hessian.write_accessor<double, 2>();
-    auto node_sums                      = this->node_sums;  // Dont let device lambda capture this
+    auto node_sums = this->node_sums;  // Dont let device l1_regularization capture this
     thrust::for_each_n(
       policy, UnravelIter(hessian_shape), hessian_shape.volume(), [=] __device__(auto p) {
         hessian_acc[p] = quantiser.Dequantise(node_sums[p]).hess;
@@ -946,7 +947,7 @@ auto SelectSplitSamples(legate::TaskContext context,
   return SparseSplitProposals<T>(split_proposals, row_pointers, num_features, n_unique);
 }
 
-// Can't put a device lambda in constructor so make this a function
+// Can't put a device l1_regularization in constructor so make this a function
 void FillPositions(const legate::Buffer<cuda::std::tuple<int32_t, int32_t>>& sorted_positions,
                    std::size_t num_rows,
                    cudaStream_t stream)
@@ -1108,10 +1109,10 @@ struct TreeBuilder {
 
   void PerformBestSplit(Tree& tree,
                         const Histogram<IntegerGPair>& histogram,
-                        double alpha,
+                        double l2_regularization,
                         NodeBatch batch,
-                        double lambda,
-                        double gamma)
+                        double l1_regularization,
+                        double min_split_gain)
   {
     const int kBlockThreads = 512;
     perform_best_split<T, kBlockThreads>
@@ -1119,9 +1120,9 @@ struct TreeBuilder {
                                                            num_outputs,
                                                            split_proposals,
                                                            eps,
-                                                           alpha,
-                                                           lambda,
-                                                           gamma,
+                                                           l2_regularization,
+                                                           l1_regularization,
+                                                           min_split_gain,
                                                            tree.leaf_value,
                                                            tree.node_sums,
                                                            tree.feature,
@@ -1136,8 +1137,8 @@ struct TreeBuilder {
                       const legate::AccessorRO<double, 3>& g,
                       const legate::AccessorRO<double, 3>& h,
                       legate::Rect<3> g_shape,
-                      double alpha,
-                      double lambda,
+                      double l2_regularization,
+                      double l1_regularization,
                       int64_t seed)
   {
     const int kBlockThreads = 256;
@@ -1159,8 +1160,9 @@ struct TreeBuilder {
              leaf_value  = tree.leaf_value,
              node_sums   = tree.node_sums,
              quantiser   = this->quantiser] __device__(int output) {
-              GPair const sum         = quantiser.Dequantise(node_sums[{0, output}]);
-              leaf_value[{0, output}] = CalculateLeafValue(sum.grad, sum.hess, alpha, lambda);
+              GPair const sum = quantiser.Dequantise(node_sums[{0, output}]);
+              leaf_value[{0, output}] =
+                CalculateLeafValue(sum.grad, sum.hess, l2_regularization, l1_regularization);
             });
     CHECK_CUDA_STREAM(stream);
   }
@@ -1272,14 +1274,14 @@ struct build_tree_fn {
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
     // Scalars
-    auto max_depth     = context.scalars().at(0).value<int>();
-    auto max_nodes     = context.scalars().at(1).value<int>();
-    auto alpha         = context.scalars().at(2).value<double>();
-    auto split_samples = context.scalars().at(3).value<int>();
-    auto seed          = context.scalars().at(4).value<int>();
-    auto dataset_rows  = context.scalars().at(5).value<int64_t>();
-    auto lambda        = context.scalars().at(6).value<double>();
-    auto gamma         = context.scalars().at(7).value<double>();
+    auto max_depth         = context.scalars().at(0).value<int>();
+    auto max_nodes         = context.scalars().at(1).value<int>();
+    auto l2_regularization = context.scalars().at(2).value<double>();
+    auto split_samples     = context.scalars().at(3).value<int>();
+    auto seed              = context.scalars().at(4).value<int>();
+    auto dataset_rows      = context.scalars().at(5).value<int64_t>();
+    auto l1_regularization = context.scalars().at(6).value<double>();
+    auto min_split_gain    = context.scalars().at(7).value<double>();
 
     auto* stream            = context.get_task_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
@@ -1302,7 +1304,8 @@ struct build_tree_fn {
                            split_proposals,
                            quantiser);
 
-    builder.InitialiseRoot(context, tree, g_accessor, h_accessor, g_shape, alpha, lambda, seed);
+    builder.InitialiseRoot(
+      context, tree, g_accessor, h_accessor, g_shape, l2_regularization, l1_regularization, seed);
 
     for (int depth = 0; depth < max_depth; ++depth) {
       auto batches = builder.PrepareBatches(depth);
@@ -1312,7 +1315,8 @@ struct build_tree_fn {
         builder.ComputeHistogram(
           histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch, seed);
 
-        builder.PerformBestSplit(tree, histogram, alpha, batch, lambda, gamma);
+        builder.PerformBestSplit(
+          tree, histogram, l2_regularization, batch, l1_regularization, min_split_gain);
       }
       // Update position of entire level
       // Don't bother updating positions for the last level

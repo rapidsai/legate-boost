@@ -104,15 +104,16 @@ inline __host__ __device__ auto ComputeHistogramBin(int node_id,
 }
 
 namespace detail {
-__host__ __device__ inline auto CalculateLeafGain(const GPair& sum, double alpha_reg, double lambda)
-  -> double
+__host__ __device__ inline auto CalculateLeafGain(const GPair& sum,
+                                                  double alpha_reg,
+                                                  double l1_regularization) -> double
 {
   // l1 threshold
   double z = 0.0;
-  if (sum.grad > lambda) {
-    z = sum.grad - lambda;
-  } else if (sum.grad < -lambda) {
-    z = sum.grad + lambda;
+  if (sum.grad > l1_regularization) {
+    z = sum.grad - l1_regularization;
+  } else if (sum.grad < -l1_regularization) {
+    z = sum.grad + l1_regularization;
   }
   // Note: we could use the cuda __ddiv_rn intrinsic here if this becomes a bottleneck
   return (z * z) / (sum.hess + alpha_reg);
@@ -123,25 +124,27 @@ __host__ __device__ inline auto CalculateGain(const GPair& left_sum,
                                               const GPair& right_sum,
                                               const GPair& parent_sum,
                                               double alpha,
-                                              double lambda,
+                                              double l1_regularization,
                                               double gamma) -> double
 {
   double const reg = std::max(1e-5, alpha);
-  return (0.5 * (detail::CalculateLeafGain(left_sum, reg, lambda) +
-                 detail::CalculateLeafGain(right_sum, reg, lambda) -
-                 detail::CalculateLeafGain(parent_sum, reg, lambda))) -
+  return (0.5 * (detail::CalculateLeafGain(left_sum, reg, l1_regularization) +
+                 detail::CalculateLeafGain(right_sum, reg, l1_regularization) -
+                 detail::CalculateLeafGain(parent_sum, reg, l1_regularization))) -
          gamma;
 }
 
-__host__ __device__ inline auto CalculateLeafValue(double G, double H, double alpha, double lambda)
-  -> double
+__host__ __device__ inline auto CalculateLeafValue(double G,
+                                                   double H,
+                                                   double alpha,
+                                                   double l1_regularization) -> double
 {
   // l1 threshold
   double z = 0.0;
-  if (G > lambda) {
-    z = G - lambda;
-  } else if (G < -lambda) {
-    z = G + lambda;
+  if (G > l1_regularization) {
+    z = G - l1_regularization;
+  } else if (G < -l1_regularization) {
+    z = G + l1_regularization;
   }
   return -z / (H + alpha);
 }
