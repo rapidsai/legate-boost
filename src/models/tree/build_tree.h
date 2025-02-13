@@ -105,8 +105,8 @@ inline __host__ __device__ auto ComputeHistogramBin(int node_id,
 
 namespace detail {
 __host__ __device__ inline auto CalculateLeafGain(const GPair& sum,
-                                                  double alpha_reg,
-                                                  double l1_regularization) -> double
+                                                  double l1_regularization,
+                                                  double l2_regularization) -> double
 {
   // l1 threshold
   double z = 0.0;
@@ -116,28 +116,30 @@ __host__ __device__ inline auto CalculateLeafGain(const GPair& sum,
     z = sum.grad + l1_regularization;
   }
   // Note: we could use the cuda __ddiv_rn intrinsic here if this becomes a bottleneck
-  return (z * z) / (sum.hess + alpha_reg);
+  return (z * z) / (sum.hess + l2_regularization);
 }
 }  // namespace detail
 
 __host__ __device__ inline auto CalculateGain(const GPair& left_sum,
                                               const GPair& right_sum,
                                               const GPair& parent_sum,
-                                              double alpha,
                                               double l1_regularization,
-                                              double gamma) -> double
+                                              double l2_regularization,
+                                              double min_split_gain) -> double
 {
-  double const reg = std::max(1e-5, alpha);
-  return (0.5 * (detail::CalculateLeafGain(left_sum, reg, l1_regularization) +
-                 detail::CalculateLeafGain(right_sum, reg, l1_regularization) -
-                 detail::CalculateLeafGain(parent_sum, reg, l1_regularization))) -
-         gamma;
+  // This static cast creates a copy as we cannot take a reference to a static
+  // const variable in device code
+  double const reg = std::max(static_cast<double>(eps), l2_regularization);
+  return (0.5 * (detail::CalculateLeafGain(left_sum, l1_regularization, reg) +
+                 detail::CalculateLeafGain(right_sum, l1_regularization, reg) -
+                 detail::CalculateLeafGain(parent_sum, l1_regularization, reg))) -
+         min_split_gain;
 }
 
 __host__ __device__ inline auto CalculateLeafValue(double G,
                                                    double H,
-                                                   double alpha,
-                                                   double l1_regularization) -> double
+                                                   double l1_regularization,
+                                                   double l2_regularization) -> double
 {
   // l1 threshold
   double z = 0.0;
@@ -146,7 +148,7 @@ __host__ __device__ inline auto CalculateLeafValue(double G,
   } else if (G < -l1_regularization) {
     z = G + l1_regularization;
   }
-  return -z / (H + alpha);
+  return -z / (H + l2_regularization);
 }
 
 // Container for the CSR matrix containing the split proposals

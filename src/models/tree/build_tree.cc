@@ -300,9 +300,9 @@ struct TreeBuilder {
   }
   void PerformBestSplit(Tree& tree,
                         Histogram<GPair> histogram,
-                        double l2_regularization,
                         NodeBatch batch,
                         double l1_regularization,
+                        double l2_regularization,
                         double min_split_gain)
   {
     for (int node_id = batch.node_idx_begin; node_id < batch.node_idx_end; node_id++) {
@@ -318,7 +318,7 @@ struct TreeBuilder {
             auto parent = tree.node_sums[{node_id, output}];
             auto right  = parent - left;
             gain += CalculateGain(
-              left, right, parent, l2_regularization, l1_regularization, min_split_gain);
+              left, right, parent, l1_regularization, l2_regularization, min_split_gain);
           }
           if (gain > best_gain) {
             best_gain    = gain;
@@ -337,8 +337,8 @@ struct TreeBuilder {
           auto [G, H]        = tree.node_sums[{node_id, output}];
           auto G_R           = G - G_L;
           auto H_R           = H - H_L;
-          left_leaf[output]  = CalculateLeafValue(G_L, H_L, l2_regularization, l1_regularization);
-          right_leaf[output] = CalculateLeafValue(G_R, H_R, l2_regularization, l1_regularization);
+          left_leaf[output]  = CalculateLeafValue(G_L, H_L, l1_regularization, l2_regularization);
+          right_leaf[output] = CalculateLeafValue(G_R, H_R, l1_regularization, l2_regularization);
           left_sum[output]   = {G_L, H_L};
           right_sum[output]  = {G_R, H_R};
         }
@@ -443,7 +443,7 @@ struct TreeBuilder {
                                    static_cast<size_t>(num_outputs * 2)));
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = tree.node_sums[{0, i}];
-      tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, l2_regularization, l1_regularization);
+      tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, l1_regularization, l2_regularization);
     }
   }
 
@@ -476,11 +476,11 @@ struct build_tree_fn {
     // Scalars
     auto max_depth         = context.scalars().at(0).value<int>();
     auto max_nodes         = context.scalars().at(1).value<int>();
-    auto l2_regularization = context.scalars().at(2).value<double>();
-    auto split_samples     = context.scalars().at(3).value<int>();
-    auto seed              = context.scalars().at(4).value<int>();
-    auto dataset_rows      = context.scalars().at(5).value<int64_t>();
-    auto l1_regularization = context.scalars().at(6).value<double>();
+    auto split_samples     = context.scalars().at(2).value<int>();
+    auto seed              = context.scalars().at(3).value<int>();
+    auto dataset_rows      = context.scalars().at(4).value<int64_t>();
+    auto l1_regularization = context.scalars().at(5).value<double>();
+    auto l2_regularization = context.scalars().at(6).value<double>();
     auto min_split_gain    = context.scalars().at(7).value<double>();
 
     Tree tree(max_nodes, narrow<int>(num_outputs));
@@ -502,7 +502,7 @@ struct build_tree_fn {
           histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
 
         builder.PerformBestSplit(
-          tree, histogram, l2_regularization, batch, l1_regularization, min_split_gain);
+          tree, histogram, batch, l1_regularization, l2_regularization, min_split_gain);
       }
       // Update position of entire level
       // Don't bother updating positions for the last level

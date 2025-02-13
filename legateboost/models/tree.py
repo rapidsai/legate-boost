@@ -35,13 +35,15 @@ class Tree(BaseModel):
         Max value is 2048 due to constraints on shared memory in GPU kernels.
     l1_regularization : float
         The L1 regularization parameter applied to leaf weights.
-    l2 : float
+    l2_regularization : float
         The L2 regularization parameter applied to leaf weights.
     alpha : deprecated
         Deprecated, use `l2_regularization` instead.
     min_split_gain : float
         The minimum improvement in the loss function required to make a split.
-        Increasing this value generates smaller trees.
+        Increasing this value generates smaller trees. Equivalent to the `gamma`
+        parameter from XGBoost. Is applied on a per output basis e.g. if there
+        are 3 output classes then the gain must be greater than 3 * min_split_gain.
     """
 
     leaf_value: cn.ndarray
@@ -96,11 +98,11 @@ class Tree(BaseModel):
         task.add_scalar_arg(self.max_depth, types.int32)
         max_nodes = 2 ** (self.max_depth + 1)
         task.add_scalar_arg(max_nodes, types.int32)
-        task.add_scalar_arg(self.l2_regularization, types.float64)
         task.add_scalar_arg(self.split_samples, types.int32)
         task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
         task.add_scalar_arg(X.shape[0], types.int64)
         task.add_scalar_arg(self.l1_regularization, types.float64)
+        task.add_scalar_arg(self.l2_regularization, types.float64)
         task.add_scalar_arg(self.min_split_gain, types.float64)
 
         task.add_input(X_)
@@ -162,8 +164,8 @@ class Tree(BaseModel):
         X_ = get_store(X).promote(2, g.shape[1])
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
-        task.add_scalar_arg(self.l2_regularization, types.float64)
         task.add_scalar_arg(self.l1_regularization, types.float64)
+        task.add_scalar_arg(self.l2_regularization, types.float64)
         task.add_input(X_)
         task.add_broadcast(X_, 1)
         task.add_input(g_)

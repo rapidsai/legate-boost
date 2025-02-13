@@ -681,9 +681,8 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
   perform_best_split(Histogram<IntegerGPair> histogram,
                      size_t n_outputs,
                      SparseSplitProposals<TYPE> split_proposals,
-                     double eps,
-                     double l2_regularization,
                      double l1_regularization,
+                     double l2_regularization,
                      double min_split_gain,
                      legate::Buffer<double, 2> tree_leaf_value,
                      legate::Buffer<IntegerGPair, 2> node_sums,
@@ -722,7 +721,7 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
       auto left   = quantiser.Dequantise(left_sum);
       auto right  = quantiser.Dequantise(right_sum);
       gain +=
-        CalculateGain(left, right, parent, l2_regularization, l1_regularization, min_split_gain);
+        CalculateGain(left, right, parent, l1_regularization, l2_regularization, min_split_gain);
     }
     if (gain > thread_best_gain) {
       thread_best_gain    = gain;
@@ -751,11 +750,11 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
 
       auto [G_L, H_L] = quantiser.Dequantise(left_sum);
       tree_leaf_value[{BinaryTree::LeftChild(node_id), output}] =
-        CalculateLeafValue(G_L, H_L, l2_regularization, l1_regularization);
+        CalculateLeafValue(G_L, H_L, l1_regularization, l2_regularization);
 
       auto [G_R, H_R] = quantiser.Dequantise(right_sum);
       tree_leaf_value[{BinaryTree::RightChild(node_id), output}] =
-        CalculateLeafValue(G_R, H_R, l2_regularization, l1_regularization);
+        CalculateLeafValue(G_R, H_R, l1_regularization, l2_regularization);
 
       if (output == 0) {
         tree_feature[node_id]     = node_best_feature;
@@ -1109,9 +1108,9 @@ struct TreeBuilder {
 
   void PerformBestSplit(Tree& tree,
                         const Histogram<IntegerGPair>& histogram,
-                        double l2_regularization,
                         NodeBatch batch,
                         double l1_regularization,
+                        double l2_regularization,
                         double min_split_gain)
   {
     const int kBlockThreads = 512;
@@ -1119,9 +1118,8 @@ struct TreeBuilder {
       <<<batch.NodesInBatch(), kBlockThreads, 0, stream>>>(histogram,
                                                            num_outputs,
                                                            split_proposals,
-                                                           eps,
-                                                           l2_regularization,
                                                            l1_regularization,
+                                                           l2_regularization,
                                                            min_split_gain,
                                                            tree.leaf_value,
                                                            tree.node_sums,
@@ -1162,7 +1160,7 @@ struct TreeBuilder {
              quantiser   = this->quantiser] __device__(int output) {
               GPair const sum = quantiser.Dequantise(node_sums[{0, output}]);
               leaf_value[{0, output}] =
-                CalculateLeafValue(sum.grad, sum.hess, l2_regularization, l1_regularization);
+                CalculateLeafValue(sum.grad, sum.hess, l1_regularization, l2_regularization);
             });
     CHECK_CUDA_STREAM(stream);
   }
@@ -1276,11 +1274,11 @@ struct build_tree_fn {
     // Scalars
     auto max_depth         = context.scalars().at(0).value<int>();
     auto max_nodes         = context.scalars().at(1).value<int>();
-    auto l2_regularization = context.scalars().at(2).value<double>();
-    auto split_samples     = context.scalars().at(3).value<int>();
-    auto seed              = context.scalars().at(4).value<int>();
-    auto dataset_rows      = context.scalars().at(5).value<int64_t>();
-    auto l1_regularization = context.scalars().at(6).value<double>();
+    auto split_samples     = context.scalars().at(2).value<int>();
+    auto seed              = context.scalars().at(3).value<int>();
+    auto dataset_rows      = context.scalars().at(4).value<int64_t>();
+    auto l1_regularization = context.scalars().at(5).value<double>();
+    auto l2_regularization = context.scalars().at(6).value<double>();
     auto min_split_gain    = context.scalars().at(7).value<double>();
 
     auto* stream            = context.get_task_stream();
@@ -1316,7 +1314,7 @@ struct build_tree_fn {
           histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch, seed);
 
         builder.PerformBestSplit(
-          tree, histogram, l2_regularization, batch, l1_regularization, min_split_gain);
+          tree, histogram, batch, l1_regularization, l2_regularization, min_split_gain);
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
