@@ -1062,7 +1062,7 @@ class LBClassifier(ClassifierMixin, LBBase):
         Returns
         -------
 
-        y :
+        probabilities:
             The predicted class probabilities for each sample in X.
         """
         X = _lb_check_X(X)
@@ -1086,4 +1086,4 @@ class LBClassifier(ClassifierMixin, LBBase):
         y :
             The predicted class labels for each sample in X.
         """
-        return cn.argmax(self.predict_proba(X), axis=-1)
+        return self._objective_instance.output_class(self.predict_proba(X))

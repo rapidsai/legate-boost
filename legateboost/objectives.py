@@ -55,7 +55,7 @@ class BaseObjective(ABC):
 
         Returns:
             The functional gradient and hessian of the squared error
-            objective function.
+            objective function, both of which must be 2D arrays.
         """  # noqa: E501
         pass
 
@@ -63,10 +63,10 @@ class BaseObjective(ABC):
         """Transforms the predicted labels. E.g. sigmoid for log loss.
 
         Args:
-            pred : The predicted labels.
+            pred : Raw predictions.
 
         Returns:
-            The transformed labels.
+            n-d array. For classification problems outputs a probability.
         """
         return pred
 
@@ -83,7 +83,9 @@ class BaseObjective(ABC):
     def initialise_prediction(
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
     ) -> cn.ndarray:
-        """Initializes the base score of the model. May also validate labels.
+        """Initializes the base score of the model, optionally either to a
+        baseline value or some value minimising the objective. Should also
+        validate labels i.e. check if y is suitable for this objective.
 
         Args:
             y : The target values.
@@ -92,7 +94,25 @@ class BaseObjective(ABC):
               from the average of the target values.
 
         Returns:
-            The initial predictions for a single example.
+            The initial (untransformed) prediction for a single example.
+        """
+        pass
+
+
+class ClassificationObjective(BaseObjective):
+    """Extension of BaseObjective for classification problems, requiring the
+    definition of a method to output class labels."""
+
+    @abstractmethod
+    def output_class(self, pred: cn.ndarray) -> cn.ndarray:
+        """Defined how to output class labels from transfored output. This may
+        be as simple as argmax over probabilities.
+
+        Args:
+            pred (cn.ndarray): The transformed predictions.
+
+        Returns:
+            cn.ndarray: The class labels as a NumPy array.
         """
         pass
 
@@ -456,7 +476,7 @@ class QuantileObjective(BaseObjective):
         return cn.zeros_like(self.quantiles)
 
 
-class LogLossObjective(BaseObjective):
+class LogLossObjective(ClassificationObjective):
     """The Log Loss objective function for binary and multi-class
     classification problems.
 
@@ -485,14 +505,18 @@ class LogLossObjective(BaseObjective):
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         assert len(pred.shape) == 2
         if pred.shape[1] == 1:
-            out = self.one / (self.one + cn.exp(-pred))
-            return cn.stack([1.0 - out, out], axis=-1)
+            return self.one / (self.one + cn.exp(-pred))
 
         # softmax function
         s = cn.max(pred, axis=1)
         e_x = cn.exp(pred - s[:, cn.newaxis])
         div = cn.sum(e_x, axis=1)
         return e_x / div[:, cn.newaxis]
+
+    def output_class(self, pred: cn.ndarray) -> cn.ndarray:
+        if pred.shape[1] == 1:
+            return pred > 0.5
+        return cn.argmax(pred, axis=1)
 
     def metric(self) -> LogLossMetric:
         return LogLossMetric()
@@ -514,7 +538,7 @@ class LogLossObjective(BaseObjective):
             return cn.log(prob)
 
 
-class MultiLabelObjective(BaseObjective):
+class MultiLabelObjective(ClassificationObjective):
     """Used for multi-label classification problems. i.e. the model can predict
     more than one output class.
 
@@ -525,12 +549,13 @@ class MultiLabelObjective(BaseObjective):
     """
 
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
-        positive = pred[:, :, 1]
-        return positive - y, positive * (self.one - positive)
+        return pred - y, pred * (self.one - pred)
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
-        out = self.one / (self.one + cn.exp(-pred))
-        return cn.stack([1.0 - out, out], axis=-1)
+        return self.one / (self.one + cn.exp(-pred))
+
+    def output_class(self, pred: cn.ndarray) -> cn.ndarray:
+        return pred > 0.5
 
     def metric(self) -> MultiLabelMetric:
         return MultiLabelMetric()
@@ -546,7 +571,7 @@ class MultiLabelObjective(BaseObjective):
         return -cn.log(1 / prob - 1)
 
 
-class ExponentialObjective(FitInterceptRegMixIn):
+class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
     """Exponential loss objective function for binary classification.
     Equivalent to the AdaBoost multiclass exponential loss in [1].
 
@@ -595,6 +620,11 @@ class ExponentialObjective(FitInterceptRegMixIn):
             return logloss.transform(2 * pred)
         K = pred.shape[1]  # number of classes
         return logloss.transform((1 / (K - 1)) * pred)
+
+    def output_class(self, pred):
+        if pred.shape[1] == 1:
+            return pred > 0.5
+        return cn.argmax(pred, axis=1)
 
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()

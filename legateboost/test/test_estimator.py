@@ -26,7 +26,8 @@ def test_init():
     y = np.random.randint(0, 2, X.shape[0])
     model = lb.LBClassifier(n_estimators=0, init="average").fit(X, y)
     obj = lb.LogLossObjective()
-    assert cn.allclose(obj.transform(model.model_init_.reshape(-1, 1)), y.mean())
+    p = y.mean()
+    assert cn.allclose(obj.transform(model.model_init_.reshape(-1, 1)), [1 - p, p])
     model = lb.LBClassifier(n_estimators=0, init=None).fit(X, y)
     assert cn.allclose(model.model_init_, 0.0)
 
