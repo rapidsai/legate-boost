@@ -32,6 +32,8 @@ class Tree(BaseModel):
     split_samples : int
         The number of data points to sample for each split decision.
         Max value is 2048 due to constraints on shared memory in GPU kernels.
+    feature_fraction : float
+        The subsampled fraction of features considered in building this model.
     alpha : float
         The L2 regularization parameter.
     """
@@ -47,12 +49,17 @@ class Tree(BaseModel):
         max_depth: int = 8,
         split_samples: int = 256,
         alpha: float = 1.0,
+        feature_fraction: float = 1.0,
     ) -> None:
         self.max_depth = max_depth
         if split_samples > 2048:
             raise ValueError("split_samples must be <= 2048")
         self.split_samples = split_samples
         self.alpha = alpha
+        self.feature_fraction = feature_fraction
+
+    def num_nodes(self) -> int:
+        return cn.sum(self.hessian > 0.0)
 
     def fit(
         self,
@@ -78,6 +85,7 @@ class Tree(BaseModel):
         task.add_scalar_arg(self.split_samples, types.int32)
         task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
         task.add_scalar_arg(X.shape[0], types.int64)
+        task.add_scalar_arg(self.feature_fraction, types.float64)
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
@@ -85,6 +93,15 @@ class Tree(BaseModel):
         task.add_input(h_)
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
+
+        # sample features
+        if self.feature_fraction < 1.0:
+            cn.random.seed(self.random_state.randint(0, 2**31))
+            feature_set = cn.random.binomial(
+                1, self.feature_fraction, size=(X.shape[1],), dtype=bool
+            )
+            task.add_input(get_store(feature_set))
+            task.add_broadcast(get_store(feature_set))
 
         # outputs
         leaf_value = get_legate_runtime().create_store(

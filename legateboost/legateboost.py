@@ -453,6 +453,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         Returns:
             int: The number of models in the `models_` attribute.
         """
+        check_is_fitted(self, "is_fitted_")
         return len(self.models_)
 
     def __getitem__(self, i: int) -> BaseModel:
@@ -464,6 +465,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         Returns:
             BaseModel: The model at the specified index.
         """
+        check_is_fitted(self, "is_fitted_")
         return self.models_[i]
 
     def __iter__(self) -> Any:
@@ -472,6 +474,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         Yields:
             Any: An iterator over the models in the `models_` attribute.
         """
+        check_is_fitted(self, "is_fitted_")
         return iter(self.models_)
 
     def __mul__(self, scalar: Any) -> Self:
@@ -494,6 +497,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         ValueError
             If the provided scalar is not a numeric value.
         """
+        check_is_fitted(self, "is_fitted_")
 
         if not np.isscalar(scalar):
             raise ValueError("Can only multiply by scalar")

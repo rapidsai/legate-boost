@@ -1,5 +1,7 @@
 import numpy as np
 import pytest
+import scipy.stats as stats
+from sklearn.datasets import make_regression
 
 import cupynumeric as cn
 import legateboost as lb
@@ -72,3 +74,45 @@ def test_alpha():
     )
     model.fit(X, y)
     assert np.isclose(model.predict(X)[0], y.sum() / (y.size + alpha))
+
+
+def test_feature_sample():
+    X, y = make_regression(
+        n_samples=100, n_features=10, n_informative=2, random_state=0
+    )
+
+    def get_feature_distribution(model):
+        histogram = cn.zeros(X.shape[1])
+        for m in model:
+            histogram += cn.histogram(
+                m.feature, bins=X.shape[1], range=(0, X.shape[1])
+            )[0]
+        return histogram / histogram.sum()
+
+    # We have a distribution of how often each feature is used in the model
+    # Hypothesis: the baseline model should use the best features more often and the
+    # sampled model should use other features more often as it won't always see the
+    # best features. So we expect the entropy of the baseline model feature
+    # disribution to be lower than the sampled model
+    # i.e. the sampled model should be closer to uniform distribution
+    baseline_samples = []
+    sampled_samples = []
+    for trial in range(5):
+        baseline_model = lb.LBRegressor(
+            base_models=(lb.models.Tree(feature_fraction=1.0),), random_state=trial
+        ).fit(X, y)
+        sampled_model = lb.LBRegressor(
+            base_models=(lb.models.Tree(feature_fraction=0.5),), random_state=trial
+        ).fit(X, y)
+        baseline_samples.append(stats.entropy(get_feature_distribution(baseline_model)))
+        sampled_samples.append(stats.entropy(get_feature_distribution(sampled_model)))
+
+    _, p = stats.mannwhitneyu(baseline_samples, sampled_samples, alternative="less")
+    assert p < 0.05
+
+    # the no features model contains only the bias term - no splits
+    no_features_model = lb.LBRegressor(
+        base_models=(lb.models.Tree(feature_fraction=0.0),), random_state=0
+    ).fit(X, y)
+    for m in no_features_model:
+        assert m.num_nodes() == 1
