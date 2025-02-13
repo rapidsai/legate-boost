@@ -33,6 +33,7 @@ class NN(BaseModel):
 
     def __init__(
         self,
+        *,
         max_iter: int = 100,
         hidden_layer_sizes: Tuple[int] = (100,),
         alpha: Any = "deprecated",

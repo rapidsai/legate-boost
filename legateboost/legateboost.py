@@ -294,10 +294,10 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
 
             # callbacks after iteration
             if any(
-                (
+                [
                     c.after_iteration(self, model_idx, eval_result)
                     for c in self.callbacks
-                )
+                ]
             ):
                 break
 

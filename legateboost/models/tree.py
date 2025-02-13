@@ -54,6 +54,7 @@ class Tree(BaseModel):
 
     def __init__(
         self,
+        *,
         max_depth: int = 8,
         split_samples: int = 256,
         l1_regularization: float = 0.0,

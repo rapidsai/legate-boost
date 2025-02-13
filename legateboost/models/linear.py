@@ -41,6 +41,7 @@ class Linear(BaseModel):
 
     def __init__(
         self,
+        *,
         l2_regularization: float = 1e-5,
         alpha: Any = "deprecated",
         solver: str = "direct",
