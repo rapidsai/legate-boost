@@ -1280,17 +1280,16 @@ struct build_tree_fn {
     EXPECT_AXIS_ALIGNED(1, g_shape, h_shape);
 
     // Scalars
-    auto max_depth        = context.scalars().at(0).value<int>();
-    auto max_nodes        = context.scalars().at(1).value<int>();
-    auto alpha            = context.scalars().at(2).value<double>();
-    auto split_samples    = context.scalars().at(3).value<int>();
-    auto seed             = context.scalars().at(4).value<int>();
-    auto dataset_rows     = context.scalars().at(5).value<int64_t>();
-    auto feature_fraction = context.scalars().at(6).value<double>();
+    auto max_depth     = context.scalars().at(0).value<int>();
+    auto max_nodes     = context.scalars().at(1).value<int>();
+    auto alpha         = context.scalars().at(2).value<double>();
+    auto split_samples = context.scalars().at(3).value<int>();
+    auto seed          = context.scalars().at(4).value<int>();
+    auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
     // Get feature sample if it exists
     std::optional<legate::AccessorRO<bool, 1>> optional_feature_set;
-    if (feature_fraction < 1.0) {
+    if (context.inputs().size() == 4) {
       auto [feature_set, feature_set_shape, feature_set_accessor] =
         GetInputStore<bool, 1>(context.input(3).data());
       optional_feature_set = feature_set_accessor;

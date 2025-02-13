@@ -1,6 +1,6 @@
 import copy
 from enum import IntEnum
-from typing import Any, List, Sequence, cast
+from typing import Any, Callable, List, Sequence, Union, cast
 
 import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
@@ -32,8 +32,10 @@ class Tree(BaseModel):
     split_samples : int
         The number of data points to sample for each split decision.
         Max value is 2048 due to constraints on shared memory in GPU kernels.
-    feature_fraction : float
-        The subsampled fraction of features considered in building this model.
+    feature_fraction :
+        If float, the subsampled fraction of features considered in building this model.
+        Users may implement an arbitrary function returning a cupynumeric array of
+        booleans of shape `(n_features,)` to specify the feature subset.
     alpha : float
         The L2 regularization parameter.
     """
@@ -49,7 +51,7 @@ class Tree(BaseModel):
         max_depth: int = 8,
         split_samples: int = 256,
         alpha: float = 1.0,
-        feature_fraction: float = 1.0,
+        feature_fraction: Union[float, Callable[..., cn.array]] = 1.0,
     ) -> None:
         self.max_depth = max_depth
         if split_samples > 2048:
@@ -85,7 +87,6 @@ class Tree(BaseModel):
         task.add_scalar_arg(self.split_samples, types.int32)
         task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
         task.add_scalar_arg(X.shape[0], types.int64)
-        task.add_scalar_arg(self.feature_fraction, types.float64)
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
@@ -95,7 +96,16 @@ class Tree(BaseModel):
         task.add_alignment(g_, X_)
 
         # sample features
-        if self.feature_fraction < 1.0:
+        if isinstance(self.feature_fraction, Callable):
+            feature_set = self.feature_fraction()
+            if feature_set.shape != (X.shape[1],) or feature_set.dtype != bool:
+                raise ValueError(
+                    "feature_fraction must return a boolean array of"
+                    " shape (n_features,)"
+                )
+            task.add_input(get_store(feature_set))
+            task.add_broadcast(get_store(feature_set))
+        elif self.feature_fraction < 1.0:
             cn.random.seed(self.random_state.randint(0, 2**31))
             feature_set = cn.random.binomial(
                 1, self.feature_fraction, size=(X.shape[1],), dtype=bool

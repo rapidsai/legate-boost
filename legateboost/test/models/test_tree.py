@@ -76,18 +76,19 @@ def test_alpha():
     assert np.isclose(model.predict(X)[0], y.sum() / (y.size + alpha))
 
 
+def get_feature_distribution(model):
+    histogram = cn.zeros(model.n_features_in_)
+    for m in model:
+        histogram += cn.histogram(
+            m.feature, bins=model.n_features_in_, range=(0, model.n_features_in_)
+        )[0]
+    return histogram / histogram.sum()
+
+
 def test_feature_sample():
     X, y = make_regression(
         n_samples=100, n_features=10, n_informative=2, random_state=0
     )
-
-    def get_feature_distribution(model):
-        histogram = cn.zeros(X.shape[1])
-        for m in model:
-            histogram += cn.histogram(
-                m.feature, bins=X.shape[1], range=(0, X.shape[1])
-            )[0]
-        return histogram / histogram.sum()
 
     # We have a distribution of how often each feature is used in the model
     # Hypothesis: the baseline model should use the best features more often and the
@@ -116,3 +117,44 @@ def test_feature_sample():
     ).fit(X, y)
     for m in no_features_model:
         assert m.num_nodes() == 1
+
+
+def test_callable_feature_sample():
+    def feature_fraction():
+        return cn.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0], dtype=bool)
+
+    rng = np.random.RandomState(0)
+    X = rng.randn(100, 10)
+    y = rng.randn(100)
+    model = lb.LBRegressor(
+        base_models=(lb.models.Tree(feature_fraction=feature_fraction),),
+        random_state=0,
+    ).fit(X, y)
+
+    assert get_feature_distribution(model)[1] == 1.0
+
+    def feature_fraction_int():
+        return cn.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0])
+
+    with pytest.raises(
+        ValueError,
+        match=r"feature_fraction must return a boolean array of shape \(n_features,\)",
+    ):
+        lb.LBRegressor(
+            base_models=(lb.models.Tree(feature_fraction=feature_fraction_int),),
+            random_state=0,
+        ).fit(X, y)
+
+    def feature_fraction_wrong_shape():
+        return cn.array([0, 1, 0, 0, 0, 0, 0, 0, 0], dtype=bool)
+
+    with pytest.raises(
+        ValueError,
+        match=r"feature_fraction must return a boolean array of shape \(n_features,\)",
+    ):
+        lb.LBRegressor(
+            base_models=(
+                lb.models.Tree(feature_fraction=feature_fraction_wrong_shape),
+            ),
+            random_state=0,
+        ).fit(X, y)

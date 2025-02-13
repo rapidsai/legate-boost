@@ -298,13 +298,20 @@ struct TreeBuilder {
       }
     }
   }
-  void PerformBestSplit(Tree& tree, Histogram<GPair> histogram, double alpha, NodeBatch batch)
+  void PerformBestSplit(Tree& tree,
+                        Histogram<GPair> histogram,
+                        double alpha,
+                        NodeBatch batch,
+                        std::optional<legate::AccessorRO<bool, 1>> optional_feature_set)
   {
     for (int node_id = batch.node_idx_begin; node_id < batch.node_idx_end; node_id++) {
       double best_gain = 0;
       int best_feature = -1;
       int best_bin     = -1;
       for (int feature = 0; feature < num_features; feature++) {
+        if (optional_feature_set.has_value() && !optional_feature_set.value()[feature]) {
+          continue;
+        }
         auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature);
         for (int bin_idx = feature_begin; bin_idx < feature_end; bin_idx++) {
           double gain = 0;
@@ -477,6 +484,14 @@ struct build_tree_fn {
     auto seed          = context.scalars().at(4).value<int>();
     auto dataset_rows  = context.scalars().at(5).value<int64_t>();
 
+    // Get feature sample if it exists
+    std::optional<legate::AccessorRO<bool, 1>> optional_feature_set;
+    if (context.inputs().size() == 4) {
+      auto [feature_set, feature_set_shape, feature_set_accessor] =
+        GetInputStore<bool, 1>(context.input(3).data());
+      optional_feature_set = feature_set_accessor;
+    }
+
     Tree tree(max_nodes, narrow<int>(num_outputs));
     SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
@@ -494,7 +509,7 @@ struct build_tree_fn {
         builder.ComputeHistogram(
           histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
 
-        builder.PerformBestSplit(tree, histogram, alpha, batch);
+        builder.PerformBestSplit(tree, histogram, alpha, batch, optional_feature_set);
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
