@@ -621,7 +621,7 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         K = pred.shape[1]  # number of classes
         return logloss.transform((1 / (K - 1)) * pred)
 
-    def output_class(self, pred):
+    def output_class(self, pred: cn.ndarray) -> cn.ndarray:
         if pred.shape[1] == 1:
             return cn.array(pred > 0.5, dtype=cn.int32)
         return cn.argmax(pred, axis=1)
