@@ -18,7 +18,7 @@ def test_against_sklearn(weights, solver):
         if weights
         else None
     )
-    alpha = 0.00001
+    l2_regularization = 0.00001
     sigma = 0.1
     gamma = 1 / (2 * sigma**2)
     model = lb.LBRegressor(
@@ -26,11 +26,16 @@ def test_against_sklearn(weights, solver):
         learning_rate=1.0,
         base_models=(
             lb.models.KRR(
-                n_components=X.shape[0], alpha=alpha, sigma=sigma, solver=solver
+                n_components=X.shape[0],
+                l2_regularization=l2_regularization,
+                sigma=sigma,
+                solver=solver,
             ),
         ),
     ).fit(X, y, sample_weight=w)
-    skl = KernelRidge(kernel="rbf", alpha=alpha, gamma=gamma).fit(X, y, sample_weight=w)
+    skl = KernelRidge(kernel="rbf", alpha=l2_regularization, gamma=gamma).fit(
+        X, y, sample_weight=w
+    )
     skl_mse = mean_squared_error(y, skl.predict(X), sample_weight=w)
     lb_mse = mean_squared_error(y, model.predict(X), sample_weight=w)
     assert np.allclose(skl_mse, lb_mse, atol=1e-3)
@@ -62,17 +67,17 @@ def test_improving_with_components(num_outputs, solver):
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
 @pytest.mark.parametrize("solver", ["direct", "lbfgs"])
-def test_alpha(num_outputs, solver):
-    # higher alpha hyperparameter should lead to smaller coefficients
+def test_l2_regularization(num_outputs, solver):
+    # higher l2_regularization hyperparameter should lead to smaller coefficients
     rs = cn.random.RandomState(0)
     X = rs.random((100, 10))
     g = rs.normal(size=(X.shape[0], num_outputs))
     h = rs.random(g.shape) + 0.1
     X, g, h = cn.array(X), cn.array(g), cn.array(h)
     norms = []
-    for alpha in np.linspace(0.0, 2.5, 5):
+    for l2_regularization in np.linspace(0.0, 2.5, 5):
         model = (
-            lb.models.KRR(alpha=alpha, solver=solver)
+            lb.models.KRR(l2_regularization=l2_regularization, solver=solver)
             .set_random_state(np.random.RandomState(2))
             .fit(X, g, h)
         )

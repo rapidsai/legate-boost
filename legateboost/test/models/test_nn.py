@@ -11,9 +11,9 @@ import legateboost as lb
 
 @pytest.mark.parametrize("random_state", [0, 1])
 @pytest.mark.parametrize("hidden_layer_sizes", [(), (100,), (100, 100), (10, 10, 10)])
-@pytest.mark.parametrize("alpha", [0.0, 0.5])
+@pytest.mark.parametrize("l2_regularization", [0.5])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def test_nn(random_state, hidden_layer_sizes, alpha, dtype):
+def test_nn(random_state, hidden_layer_sizes, l2_regularization, dtype):
     X, y = fetch_california_housing(return_X_y=True)
     X = X[:1000].astype(dtype)
     y = y[:1000].astype(dtype)
@@ -32,7 +32,7 @@ def test_nn(random_state, hidden_layer_sizes, alpha, dtype):
                 verbose=0,
                 hidden_layer_sizes=hidden_layer_sizes,
                 m=10,
-                alpha=alpha,
+                l2_regularization=l2_regularization,
             ),
         ),
         random_state=random_state,
@@ -44,7 +44,7 @@ def test_nn(random_state, hidden_layer_sizes, alpha, dtype):
         hidden_layer_sizes=hidden_layer_sizes,
         max_iter=max_iter,
         random_state=random_state,
-        alpha=alpha,
+        alpha=l2_regularization,
     ).fit(X, y)
     pred = nn.predict(X)
     lb_mse = mean_squared_error(y, pred)
@@ -56,8 +56,8 @@ def test_nn(random_state, hidden_layer_sizes, alpha, dtype):
     assert lb_mse < sklearn_mse * 5.0
 
 
-@pytest.mark.parametrize("alpha", [0.0, 1.0, 500.0])
-def test_alpha(alpha):
+@pytest.mark.parametrize("l2_regularization", [0.0, 1.0, 500.0])
+def test_l2_regularization(l2_regularization):
     X = cn.array([[1.0], [2.0]])
     y = cn.array([1.0, 2.0])
     gtol = 1e-8
@@ -70,7 +70,7 @@ def test_alpha(alpha):
             lb.models.NN(
                 verbose=1,
                 hidden_layer_sizes=hidden_layer_sizes,
-                alpha=alpha,
+                l2_regularization=l2_regularization,
                 gtol=gtol,
             ),
         ),
@@ -83,7 +83,7 @@ def test_alpha(alpha):
         hidden_layer_sizes=hidden_layer_sizes,
         max_iter=100,
         random_state=0,
-        alpha=alpha,
+        alpha=l2_regularization,
         tol=gtol,
     ).fit(X, y)
 
