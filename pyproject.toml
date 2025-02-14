@@ -128,3 +128,7 @@ skip = [
 skip_glob = [
     "**/__init__.py"
 ]
+
+[tool.docformatter]
+wrap-summaries = 82
+wrap-descriptions = 81

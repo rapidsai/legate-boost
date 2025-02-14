@@ -78,7 +78,10 @@ def test_classifier_local_shapley_attributions(random_state, num_classes):
         random_state=random_state,
         check_efficiency=True,
     )
-    assert shapley.shape == (X.shape[0], X.shape[1] + 1, num_classes)
+    if num_classes == 2:
+        assert shapley.shape == (X.shape[0], X.shape[1] + 1)
+    else:
+        assert shapley.shape == (X.shape[0], X.shape[1] + 1, num_classes)
     assert cn.isfinite(shapley).all()
     assert cn.isfinite(se).all()
     assert (se >= 0).all()

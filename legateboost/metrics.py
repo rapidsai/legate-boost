@@ -17,6 +17,7 @@ __all__ = [
     "GammaDevianceMetric",
     "QuantileMetric",
     "LogLossMetric",
+    "MultiLabelMetric",
     "ExponentialMetric",
 ]
 
@@ -144,8 +145,8 @@ class NormalLLMetric(BaseMetric):
 
 
 class GammaLLMetric(BaseMetric):
-    """The mean negative log likelihood of the labels, given parameters
-    predicted by the model."""
+    """The mean negative log likelihood of the labels, given parameters predicted
+    by the model."""
 
     @override
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
@@ -252,8 +253,8 @@ class QuantileMetric(BaseMetric):
 
 
 class LogLossMetric(BaseMetric):
-    """Class for computing the logarithmic loss (logloss) metric between the
-    true labels and predicted labels.
+    """Class for computing the logarithmic loss (logloss) metric between the true
+    labels and predicted labels.
 
     For binary classification:
 
@@ -273,7 +274,7 @@ class LogLossMetric(BaseMetric):
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y = y.squeeze()
         eps = cn.finfo(pred.dtype).eps
-        cn.clip(pred, eps, 1 - eps, out=pred)
+        pred = cn.clip(pred, eps, 1 - eps)
 
         w_sum = w.sum()
 
@@ -294,6 +295,26 @@ class LogLossMetric(BaseMetric):
 
     def name(self) -> str:
         return "log_loss"
+
+
+class MultiLabelMetric(BaseMetric):
+    """Multi-label metric is a binary log-loss metric averaged over multiple
+    labels.
+
+    See also:
+        :class:`legateboost.objectives.MultiLabelObjective`
+    """  # noqa: E501
+
+    def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
+        y = y.squeeze()
+        eps = cn.finfo(pred.dtype).eps
+        pred = cn.clip(pred, eps, 1 - eps)
+        w_sum = w.sum()
+        logloss = -(y * cn.log(pred) + (self.one - y) * cn.log(self.one - pred))
+        return (logloss * w[:, cn.newaxis]).sum() / w_sum
+
+    def name(self) -> str:
+        return "multi_label"
 
 
 class ExponentialMetric(BaseMetric):

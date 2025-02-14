@@ -126,3 +126,16 @@ def test_exp():
             ),
             False,
         )
+
+
+def test_multi_label():
+    obj = lb.MultiLabelObjective()
+    g, h = obj.gradient(
+        cn.array([[1, 0], [0, 1]]),
+        cn.array([[[0.5, 0.5], [0.5, 0.5]], [[0.5, 0.5], [0.5, 0.5]]]),
+    )
+    assert cn.allclose(g, cn.array([[-0.5, 0.5], [0.5, -0.5]]))
+    assert cn.allclose(h, cn.array([[0.25, 0.25], [0.25, 0.25]]))
+
+    with pytest.raises(ValueError, match=r"Expected labels to be in \[0, 1\]"):
+        obj.initialise_prediction(cn.array([[1], [2]]), cn.array([[1.0], [1.0]]), False)

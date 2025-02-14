@@ -35,9 +35,9 @@ def rbf(x: cn.ndarray, sigma: float) -> cn.ndarray:
 
 
 class KRR(BaseModel):
-    """Kernel Ridge Regression model using the Nyström approximation. The
-    accuracy of the approximation is governed by the parameter `n_components`
-    <= `n`. Effectively, `n_components` rows will be randomly sampled (without
+    """Kernel Ridge Regression model using the Nyström approximation. The accuracy
+    of the approximation is governed by the parameter `n_components` <= `n`.
+    Effectively, `n_components` rows will be randomly sampled (without
     replacement) from X in each boosting iteration.
 
     The kernel is fixed to be the RBF kernel:
