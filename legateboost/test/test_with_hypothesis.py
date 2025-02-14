@@ -30,7 +30,7 @@ def tree_strategy(draw):
         max_depth = draw(st.integers(1, 6))
     alpha = draw(st.floats(0.0, 1.0))
     split_samples = draw(st.integers(1, 500))
-    feature_fraction = draw(st.sampled_from(0.5, 1.0))
+    feature_fraction = draw(st.sampled_from([0.5, 1.0]))
     return lb.models.Tree(
         max_depth=max_depth,
         alpha=alpha,
