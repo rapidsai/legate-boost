@@ -623,7 +623,7 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
 
     def output_class(self, pred):
         if pred.shape[1] == 1:
-            return pred > 0.5
+            return cn.array(pred > 0.5, dtype=cn.int32)
         return cn.argmax(pred, axis=1)
 
     def metric(self) -> ExponentialMetric:
