@@ -690,7 +690,8 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
                      legate::Buffer<double, 1> tree_split_value,
                      legate::Buffer<double, 1> tree_gain,
                      NodeBatch batch,
-                     GradientQuantiser quantiser)
+                     GradientQuantiser quantiser,
+                     std::optional<legate::AccessorRO<bool, 1>> optional_feature_set)
 {
   // using one block per (level) node to have blockwise reductions
   int const node_id = narrow<int>(batch.node_idx_begin + blockIdx.x);
@@ -708,6 +709,12 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
 
   for (int bin_idx = narrow_cast<int>(threadIdx.x); bin_idx < split_proposals.histogram_size;
        bin_idx += BLOCK_THREADS) {
+    // Check if this feature is in the feature set
+    if (optional_feature_set.has_value() &&
+        !optional_feature_set.value()[split_proposals.FindFeature(bin_idx)]) {
+      continue;
+    }
+
     double gain = 0;
     for (int output = 0; output < n_outputs; ++output) {
       auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
@@ -1111,7 +1118,8 @@ struct TreeBuilder {
                         NodeBatch batch,
                         double l1_regularization,
                         double l2_regularization,
-                        double min_split_gain)
+                        double min_split_gain,
+                        const std::optional<legate::AccessorRO<bool, 1>>& optional_feature_set)
   {
     const int kBlockThreads = 512;
     perform_best_split<T, kBlockThreads>
@@ -1127,7 +1135,8 @@ struct TreeBuilder {
                                                            tree.split_value,
                                                            tree.gain,
                                                            batch,
-                                                           quantiser);
+                                                           quantiser,
+                                                           optional_feature_set);
     CHECK_CUDA_STREAM(stream);
   }
   void InitialiseRoot(legate::TaskContext context,
@@ -1281,6 +1290,14 @@ struct build_tree_fn {
     auto l2_regularization = context.scalars().at(6).value<double>();
     auto min_split_gain    = context.scalars().at(7).value<double>();
 
+    // Get feature sample if it exists
+    std::optional<legate::AccessorRO<bool, 1>> optional_feature_set;
+    if (context.inputs().size() == 4) {
+      auto [feature_set, feature_set_shape, feature_set_accessor] =
+        GetInputStore<bool, 1>(context.input(3).data());
+      optional_feature_set = feature_set_accessor;
+    }
+
     auto* stream            = context.get_task_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
@@ -1313,8 +1330,13 @@ struct build_tree_fn {
         builder.ComputeHistogram(
           histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch, seed);
 
-        builder.PerformBestSplit(
-          tree, histogram, batch, l1_regularization, l2_regularization, min_split_gain);
+        builder.PerformBestSplit(tree,
+                                 histogram,
+                                 batch,
+                                 l1_regularization,
+                                 l2_regularization,
+                                 min_split_gain,
+                                 optional_feature_set);
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
