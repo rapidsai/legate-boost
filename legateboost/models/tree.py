@@ -1,4 +1,5 @@
 import copy
+import warnings
 from enum import IntEnum
 from typing import Any, Callable, List, Sequence, Union, cast
 
@@ -36,8 +37,17 @@ class Tree(BaseModel):
         If float, the subsampled fraction of features considered in building this model.
         Users may implement an arbitrary function returning a cupynumeric array of
         booleans of shape `(n_features,)` to specify the feature subset.
-    alpha : float
-        The L2 regularization parameter.
+    l1_regularization : float
+        The L1 regularization parameter applied to leaf weights.
+    l2_regularization : float
+        The L2 regularization parameter applied to leaf weights.
+    alpha : deprecated
+        Deprecated, use `l2_regularization` instead.
+    min_split_gain : float
+        The minimum improvement in the loss function required to make a split.
+        Increasing this value generates smaller trees. Equivalent to the `gamma`
+        parameter from XGBoost. Is applied on a per output basis e.g. if there
+        are 3 output classes then the gain must be greater than 3 * min_split_gain.
     """
 
     leaf_value: cn.ndarray
@@ -48,10 +58,14 @@ class Tree(BaseModel):
 
     def __init__(
         self,
+        *,
         max_depth: int = 8,
         split_samples: int = 256,
-        alpha: float = 1.0,
         feature_fraction: Union[float, Callable[..., cn.array]] = 1.0,
+        l1_regularization: float = 0.0,
+        l2_regularization: float = 1.0,
+        min_split_gain: float = 0.0,
+        alpha: Any = "deprecated",
     ) -> None:
         self.max_depth = max_depth
         if split_samples > 2048:
@@ -59,6 +73,17 @@ class Tree(BaseModel):
         self.split_samples = split_samples
         self.alpha = alpha
         self.feature_fraction = feature_fraction
+        self.l1_regularization = l1_regularization
+        self.l2_regularization = l2_regularization
+        self.min_split_gain = min_split_gain
+
+        if alpha != "deprecated":
+            warnings.warn(
+                "`alpha` was renamed to `l2_regularization` in 23.03"
+                " and will be removed in 23.05",
+                FutureWarning,
+            )
+            self.l2_regularization = alpha
 
     def num_nodes(self) -> int:
         return cn.sum(self.hessian > 0.0)
@@ -83,10 +108,12 @@ class Tree(BaseModel):
         task.add_scalar_arg(self.max_depth, types.int32)
         max_nodes = 2 ** (self.max_depth + 1)
         task.add_scalar_arg(max_nodes, types.int32)
-        task.add_scalar_arg(self.alpha, types.float64)
         task.add_scalar_arg(self.split_samples, types.int32)
         task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
         task.add_scalar_arg(X.shape[0], types.int64)
+        task.add_scalar_arg(self.l1_regularization, types.float64)
+        task.add_scalar_arg(self.l2_regularization, types.float64)
+        task.add_scalar_arg(self.min_split_gain, types.float64)
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
@@ -165,7 +192,8 @@ class Tree(BaseModel):
         X_ = get_store(X).promote(2, g.shape[1])
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
-        task.add_scalar_arg(self.alpha, types.float64)
+        task.add_scalar_arg(self.l1_regularization, types.float64)
+        task.add_scalar_arg(self.l2_regularization, types.float64)
         task.add_input(X_)
         task.add_broadcast(X_, 1)
         task.add_input(g_)

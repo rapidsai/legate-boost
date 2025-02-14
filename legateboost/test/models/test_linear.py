@@ -14,10 +14,10 @@ class TestLinear:
         X = cn.zeros((10, 5))
         rs = cn.random.RandomState(0)
         y = rs.normal(size=(10, 2), loc=10.0, scale=1.0)
-        # alpha should be ignored for bias
+        # l2_regularization should be ignored for bias
         model = lb.LBRegressor(
             n_estimators=1,
-            base_models=(lb.models.Linear(alpha=2.0, solver=solver),),
+            base_models=(lb.models.Linear(l2_regularization=2.0, solver=solver),),
             init=None,
             learning_rate=1.0,
         ).fit(X, y)
@@ -36,8 +36,8 @@ class TestLinear:
         )
 
     @pytest.mark.parametrize("num_outputs", [1, 5])
-    @pytest.mark.parametrize("alpha", [0.0, 0.1, 1.0])
-    def test_linear(self, num_outputs, alpha, solver):
+    @pytest.mark.parametrize("l2_regularization", [0.0, 0.1, 1.0])
+    def test_linear(self, num_outputs, l2_regularization, solver):
         # compare against an sklearn model
         rs = cn.random.RandomState(0)
         X = rs.random((1000, 10))
@@ -45,12 +45,12 @@ class TestLinear:
         h = rs.random(g.shape) + 0.1
         X, g, h = cn.array(X), cn.array(g), cn.array(h)
         model = (
-            lb.models.Linear(alpha=alpha, solver=solver)
+            lb.models.Linear(l2_regularization=l2_regularization, solver=solver)
             .set_random_state(np.random.RandomState(2))
             .fit(X, g, h)
         )
         for k in range(0, num_outputs):
-            sklearn_model = Ridge(alpha=alpha).fit(
+            sklearn_model = Ridge(alpha=l2_regularization).fit(
                 X, -g[:, k] / h[:, k], sample_weight=h[:, k]
             )
             assert np.allclose(model.betas_[0, k], sklearn_model.intercept_, atol=1e-2)
@@ -60,11 +60,11 @@ class TestLinear:
             ), (np.abs(model.predict(X)[:, k] - sklearn_model.predict(X)).max(),)
 
     @pytest.mark.parametrize("num_outputs", [3])
-    @pytest.mark.parametrize("alpha", [0.00000001])
-    def test_logistic_regression(self, num_outputs, alpha, solver):
+    @pytest.mark.parametrize("l2_regularization", [0.00000001])
+    def test_logistic_regression(self, num_outputs, l2_regularization, solver):
         # fit a normal logistic regression model
         # see if it compares to sklearn
-        # use a very small alpha because lb doesnt regularise the same way
+        # use a very small l2_regularization because lb doesnt regularise the same way
         X, y = make_classification(
             n_samples=100,
             n_features=10,
@@ -74,7 +74,7 @@ class TestLinear:
         )
         sklearn_model = LogisticRegression(
             penalty="l2",
-            C=1.0 / alpha,
+            C=1.0 / l2_regularization,
             fit_intercept=True,
             solver="lbfgs",
             max_iter=100,
@@ -84,7 +84,9 @@ class TestLinear:
             init=None,
             n_estimators=20,
             learning_rate=0.5,
-            base_models=(lb.models.Linear(alpha=alpha, solver=solver),),
+            base_models=(
+                lb.models.Linear(l2_regularization=l2_regularization, solver=solver),
+            ),
             verbose=True,
         ).fit(X, y)
         assert cn.allclose(

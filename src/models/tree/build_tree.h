@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <utility>
 #include <tuple>
+#include <algorithm>
 #include <tcb/span.hpp>
 
 namespace legateboost {
@@ -102,9 +103,52 @@ inline __host__ __device__ auto ComputeHistogramBin(int node_id,
   return histogram_node == node_id;
 }
 
-__host__ __device__ inline auto CalculateLeafValue(double G, double H, double alpha) -> double
+namespace detail {
+__host__ __device__ inline auto CalculateLeafGain(const GPair& sum,
+                                                  double l1_regularization,
+                                                  double l2_regularization) -> double
 {
-  return -G / (H + alpha);
+  // l1 threshold
+  double z = 0.0;
+  if (sum.grad > l1_regularization) {
+    z = sum.grad - l1_regularization;
+  } else if (sum.grad < -l1_regularization) {
+    z = sum.grad + l1_regularization;
+  }
+  // Note: we could use the cuda __ddiv_rn intrinsic here if this becomes a bottleneck
+  return (z * z) / (sum.hess + l2_regularization);
+}
+}  // namespace detail
+
+__host__ __device__ inline auto CalculateGain(const GPair& left_sum,
+                                              const GPair& right_sum,
+                                              const GPair& parent_sum,
+                                              double l1_regularization,
+                                              double l2_regularization,
+                                              double min_split_gain) -> double
+{
+  // This static cast creates a copy as we cannot take a reference to a static
+  // const variable in device code
+  double const reg = std::max(static_cast<double>(eps), l2_regularization);
+  return (0.5 * (detail::CalculateLeafGain(left_sum, l1_regularization, reg) +
+                 detail::CalculateLeafGain(right_sum, l1_regularization, reg) -
+                 detail::CalculateLeafGain(parent_sum, l1_regularization, reg))) -
+         min_split_gain;
+}
+
+__host__ __device__ inline auto CalculateLeafValue(double G,
+                                                   double H,
+                                                   double l1_regularization,
+                                                   double l2_regularization) -> double
+{
+  // l1 threshold
+  double z = 0.0;
+  if (G > l1_regularization) {
+    z = G - l1_regularization;
+  } else if (G < -l1_regularization) {
+    z = G + l1_regularization;
+  }
+  return -z / (H + l2_regularization);
 }
 
 // Container for the CSR matrix containing the split proposals

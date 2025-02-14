@@ -55,7 +55,8 @@ struct update_tree_fn {
     const auto& split_proposals = context.input(3).data();
     EXPECT(g_shape.lo[2] == 0, "Expect all outputs to be present");
 
-    auto alpha = context.scalars().at(0).value<double>();
+    auto l1_regularization = context.scalars().at(0).value<double>();
+    auto l2_regularization = context.scalars().at(1).value<double>();
 
     // Tree structure
     auto feature     = context.input(3).data().read_accessor<int32_t, 1>();
@@ -104,7 +105,8 @@ struct update_tree_fn {
       for (int j = 0; j < num_outputs; j++) {
         auto H = new_hessian[{i, j}];
         if (H > 0.0) {
-          new_leaf_value[{i, j}] = CalculateLeafValue(new_gradient[{i, j}], H, alpha);
+          new_leaf_value[{i, j}] =
+            CalculateLeafValue(new_gradient[{i, j}], H, l1_regularization, l2_regularization);
         } else {
           new_leaf_value[{i, j}] = 0.0;
         }

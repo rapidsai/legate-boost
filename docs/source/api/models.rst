@@ -9,3 +9,6 @@ Models
 
 .. autoclass:: legateboost.models.KRR
     :members:
+
+.. autoclass:: legateboost.models.NN
+    :members:
