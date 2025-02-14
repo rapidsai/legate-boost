@@ -86,7 +86,7 @@ class Tree(BaseModel):
             self.l2_regularization = alpha
 
     def num_nodes(self) -> int:
-        return cn.sum(self.hessian > 0.0)
+        return int(cn.sum(self.hessian > 0.0))
 
     def fit(
         self,
@@ -123,7 +123,7 @@ class Tree(BaseModel):
         task.add_alignment(g_, X_)
 
         # sample features
-        if isinstance(self.feature_fraction, Callable):
+        if callable(self.feature_fraction):
             feature_set = self.feature_fraction()
             if feature_set.shape != (X.shape[1],) or feature_set.dtype != bool:
                 raise ValueError(
