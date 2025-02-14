@@ -105,8 +105,8 @@ class ClassificationObjective(BaseObjective):
 
     @abstractmethod
     def output_class(self, pred: cn.ndarray) -> cn.ndarray:
-        """Defined how to output class labels from transfored output. This may
-        be as simple as argmax over probabilities.
+        """Defined how to output class labels from transfored output. This may be
+        as simple as argmax over probabilities.
 
         Args:
             pred (cn.ndarray): The transformed predictions.
@@ -340,8 +340,8 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
 
 
 class GammaObjective(FitInterceptRegMixIn, Forecast):
-    """Regression with the :math:`\\Gamma` distribution function using the
-    shape scale parameterization."""
+    """Regression with the :math:`\\Gamma` distribution function using the shape
+    scale parameterization."""
 
     @override
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
@@ -420,8 +420,7 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
 
 
 class QuantileObjective(BaseObjective):
-    """Minimises the quantile loss, otherwise known as check loss or pinball
-    loss.
+    """Minimises the quantile loss, otherwise known as check loss or pinball loss.
 
     :math:`L(y_i, p_i) = \\frac{1}{k}\\sum_{j=1}^{k} (q_j - \\mathbb{1})(y_i - p_{i, j})`
 
@@ -477,8 +476,8 @@ class QuantileObjective(BaseObjective):
 
 
 class LogLossObjective(ClassificationObjective):
-    """The Log Loss objective function for binary and multi-class
-    classification problems.
+    """The Log Loss objective function for binary and multi-class classification
+    problems.
 
     This objective function computes the log loss between the predicted and true labels.
 
@@ -572,8 +571,8 @@ class MultiLabelObjective(ClassificationObjective):
 
 
 class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
-    """Exponential loss objective function for binary classification.
-    Equivalent to the AdaBoost multiclass exponential loss in [1].
+    """Exponential loss objective function for binary classification. Equivalent
+    to the AdaBoost multiclass exponential loss in [1].
 
     Defined as:
 
