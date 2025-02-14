@@ -194,11 +194,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         learning_rate: float,
     ) -> Tuple[cn.ndarray, cn.ndarray]:
         """Computes the weighted gradient and Hessian for the given predictions
-        and labels.
-
-        Also applies a pre-rounding step to ensure reproducible floating
-        point summation.
-        """
+        and labels."""
         # check input dimensions are consistent
         assert y.ndim == pred.ndim == 2, (y.shape, pred.shape)
         g, h = self._objective_instance.gradient(

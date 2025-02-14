@@ -529,7 +529,7 @@ class LogLossObjective(ClassificationObjective):
         num_class = int(cn.max(y) + 1)
         n_targets = num_class if num_class > 2 else 1
         if not boost_from_average:
-            return cn.zeros((1, n_targets), dtype=cn.float64)
+            return cn.zeros(n_targets, dtype=cn.float64)
         if n_targets == 1:
             prob = y.sum() / y.size
             return -cn.log(1 / prob - 1).reshape(1)
@@ -555,7 +555,7 @@ class MultiLabelObjective(ClassificationObjective):
         return self.one / (self.one + cn.exp(-pred))
 
     def output_class(self, pred: cn.ndarray) -> cn.ndarray:
-        return pred > 0.5
+        return cn.array(pred > 0.5, dtype=cn.int32)
 
     def metric(self) -> MultiLabelMetric:
         return MultiLabelMetric()

@@ -246,5 +246,5 @@ def test_multi_label():
         n_estimators=5, base_models=(lb.models.Linear(),), objective="multi_label"
     ).fit(X, y, eval_result=eval_result)
     assert model.predict(X).shape == y.shape
-    assert model.predict_proba(X).shape == (X.shape[0], 5, 2)
+    assert model.predict_proba(X).shape == (X.shape[0], 5)
     assert non_increasing(eval_result["train"]["multi_label"])

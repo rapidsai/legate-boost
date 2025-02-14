@@ -310,8 +310,7 @@ class MultiLabelMetric(BaseMetric):
         eps = cn.finfo(pred.dtype).eps
         pred = cn.clip(pred, eps, 1 - eps)
         w_sum = w.sum()
-        pos = pred[:, :, 1]
-        logloss = -(y * cn.log(pos) + (self.one - y) * cn.log(self.one - pos))
+        logloss = -(y * cn.log(pred) + (self.one - y) * cn.log(self.one - pred))
         return (logloss * w[:, cn.newaxis]).sum() / w_sum
 
     def name(self) -> str:
