@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import warnings
 from typing import Any, List, Sequence, Set, Tuple, cast
 
 import numpy as np
@@ -60,8 +61,10 @@ class KRR(BaseModel):
     ----------
     n_components :
         Number of components to use in the model.
+    l2_regularization :
+        l2 regularization parameter on the weights.
     alpha :
-        Regularization parameter.
+        Deprecated. Use `l2_regularization` instead.
     sigma :
         Kernel bandwidth parameter. If None, use the mean squared distance.
     solver :
@@ -80,15 +83,25 @@ class KRR(BaseModel):
 
     def __init__(
         self,
+        *,
         n_components: int = 100,
-        alpha: float = 1e-5,
+        alpha: Any = "deprecated",
+        l2_regularization: float = 1e-5,
         sigma: float | None = None,
         solver: str = "direct",
     ):
         self.num_components = n_components
         self.alpha = alpha
+        self.l2_regularization = l2_regularization
         self.sigma = sigma
         self.solver = solver
+        if alpha != "deprecated":
+            warnings.warn(
+                "`alpha` was renamed to `l2_regularization` in 23.03"
+                " and will be removed in 23.05",
+                FutureWarning,
+            )
+            self.l2_regularization = alpha
 
     def _apply_kernel(self, X: cn.ndarray) -> cn.ndarray:
         return self.rbf_kernel(X, self.X_train)
@@ -105,7 +118,9 @@ class KRR(BaseModel):
             Kw = K_nm * W[:, cn.newaxis]
             yw = W * (-g[:, k] / h[:, k]).astype(X.dtype)
             self.betas_[:, k] = cn.linalg.lstsq(
-                Kw.T.dot(Kw) + self.alpha * K_mm, cn.dot(Kw.T, yw), rcond=None
+                Kw.T.dot(Kw) + self.l2_regularization * K_mm,
+                cn.dot(Kw.T, yw),
+                rcond=None,
             )[0]
         return self
 
@@ -121,7 +136,7 @@ class KRR(BaseModel):
         pred = K_nm.dot(self.betas_.astype(K_nm.dtype))
         loss = (pred * (g + 0.5 * h * pred)).sum(axis=0).mean()
         delta = g + h * pred
-        grads = cn.dot(K_nm.T, delta) + self.alpha * K_mm.dot(self.betas_)
+        grads = cn.dot(K_nm.T, delta) + self.l2_regularization * K_mm.dot(self.betas_)
         grads /= K_nm.shape[0]
         assert grads.shape == self.betas_.shape
         return loss, grads.ravel()
@@ -148,7 +163,7 @@ class KRR(BaseModel):
         p = self.X_train.shape[1]
         d = 2 * lmax / (((n - 1) ** (1 / p) - 1) * cn.pi)
 
-        w_arg = -self.alpha * cn.exp(0.5) / (2 * n)
+        w_arg = -self.l2_regularization * cn.exp(0.5) / (2 * n)
         if w_arg < -cn.exp(-1):
             return d * cn.sqrt(3 / 2)
         w_0 = cn.real(lambertw(w_arg, k=0))
