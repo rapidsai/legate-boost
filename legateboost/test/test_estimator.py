@@ -142,11 +142,8 @@ def test_classifier(num_class, objective, base_models):
     metric = model._metrics[0]
     proba = model.predict_proba(X)
     assert cn.all(proba >= 0) and cn.all(proba <= 1)
-    if num_class == 2:
-        assert cn.all(proba > 0.5, model.predict(X))
-    else:
-        assert cn.all(cn.argmax(proba, axis=1) == model.predict(X))
-        assert cn.allclose(proba.sum(axis=1), cn.ones(X.shape[0]))
+    assert cn.all(cn.argmax(proba, axis=1) == model.predict(X))
+    assert cn.allclose(proba.sum(axis=1), cn.ones(X.shape[0]))
 
     loss = metric.metric(y, proba, cn.ones(y.shape[0]))
     train_loss = next(iter(eval_result["train"].values()))
