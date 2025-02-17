@@ -194,11 +194,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         learning_rate: float,
     ) -> Tuple[cn.ndarray, cn.ndarray]:
         """Computes the weighted gradient and Hessian for the given predictions
-        and labels.
-
-        Also applies a pre-rounding step to ensure reproducible floating
-        point summation.
-        """
+        and labels."""
         # check input dimensions are consistent
         assert y.ndim == pred.ndim == 2, (y.shape, pred.shape)
         g, h = self._objective_instance.gradient(
@@ -317,8 +313,8 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         eval_result: EvalResult = {},
     ) -> Self:
         """Update a gradient boosting model from the training set (X, y). This
-        method does not add any new models to the ensemble, only updates
-        existing models to fit the new data.
+        method does not add any new models to the ensemble, only updates existing
+        models to fit the new data.
 
         Parameters
         ----------
@@ -477,8 +473,8 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         return iter(self.models_)
 
     def __mul__(self, scalar: Any) -> Self:
-        """Gradient boosted models are linear in the predictions before the
-        non-linear link function is applied. This means that the model can be
+        """Gradient boosted models are linear in the predictions before the non-
+        linear link function is applied. This means that the model can be
         multiplied by a scalar, which subsequently scales all raw output
         predictions. This is useful for ensembling models.
 
@@ -550,8 +546,8 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         n_samples: int = 5,
         check_efficiency: bool = False,
     ) -> Tuple[cn.array, cn.array]:
-        r"""Compute global feature attributions for the model. Global
-        attributions show the effect of a feature on a model's loss function.
+        r"""Compute global feature attributions for the model. Global attributions
+        show the effect of a feature on a model's loss function.
 
         We use a Shapley value approach to compute the attributions:
         :math:`Sh_i(v)=\frac{1}{|N|!} \sum_{\sigma \in \mathfrak{S}_d} \big[ v([\sigma]_{i-1} \cup\{i\}) - v([\sigma]_{i-1}) \big],`
@@ -612,11 +608,10 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         n_samples: int = 5,
         check_efficiency: bool = False,
     ) -> Tuple[cn.array, cn.array]:
-        r"""Local feature attributions for model predictions. Shows the effect
-        of a feature on each output prediction. See the definition of Shapley
-        values in :func:`~legateboost.BaseModel.global_attributions`, where the
-        :math:`v` function is here the model prediction instead of the loss
-        function.
+        r"""Local feature attributions for model predictions. Shows the effect of a
+        feature on each output prediction. See the definition of Shapley values in
+        :func:`~legateboost.BaseModel.global_attributions`, where the :math:`v`
+        function is here the model prediction instead of the loss function.
 
         Parameters
         ----------
@@ -750,8 +745,8 @@ class LBRegressor(RegressorMixin, LBBase):
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> LBBase:
-        """This method is used for incremental (online) training of the model.
-        An additional `n_estimators` models will be added to the ensemble.
+        """This method is used for incremental (online) training of the model. An
+        additional `n_estimators` models will be added to the ensemble.
 
         Parameters
         ----------
@@ -928,8 +923,8 @@ class LBClassifier(ClassifierMixin, LBBase):
         eval_result: EvalResult = {},
     ) -> LBBase:
         """This method is used for incremental fitting on a batch of samples.
-        Requires the classes to be provided up front, as they may not be
-        inferred from the first batch.
+        Requires the classes to be provided up front, as they may not be inferred
+        from the first batch.
 
         Parameters
         ----------
@@ -1033,8 +1028,8 @@ class LBClassifier(ClassifierMixin, LBBase):
         return self
 
     def predict_raw(self, X: cn.ndarray) -> cn.ndarray:
-        """Predict pre-transformed values for samples in X. E.g. before
-        applying a sigmoid function.
+        """Predict pre-transformed values for samples in X. E.g. before applying a
+        sigmoid function.
 
         Parameters
         ----------
@@ -1064,7 +1059,7 @@ class LBClassifier(ClassifierMixin, LBBase):
         Returns
         -------
 
-        y :
+        probabilities:
             The predicted class probabilities for each sample in X.
         """
         X = _lb_check_X(X)
@@ -1091,4 +1086,5 @@ class LBClassifier(ClassifierMixin, LBBase):
         y :
             The predicted class labels for each sample in X.
         """
-        return cn.argmax(self.predict_proba(X), axis=1)
+        check_is_fitted(self)
+        return self._objective_instance.output_class(self.predict_proba(X))
