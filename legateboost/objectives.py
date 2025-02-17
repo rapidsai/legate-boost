@@ -100,10 +100,9 @@ class BaseObjective(ABC):
 
 
 class ClassificationObjective(BaseObjective):
-    """Extension of BaseObjective for classification problems, requiring the
-    definition of a method to output class labels."""
+    """Extension of BaseObjective for classification problems, use can optionaly
+    define a method of extracting a class output from probabilities."""
 
-    @abstractmethod
     def output_class(self, pred: cn.ndarray) -> cn.ndarray:
         """Defined how to output class labels from transfored output. This may be
         as simple as argmax over probabilities.
@@ -114,7 +113,7 @@ class ClassificationObjective(BaseObjective):
         Returns:
             cn.ndarray: The class labels as a NumPy array.
         """
-        pass
+        return cn.argmax(pred, axis=-1)
 
 
 class SquaredErrorObjective(BaseObjective):
@@ -512,11 +511,6 @@ class LogLossObjective(ClassificationObjective):
         div = cn.sum(e_x, axis=1)
         return e_x / div[:, cn.newaxis]
 
-    def output_class(self, pred: cn.ndarray) -> cn.ndarray:
-        if pred.shape[1] == 1:
-            return pred > 0.5
-        return cn.argmax(pred, axis=1)
-
     def metric(self) -> LogLossMetric:
         return LogLossMetric()
 
@@ -554,7 +548,7 @@ class MultiLabelObjective(ClassificationObjective):
         return self.one / (self.one + cn.exp(-pred))
 
     def output_class(self, pred: cn.ndarray) -> cn.ndarray:
-        return cn.array(pred > 0.5, dtype=cn.int32)
+        return cn.array(pred > 0.5, dtype=cn.int32).squeeze()
 
     def metric(self) -> MultiLabelMetric:
         return MultiLabelMetric()
@@ -619,11 +613,6 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
             return logloss.transform(2 * pred)
         K = pred.shape[1]  # number of classes
         return logloss.transform((1 / (K - 1)) * pred)
-
-    def output_class(self, pred: cn.ndarray) -> cn.ndarray:
-        if pred.shape[1] == 1:
-            return cn.array(pred > 0.5, dtype=cn.int32)
-        return cn.argmax(pred, axis=1)
 
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()
