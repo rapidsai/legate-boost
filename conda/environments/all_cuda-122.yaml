@@ -14,9 +14,9 @@ dependencies:
 - cuda-nvcc
 - cuda-toolkit
 - cuda-version>=12.2
-- cupynumeric==25.01.*,>=0.0.0.dev0
+- cupynumeric==25.03.*,>=0.0.0.dev0
 - hypothesis>=6
-- legate==25.01.*,>=0.0.0.dev0,!=25.01.00.rc2
+- legate==25.03.*,>=0.0.0.dev0
 - libcublas-dev
 - llvm-openmp
 - make

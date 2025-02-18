@@ -1,4 +1,5 @@
 import copy
+import warnings
 from typing import Any, List, Sequence, Tuple, cast
 
 import cupynumeric as cn
@@ -8,11 +9,11 @@ from .base_model import BaseModel
 
 
 class Linear(BaseModel):
-    """Generalised linear model. Boosting linear models is equivalent to
-    fitting a single linear model where each boosting iteration is a newton
-    step. Note that the l2 penalty is applied to the weights of each model, as
-    opposed to the sum of all models. This can lead to different results when
-    compared to fitting a linear model with sklearn.
+    """Generalised linear model. Boosting linear models is equivalent to fitting a
+    single linear model where each boosting iteration is a newton step. Note that
+    the l2 penalty is applied to the weights of each model, as opposed to the sum
+    of all models. This can lead to different results when compared to fitting a
+    linear model with sklearn.
 
     It is recommended to normalize the data before fitting. This ensures
     regularisation is evenly applied to all features and prevents numerical issues.
@@ -23,7 +24,10 @@ class Linear(BaseModel):
 
     Parameters
     ----------
-    alpha : L2 regularization parameter.
+    l2_regularization :
+        An L2 penalty applied to the coefficients.
+    alpha : deprecated
+        Deprecated, use `l2_regularization` instead.
     solver : "direct" or "lbfgs"
         If "direct", use a direct solver. If "lbfgs", use the lbfgs solver.
 
@@ -35,9 +39,23 @@ class Linear(BaseModel):
         Coefficients of the linear model.
     """
 
-    def __init__(self, alpha: float = 1e-5, solver: str = "direct") -> None:
+    def __init__(
+        self,
+        *,
+        l2_regularization: float = 1e-5,
+        alpha: Any = "deprecated",
+        solver: str = "direct",
+    ) -> None:
         self.alpha = alpha
+        self.l2_regularization = l2_regularization
         self.solver = solver
+        if alpha != "deprecated":
+            warnings.warn(
+                "`alpha` was renamed to `l2_regularization` in 23.03"
+                " and will be removed in 23.05",
+                FutureWarning,
+            )
+            self.l2_regularization = alpha
 
     def _fit_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
         self.betas_ = cn.zeros((X.shape[1] + 1, g.shape[1]))
@@ -47,7 +65,7 @@ class Linear(BaseModel):
             Xw = cn.ones((X.shape[0], X.shape[1] + 1))
             Xw[:, 1:] = X
             Xw = Xw * W[:, cn.newaxis]
-            diag = cn.eye(Xw.shape[1]) * self.alpha
+            diag = cn.eye(Xw.shape[1]) * self.l2_regularization
             diag[0, 0] = 0
             XtX = cn.dot(Xw.T, Xw) + diag
             yw = W * (-g[:, k] / h[:, k])
@@ -64,7 +82,7 @@ class Linear(BaseModel):
         delta = (g + h * pred).astype(X.dtype)
         grads = cn.empty(self.betas_.shape, dtype=X.dtype)
         grads[0] = delta.sum(axis=0)
-        grads[1:] = cn.dot(X.T, delta) + self.alpha * self.betas_[1:]
+        grads[1:] = cn.dot(X.T, delta) + self.l2_regularization * self.betas_[1:]
         grads /= X.shape[0]
         assert grads.shape == self.betas_.shape
         return loss, grads.ravel()
