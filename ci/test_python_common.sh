@@ -39,9 +39,10 @@ rapids-print-env
 # Install legate-boost conda package built in the previous CI job
 rapids-mamba-retry install \
   --name test-env \
+  --override-channels \
   --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
   --channel legate \
-  --channel legate/label/branch-25.01 \
   --channel legate/label/experimental \
   --channel conda-forge \
-    "legate-boost=${LEGATEBOOST_VERSION}"
+  --channel nvidia \
+  "legate-boost=${LEGATEBOOST_VERSION}"
