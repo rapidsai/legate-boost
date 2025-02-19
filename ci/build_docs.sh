@@ -35,7 +35,6 @@ rapids-mamba-retry install \
   --override-channels \
   --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
   --channel legate \
-  --channel legate/label/branch-25.01 \
   --channel legate/label/experimental \
   --channel conda-forge \
   --channel nvidia \

@@ -65,7 +65,6 @@ files:
 
 channels:
   - legate
-  - legate/label/branch-25.01
   - legate/label/experimental
   - conda-forge
   - nvidia
