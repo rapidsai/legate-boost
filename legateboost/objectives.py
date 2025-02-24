@@ -14,6 +14,7 @@ from .metrics import (
     GammaLLMetric,
     LogLossMetric,
     MSEMetric,
+    MultiLabelMetric,
     NormalLLMetric,
     QuantileMetric,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "SquaredErrorObjective",
     "NormalObjective",
     "LogLossObjective",
+    "MultiLabelObjective",
     "ExponentialObjective",
     "QuantileObjective",
     "GammaDevianceObjective",
@@ -53,7 +55,7 @@ class BaseObjective(ABC):
 
         Returns:
             The functional gradient and hessian of the squared error
-            objective function.
+            objective function, both of which must be 2D arrays.
         """  # noqa: E501
         pass
 
@@ -61,10 +63,10 @@ class BaseObjective(ABC):
         """Transforms the predicted labels. E.g. sigmoid for log loss.
 
         Args:
-            pred : The predicted labels.
+            pred : Raw predictions.
 
         Returns:
-            The transformed labels.
+            n-d array. For classification problems outputs a probability.
         """
         return pred
 
@@ -81,7 +83,9 @@ class BaseObjective(ABC):
     def initialise_prediction(
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
     ) -> cn.ndarray:
-        """Initializes the base score of the model. May also validate labels.
+        """Initializes the base score of the model, optionally either to a
+        baseline value or some value minimising the objective. Should also
+        validate labels i.e. check if y is suitable for this objective.
 
         Args:
             y : The target values.
@@ -90,9 +94,26 @@ class BaseObjective(ABC):
               from the average of the target values.
 
         Returns:
-            The initial predictions for a single example.
+            The initial (untransformed) prediction for a single example.
         """
         pass
+
+
+class ClassificationObjective(BaseObjective):
+    """Extension of BaseObjective for classification problems, use can optionaly
+    define a method of extracting a class output from probabilities."""
+
+    def output_class(self, pred: cn.ndarray) -> cn.ndarray:
+        """Defined how to output class labels from transfored output. This may be
+        as simple as argmax over probabilities.
+
+        Args:
+            pred (cn.ndarray): The transformed predictions.
+
+        Returns:
+            cn.ndarray: The class labels as a NumPy array.
+        """
+        return cn.argmax(pred, axis=-1)
 
 
 class SquaredErrorObjective(BaseObjective):
@@ -318,8 +339,8 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
 
 
 class GammaObjective(FitInterceptRegMixIn, Forecast):
-    """Regression with the :math:`\\Gamma` distribution function using the
-    shape scale parameterization."""
+    """Regression with the :math:`\\Gamma` distribution function using the shape
+    scale parameterization."""
 
     @override
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
@@ -398,8 +419,7 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
 
 
 class QuantileObjective(BaseObjective):
-    """Minimises the quantile loss, otherwise known as check loss or pinball
-    loss.
+    """Minimises the quantile loss, otherwise known as check loss or pinball loss.
 
     :math:`L(y_i, p_i) = \\frac{1}{k}\\sum_{j=1}^{k} (q_j - \\mathbb{1})(y_i - p_{i, j})`
 
@@ -454,9 +474,9 @@ class QuantileObjective(BaseObjective):
         return cn.zeros_like(self.quantiles)
 
 
-class LogLossObjective(FitInterceptRegMixIn):
-    """The Log Loss objective function for binary and multi-class
-    classification problems.
+class LogLossObjective(ClassificationObjective):
+    """The Log Loss objective function for binary and multi-class classification
+    problems.
 
     This objective function computes the log loss between the predicted and true labels.
 
@@ -484,6 +504,7 @@ class LogLossObjective(FitInterceptRegMixIn):
         assert len(pred.shape) == 2
         if pred.shape[1] == 1:
             return self.one / (self.one + cn.exp(-pred))
+
         # softmax function
         s = cn.max(pred, axis=1)
         e_x = cn.exp(pred - s[:, cn.newaxis])
@@ -500,6 +521,8 @@ class LogLossObjective(FitInterceptRegMixIn):
             raise ValueError("Expected labels to be non-zero whole numbers")
         num_class = int(cn.max(y) + 1)
         n_targets = num_class if num_class > 2 else 1
+        if not boost_from_average:
+            return cn.zeros(n_targets, dtype=cn.float64)
         if n_targets == 1:
             prob = y.sum() / y.size
             return -cn.log(1 / prob - 1).reshape(1)
@@ -508,9 +531,42 @@ class LogLossObjective(FitInterceptRegMixIn):
             return cn.log(prob)
 
 
-class ExponentialObjective(FitInterceptRegMixIn):
-    """Exponential loss objective function for binary classification.
-    Equivalent to the AdaBoost multiclass exponential loss in [1].
+class MultiLabelObjective(ClassificationObjective):
+    """Used for multi-label classification problems. i.e. the model can predict
+    more than one output class.
+
+    We apply an independent sigmoid function/logloss to each class.
+
+    See also:
+        :class:`legateboost.metrics.MultiLabelMetric`
+    """
+
+    def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
+        return pred - y, pred * (self.one - pred)
+
+    def transform(self, pred: cn.ndarray) -> cn.ndarray:
+        return self.one / (self.one + cn.exp(-pred))
+
+    def output_class(self, pred: cn.ndarray) -> cn.ndarray:
+        return cn.array(pred > 0.5, dtype=cn.int32).squeeze()
+
+    def metric(self) -> MultiLabelMetric:
+        return MultiLabelMetric()
+
+    def initialise_prediction(
+        self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
+    ) -> cn.ndarray:
+        if not cn.all((y == 1.0) | (y == 0.0)):
+            raise ValueError("Expected labels to be in [0, 1]")
+        if not boost_from_average:
+            return cn.zeros((1, y.shape[1]), dtype=cn.float64)
+        prob = y.sum(axis=0) / y.shape[0]
+        return -cn.log(1 / prob - 1)
+
+
+class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
+    """Exponential loss objective function for binary classification. Equivalent
+    to the AdaBoost multiclass exponential loss in [1].
 
     Defined as:
 
@@ -577,6 +633,7 @@ objectives = {
     "normal": NormalObjective,
     "log_loss": LogLossObjective,
     "exp": ExponentialObjective,
+    "multi_label": MultiLabelObjective,
     "quantile": QuantileObjective,
     "gamma_deviance": GammaDevianceObjective,
     "gamma": GammaObjective,
