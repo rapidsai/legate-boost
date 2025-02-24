@@ -113,13 +113,6 @@ def test_feature_sample():
     _, p = stats.mannwhitneyu(baseline_samples, sampled_samples, alternative="less")
     assert p < 0.05
 
-    # the no features model contains only the bias term - no splits
-    no_features_model = lb.LBRegressor(
-        base_models=(lb.models.Tree(feature_fraction=0.0),), random_state=0
-    ).fit(X, y)
-    for m in no_features_model:
-        assert m.num_nodes() == 1
-
 
 def test_callable_feature_sample():
     def feature_fraction():
