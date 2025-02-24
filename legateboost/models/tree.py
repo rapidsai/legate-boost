@@ -35,8 +35,10 @@ class Tree(BaseModel):
         Max value is 2048 due to constraints on shared memory in GPU kernels.
     feature_fraction :
         If float, the subsampled fraction of features considered in building this model.
+        Features are sampled without replacement, the number of features is
+        rounded up and at least 1.
         Users may implement an arbitrary function returning a cupynumeric array of
-        booleans of shape `(n_features,)` to specify the feature subset.
+        booleans of shape ``(n_features,)`` to specify the feature subset.
     l1_regularization : float
         The L1 regularization parameter applied to leaf weights.
     l2_regularization : float
@@ -61,7 +63,7 @@ class Tree(BaseModel):
         *,
         max_depth: int = 8,
         split_samples: int = 256,
-        feature_fraction: Union[float, Callable[..., cn.array]] = 1.0,
+        feature_fraction: Union[float, Callable[[], cn.array]] = 1.0,
         l1_regularization: float = 0.0,
         l2_regularization: float = 1.0,
         min_split_gain: float = 0.0,
@@ -133,10 +135,12 @@ class Tree(BaseModel):
             task.add_input(get_store(feature_set))
             task.add_broadcast(get_store(feature_set))
         elif self.feature_fraction < 1.0:
-            cn.random.seed(self.random_state.randint(0, 2**31))
-            feature_set = cn.random.binomial(
-                1, self.feature_fraction, size=(X.shape[1],), dtype=bool
-            )
+            feature_set = cn.zeros(X.shape[1], dtype=bool)
+            n_sampled_features = max(1, int(X.shape[1] * self.feature_fraction))
+            # use numpy here for sampling as cupynumeric seed is currently unreliable
+            # https://github.com/nv-legate/cupynumeric/issues/964
+            selection = self.random_state.choice(X.shape[1], n_sampled_features, False)
+            feature_set[selection] = True
             task.add_input(get_store(feature_set))
             task.add_broadcast(get_store(feature_set))
 
