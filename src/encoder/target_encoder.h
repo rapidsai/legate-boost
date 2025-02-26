@@ -1,4 +1,4 @@
-/* Copyright 2024 NVIDIA Corporation
+/* Copyright 2025 NVIDIA Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,26 +13,17 @@
  * limitations under the License.
  *
  */
+#pragma once
+#include "legate_library.h"
+#include "legateboost.h"
 
-#ifndef SRC_LEGATEBOOST_H_
-#define SRC_LEGATEBOOST_H_
+namespace legateboost {
+class TargetEncoderMeanTask : public Task<TargetEncoderMeanTask, TARGET_ENCODER_MEAN> {
+ public:
+  static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+  static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
 
-enum LegateBoostOpCode {  // NOLINT(performance-enum-size)
-  OP_CODE_BASE = 0,
-  BUILD_TREE   = 1,
-  PREDICT      = 2,
-  UPDATE_TREE  = 3,
-  /* special */
-  ERF     = 4,
-  LGAMMA  = 5,
-  TGAMMA  = 6,
-  DIGAMMA = 7,
-  ZETA    = 8,
-  /**/
-  GATHER              = 9,
-  RBF                 = 10,
-  BUILD_NN            = 11,
-  TARGET_ENCODER_MEAN = 12,
+  static void cpu_variant(legate::TaskContext context);
 };
 
-#endif  // SRC_LEGATEBOOST_H_
+}  // namespace legateboost

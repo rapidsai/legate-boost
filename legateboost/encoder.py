@@ -4,8 +4,11 @@ from sklearn.utils import Tags, check_random_state
 from sklearn.utils.validation import check_is_fitted
 
 import cupynumeric as cn
+from legate.core import get_legate_runtime, types
 
 from .input_validation import _lb_check_X, _lb_check_X_y
+from .library import user_context, user_lib
+from .utils import get_store
 
 __all__ = ["TargetEncoder", "KFold"]
 
@@ -81,10 +84,14 @@ class TargetEncoder(TransformerMixin, BaseEstimator):
         self.encodings_ = []
         for column in X.T:
             self.categories_.append(cn.unique(column))
+        self.categories_sparse_matrix_ = cn.concatenate(self.categories_)
+        self.categories_row_pointers_ = cn.cumsum(
+            cn.array([0] + [len(c) for c in self.categories_]), dtype=cn.int64
+        )
 
         y_ = self._maybe_expand_labels(y)
         self.target_mean_ = y_.mean(axis=0)
-        self.encodings_ = self._get_encoding(X, y_, self.target_mean_)
+        self.encodings_ = self._get_encoding(X, y_)
         return self
 
     # fit on cv splits
@@ -111,7 +118,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator):
         )
         for train, test in cv.split(X):
             X_train, y_train = X[train], y_[train]
-            encoding = self._get_encoding(X_train, y_train, self.target_mean_)
+            encoding = self._get_encoding(X_train, y_train)
             self._transform_X(X, X_out, test, encoding)
 
         return X_out.reshape(X.shape[:-1] + (-1,))
@@ -146,7 +153,39 @@ class TargetEncoder(TransformerMixin, BaseEstimator):
                 X_out[mask, feature_idx] = encodings[feature_idx][ordinal]
         return X_out
 
-    def _get_encoding(self, X, y, target_mean):
+    def _get_category_means(self, X, y):
+        task = get_legate_runtime().create_auto_task(
+            user_context, user_lib.cffi.TARGET_ENCODER_MEAN
+        )
+        # inputs
+        X_ = get_store(X).promote(2, y.shape[1])
+        y_ = get_store(y.astype(X.dtype, copy=False)).promote(1, X.shape[1])
+        task.add_input(X_)
+        task.add_input(y_)
+
+        task.add_input(get_store(self.categories_sparse_matrix_))
+        task.add_input(get_store(self.categories_row_pointers_))
+        task.add_broadcast(get_store(self.categories_sparse_matrix_))
+        task.add_broadcast(get_store(self.categories_row_pointers_))
+
+        # output array contains label sums and counts for each category
+        out = cn.zeros(
+            (len(self.categories_sparse_matrix_), y.shape[1], 2), dtype=cn.float64
+        )
+        task.add_reduction(get_store(out), types.ReductionOpKind.ADD)
+
+        task.add_alignment(X_, y_)
+        task.execute()
+        return out
+
+    def _get_category_variance(self, X, y):
+        pass
+
+    def _get_encoding(self, X, y):
+        pass
+        # means = self._get_category_means(X, y)
+
+    def _get_encoding_old(self, X, y, target_mean):
         encodings = []
         for (
             feature_idx,
