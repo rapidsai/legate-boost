@@ -211,3 +211,15 @@ def test_min_split_gain():
     model_a_root_gain = model_a[0].gain[0]
     model_b_root_gain = model_b[0].gain[0]
     assert np.isclose(model_a_root_gain, model_b_root_gain + min_split_gain)
+
+
+def test_wide_deep():
+    rng = np.random.RandomState(0)
+    X = rng.randn(5000, 500)
+    y = rng.randn(X.shape[0])
+    lb.LBRegressor(
+        init=None,
+        verbose=1,
+        n_estimators=10,
+        base_models=(lb.models.Tree(max_depth=10),),
+    ).fit(X, y)
