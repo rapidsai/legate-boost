@@ -551,6 +551,8 @@ struct HistogramKernel {
                       int64_t seed,
                       cudaStream_t stream)
   {
+    if (batch.InstancesInBatch() == 0) return;
+
     int const average_features_per_group = split_proposals.num_features / num_groups;
     std::size_t const average_elements_per_group =
       batch.InstancesInBatch() * average_features_per_group;
