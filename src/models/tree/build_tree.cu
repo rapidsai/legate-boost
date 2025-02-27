@@ -998,12 +998,12 @@ struct TreeBuilder {
     while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) {
       depth++;
     }
-    histogram      = Histogram<IntegerGPair>(BinaryTree::LevelBegin(0),
-                                        BinaryTree::LevelEnd(depth),
-                                        num_outputs,
-                                        split_proposals.histogram_size,
-                                        stream);
-    max_batch_size = max_histogram_nodes;
+    cached_histogram = Histogram<IntegerGPair>(BinaryTree::LevelBegin(0),
+                                               BinaryTree::LevelEnd(depth),
+                                               num_outputs,
+                                               split_proposals.histogram_size,
+                                               stream);
+    max_batch_size   = max_histogram_nodes;
   }
 
   TreeBuilder(const TreeBuilder&)                    = delete;
@@ -1178,16 +1178,18 @@ struct TreeBuilder {
   // Destroy the old one
   auto GetHistogram(NodeBatch batch) -> Histogram<IntegerGPair>
   {
-    if (histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) { return histogram; }
+    if (cached_histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) {
+      return cached_histogram;
+    }
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
-    histogram.Destroy();
-    histogram = Histogram<IntegerGPair>(batch.node_idx_begin,
-                                        batch.node_idx_end,
-                                        num_outputs,
-                                        split_proposals.histogram_size,
-                                        stream);
-    return histogram;
+    cached_histogram.Destroy();
+    cached_histogram = Histogram<IntegerGPair>(batch.node_idx_begin,
+                                               batch.node_idx_end,
+                                               num_outputs,
+                                               split_proposals.histogram_size,
+                                               stream);
+    return cached_histogram;
   }
 
   auto PrepareBatches(int depth) -> std::vector<NodeBatch>
@@ -1230,8 +1232,7 @@ struct TreeBuilder {
                                                cuda::std::tuple(batch_end - 1, 0),
                                                comp);
               tcb::span<cuda::std::tuple<int32_t, int32_t>> const span(lower, upper);
-              batches_span[batch_idx] = {
-                cuda::std::get<0>(span.front()), cuda::std::get<0>(span.back()) + 1, span};
+              batches_span[batch_idx] = {batch_begin, batch_end, span};
             });
 
     std::vector<NodeBatch> result(num_batches);
@@ -1241,11 +1242,6 @@ struct TreeBuilder {
                                cudaMemcpyDeviceToHost,
                                stream));
     CHECK_CUDA(cudaStreamSynchronize(stream));
-    // Filter empty
-    result.erase(
-      std::remove_if(
-        result.begin(), result.end(), [](const NodeBatch& b) { return b.InstancesInBatch() == 0; }),
-      result.end());
     return result;
   }
 
@@ -1255,7 +1251,7 @@ struct TreeBuilder {
   const int32_t num_outputs;
   const int32_t max_nodes;
   SparseSplitProposals<T> split_proposals;
-  Histogram<IntegerGPair> histogram;
+  Histogram<IntegerGPair> cached_histogram;
   int max_batch_size;
   GradientQuantiser quantiser;
   HistogramKernel<T> histogram_kernel;

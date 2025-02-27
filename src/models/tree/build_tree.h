@@ -158,12 +158,12 @@ class SparseSplitProposals {
   legate::Buffer<T, 1> split_proposals;
   legate::Buffer<int32_t, 1> row_pointers;
   int32_t num_features;
-  int32_t histogram_size;
+  std::size_t histogram_size;
   // The rightmost split proposal for each feature must be +inf
   SparseSplitProposals(const legate::Buffer<T, 1>& split_proposals,
                        const legate::Buffer<int32_t, 1>& row_pointers,
                        int32_t num_features,
-                       int32_t histogram_size)
+                       std::size_t histogram_size)
     : split_proposals(split_proposals),
       row_pointers(row_pointers),
       num_features(num_features),
@@ -234,7 +234,7 @@ class Histogram {
     : buffer_(legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins})),
       node_begin_(node_begin),
       node_end_(node_end),
-      size_(static_cast<std::size_t>((node_end - node_begin) * num_outputs * num_bins))
+      size_(static_cast<std::size_t>(node_end - node_begin) * num_outputs * num_bins)
   {
     static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
                   "Unexpected size of GPairT");
@@ -249,7 +249,7 @@ class Histogram {
     : buffer_(legate::create_buffer<GPairT, 3>({node_end - node_begin, num_outputs, num_bins})),
       node_begin_(node_begin),
       node_end_(node_end),
-      size_(static_cast<std::size_t>((node_end - node_begin) * num_outputs * num_bins))
+      size_(static_cast<std::size_t>(node_end - node_begin) * num_outputs * num_bins)
   {
     static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
                   "Unexpected size of GPairT");
