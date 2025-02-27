@@ -13,6 +13,11 @@ on:
         type: string
         description: "relative path to a script that builds conda packages"
 
+# override default permissions
+permissions:
+  # needed to auth with AWS for sccache
+  id-token: write
+
 env:
   # CUDA architectures to build for
   CUDAARCHS: "all-major"
@@ -47,6 +52,11 @@ jobs:
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
     steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 14400 # 4h
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
