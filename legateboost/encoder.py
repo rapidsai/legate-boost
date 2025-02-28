@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils import Tags, check_random_state
@@ -6,41 +8,29 @@ from sklearn.utils.validation import check_is_fitted
 import cupynumeric as cn
 from legate.core import get_legate_runtime, types
 
-from .input_validation import _lb_check_X, _lb_check_X_y
+from .input_validation import _lb_check_X, check_array
 from .library import user_context, user_lib
-from .utils import get_store
+from .utils import PickleCupynumericMixin, get_store
 
 __all__ = ["TargetEncoder", "KFold"]
 
 
-# simple cupynumeric implementation of sklearn kfold
+# This uniquely defines a cross-validation split
+# It is passed to the legate tasks which call something like
+# fold = rng(seed).advance(row_idx).rantint(0, n_folds)
+# thus each instance is assigned to a fold
+# It differs from the sklearn KFold, which shuffles the data
+# The size of each of our folds can vary slightly, but still
+# each instance has equal chance of being assigned to each fold
+# If n_folds is set to 0, the test and train sets both contain
+# all instances
+@dataclass
 class KFold:
-    def __init__(self, n_splits=5, shuffle=True, random_state=None):
-        self.n_splits = n_splits
-        self.shuffle = shuffle
-        self.random_state = random_state
-
-    def split(self, X):
-        n_samples = X.shape[0]
-        random_state = check_random_state(self.random_state)
-        if self.shuffle:
-            if self.random_state is not None:
-                # annoyingly we have to also seed numpy
-                # https://github.com/nv-legate/cupynumeric/issues/964
-                seed = random_state.randint(0, 2**32 - 1)
-                np.random.seed(seed)
-                cn.random.seed(seed)
-            # no permutation at the time of writing in cupynumeric
-            indices = cn.random.randint(0, 2**63, size=n_samples).argsort()
-        else:
-            indices = cn.arange(n_samples)
-        for i in range(self.n_splits):
-            start = i * n_samples // self.n_splits
-            end = (i + 1) * n_samples // self.n_splits
-            yield cn.concatenate([indices[:start], indices[end:]]), indices[start:end]
+    seed: np.int64
+    n_folds: int
 
 
-class TargetEncoder(TransformerMixin, BaseEstimator):
+class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
     def __init__(
         self,
         target_type: str,
@@ -60,6 +50,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator):
         tags.input_tags.categorical = True
         tags.input_tags.allow_nan = False
         tags.target_tags.required = True
+        tags.input_tags.string = False
         return tags
 
     # integer multiclass labels must be one-hot encoded
@@ -70,15 +61,18 @@ class TargetEncoder(TransformerMixin, BaseEstimator):
             n_outputs = y.max() + 1
             range = cn.arange(n_outputs)
             # one hot encode labels
-            y_ = y[:, cn.newaxis] == range[cn.newaxis, :].astype(y.dtype)
-        else:
-            if len(y.shape) == 1:
-                y_ = y.reshape(-1, 1)
-        return y_
+            return y[:, cn.newaxis] == range[cn.newaxis, :].astype(y.dtype)
+        if len(y.shape) == 1:
+            return y.reshape(-1, 1)
+        return y
 
     # fit on all data
     def fit(self, X, y):
-        _lb_check_X_y(X, y)
+        if y is None:
+            raise ValueError("requires y to be passed, but the target y is None")
+        self.random_state_ = check_random_state(self.random_state)
+        X = _lb_check_X(X)
+        y = check_array(y)
         self.n_features_in_ = X.shape[1]
         self.categories_ = []
         self.encodings_ = []
@@ -90,13 +84,16 @@ class TargetEncoder(TransformerMixin, BaseEstimator):
         )
 
         y_ = self._maybe_expand_labels(y)
-        self.target_mean_ = y_.mean(axis=0)
-        self.encodings_ = self._get_encoding(X, y_)
+        # no cross validation
+        self.encodings_, self.target_mean_ = self._get_encoding(
+            X, y_, KFold(seed=0, n_folds=0), 0
+        )
         return self
 
     # fit on cv splits
     def fit_transform(self, X, y):
-        _lb_check_X_y(X, y)
+        X = _lb_check_X(X)
+        y = check_array(y)
         # fit on all of the data first
         # to get the target mean, categories
         # and an encoding over the entire dataset
@@ -110,54 +107,77 @@ class TargetEncoder(TransformerMixin, BaseEstimator):
             (X.shape[0], X.shape[1], y_.shape[1]),
             dtype=X.dtype,
         )
-        # unknown classes are encoded as the target mean
-        X_out[:] = self.target_mean_
 
-        cv = KFold(
-            n_splits=self.cv, shuffle=self.shuffle, random_state=self.random_state
-        )
-        for train, test in cv.split(X):
-            X_train, y_train = X[train], y_[train]
-            encoding = self._get_encoding(X_train, y_train)
-            self._transform_X(X, X_out, test, encoding)
+        if self.cv == 0:
+            return self.transform(X)
+
+        cv = KFold(seed=self.random_state_.randint(0, 2**32), n_folds=self.cv)
+        for fold_idx in range(self.cv):
+            encoding, y_mean = self._get_encoding(X, y_, cv, fold_idx)
+            self._transform_X(X, X_out, encoding, cv, fold_idx, y_mean)
 
         return X_out.reshape(X.shape[:-1] + (-1,))
 
     def transform(self, X):
-        _lb_check_X(X)
+        X = _lb_check_X(X)
         check_is_fitted(self)
         if X.shape[1] != self.n_features_in_:
             raise ValueError(
-                f"X has {X.shape[1]} features, but TargetEncoder"
-                " is expecting {self.n_features_in_} features as input"
+                "X has {} features, but TargetEncoder "
+                " is expecting {} features as input".format(
+                    X.shape[1], self.n_features_in_
+                )
             )
         X_out = cn.empty(
-            (X.shape[0], X.shape[1], self.encodings_[0][0].shape[0]),
+            (X.shape[0], X.shape[1], self.encodings_[0].shape[0]),
             dtype=X.dtype,
         )
-        # unknown classes are encoded as the target mean
-        X_out[:] = self.target_mean_
-        self._transform_X(X, X_out, cn.arange(X.shape[0]), self.encodings_)
+        self._transform_X(
+            X, X_out, self.encodings_, KFold(seed=0, n_folds=0), 0, self.target_mean_
+        )
         return X_out.reshape(X.shape[:-1] + (-1,))
 
-    def _transform_X(self, X_in, X_out, row_indices, encodings):
-        for (
-            feature_idx,
-            levels,
-        ) in enumerate(self.categories_):
-            for ordinal, level in enumerate(levels):
-                mask = X_in[:, feature_idx] == level
-                row_mask = cn.zeros(X_in.shape[0], dtype=bool)
-                row_mask[row_indices] = True
-                mask &= row_mask
-                X_out[mask, feature_idx] = encodings[feature_idx][ordinal]
+    def _transform_X(self, X_in, X_out, encodings, cv: KFold, fold: int, y_mean):
+        task = get_legate_runtime().create_auto_task(
+            user_context, user_lib.cffi.TARGET_ENCODER_ENCODE
+        )
+        # inputs
+        task.add_scalar_arg(cv.seed, types.int64)
+        task.add_scalar_arg(cv.n_folds, types.int64)
+        task.add_scalar_arg(fold, types.int64)
+
+        X_in_ = get_store(X_in).promote(2, X_out.shape[2])
+        task.add_input(X_in_)
+        task.add_input(get_store(self.categories_sparse_matrix_))
+        task.add_input(get_store(self.categories_row_pointers_))
+        task.add_broadcast(get_store(self.categories_sparse_matrix_))
+        task.add_broadcast(get_store(self.categories_row_pointers_))
+        task.add_input(get_store(encodings))
+        task.add_broadcast(get_store(encodings))
+        task.add_input(get_store(y_mean))
+        task.add_broadcast(get_store(y_mean))
+
+        # output
+        task.add_output(get_store(X_out))
+        task.add_alignment(X_in_, get_store(X_out))
+
+        task.execute()
         return X_out
 
-    def _get_category_means(self, X, y):
+    def _get_category_means(self, X, y, cv: KFold, fold: int):
+        """Compute some label summary statistics for each category in the input
+        data.
+
+        Returns a 3D array of shape (n_categories, n_outputs, 2)
+        containing the sum, count of the labels for each category.
+        """
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.TARGET_ENCODER_MEAN
         )
         # inputs
+        task.add_scalar_arg(cv.seed, types.int64)
+        task.add_scalar_arg(cv.n_folds, types.int64)
+        task.add_scalar_arg(fold, types.int64)
         X_ = get_store(X).promote(2, y.shape[1])
         y_ = get_store(y.astype(X.dtype, copy=False)).promote(1, X.shape[1])
         task.add_input(X_)
@@ -169,36 +189,35 @@ class TargetEncoder(TransformerMixin, BaseEstimator):
         task.add_broadcast(get_store(self.categories_row_pointers_))
 
         # output array contains label sums and counts for each category
-        out = cn.zeros(
+        means = cn.zeros(
             (len(self.categories_sparse_matrix_), y.shape[1], 2), dtype=cn.float64
         )
-        task.add_reduction(get_store(out), types.ReductionOpKind.ADD)
+        task.add_reduction(get_store(means), types.ReductionOpKind.ADD)
 
         task.add_alignment(X_, y_)
         task.execute()
-        return out
+        return means
 
-    def _get_category_variance(self, X, y):
-        pass
+    def _get_category_variances(self, X, y, means, cv: KFold, fold: int):
+        return None, None
 
-    def _get_encoding(self, X, y):
-        pass
-        # means = self._get_category_means(X, y)
-
-    def _get_encoding_old(self, X, y, target_mean):
-        encodings = []
-        for (
-            feature_idx,
-            levels,
-        ) in enumerate(self.categories_):
-            category_encodings = []
-            for level in levels:
-                mask = X[:, feature_idx] == level
-                level_count = mask.sum()
-                sum = y[mask, :].sum(axis=0)
-                encoding = (sum + self.smooth * target_mean) / (
-                    level_count + self.smooth
-                )
-                category_encodings.append(encoding)
-            encodings.append(category_encodings)
-        return encodings
+    def _get_encoding(self, X, y, cv: KFold, fold: int):
+        means = self._get_category_means(X, y, cv, fold)
+        y_mean = means[:, :, 0].sum(axis=0) / means[:, :, 1].sum(axis=0)
+        if self.smooth != "auto":
+            sums = means[:, :, 0]
+            counts = means[:, :, 1]
+            encoding = (sums + self.smooth * y_mean) / (counts + self.smooth)
+            zero_count = counts[:, 0] == 0
+            encoding[zero_count] = y_mean
+            return encoding, y_mean
+        else:
+            variances, y_variance = self._get_category_variances(X, y, means)
+            sums = means[:, :, 0]
+            counts = means[:, :, 1]
+            lambda_ = (y_variance * counts) / (y_variance * counts + variances)
+            means = sums / counts
+            encoding = lambda_ * means + (1 - lambda_) * y_mean
+            nans = cn.isnan(lambda_)
+            encoding[nans] = y_mean
+            return encoding, y_mean

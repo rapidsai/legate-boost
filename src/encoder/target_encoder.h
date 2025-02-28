@@ -20,10 +20,15 @@
 namespace legateboost {
 class TargetEncoderMeanTask : public Task<TargetEncoderMeanTask, TARGET_ENCODER_MEAN> {
  public:
-  static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
-  static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+  static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(false);
 
   static void cpu_variant(legate::TaskContext context);
 };
 
+class TargetEncoderEncodeTask : public Task<TargetEncoderEncodeTask, TARGET_ENCODER_ENCODE> {
+ public:
+  static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(false);
+
+  static void cpu_variant(legate::TaskContext context);
+};
 }  // namespace legateboost
