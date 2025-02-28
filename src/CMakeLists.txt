@@ -36,6 +36,8 @@ set(legateboost_srcs
   special/special.cc
   cpp_utils/cpp_utils.h
   cpp_utils/cpp_utils.cc
+  encoder/target_encoder.h
+  encoder/target_encoder.cc
   utils/gather.cc
 )
 

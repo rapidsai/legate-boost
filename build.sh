@@ -19,6 +19,7 @@ HELP="$0 [<target> ...] [<flag> ...]
 
    --editable        - install Python wheel in editable mode
    --fix             - clang-tidy will attempt to fix issues.
+   --g               - Build with debug symbols
    -v                - Pass on verbosity to cmake and pip
    -h | --help       - print the help text
 "
@@ -48,6 +49,13 @@ if hasArg --editable; then
     PIP_INSTALL_ARGS+=("--editable")
 fi
 
+if hasArg --g; then
+    CMAKE_BUILD_TYPE=Debug
+    export SKBUILD_CONFIGURE_OPTIONS="-DCMAKE_BUILD_TYPE:STRING=Debug"
+else
+    CMAKE_BUILD_TYPE=Release
+fi
+
 if hasArg -v; then
     CMAKE_VERBOSE_FLAG="-v"
     PIP_INSTALL_ARGS+=(
@@ -63,12 +71,23 @@ fi
 legate_root=$(
     python -c 'import legate.install_info as i; from pathlib import Path; print(Path(i.libpath).parent.resolve())'
 )
+
+CMAKE_CONFIGURE_ARGS=(
+    -Dlegate_ROOT="${legate_root}"
+    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+    -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}"
+)
+CMAKE_BUILD_ARGS=(
+    -j
+    "${CMAKE_VERBOSE_FLAG}"
+)
+
 if hasArg liblegateboost || hasArg --editable; then
     echo "building liblegateboost..."
     echo "Using Legate at '${legate_root}'"
 
-    cmake -S . -B build -Dlegate_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}"
-    cmake --build build -j ${CMAKE_VERBOSE_FLAG}
+    cmake -S . -B build "${CMAKE_CONFIGURE_ARGS[@]}"
+    cmake --build build "${CMAKE_BUILD_ARGS[@]}"
     echo "done building liblegateboost"
 fi
 
@@ -77,7 +96,7 @@ if hasArg clang-tidy; then
     # Build the project with clang
     CUDA_ROOT="$(dirname "$(dirname "$(which cuda-gdb)")")"
     echo "Using CUDA at '${CUDA_ROOT}'"
-    cmake . -B build_clang_tidy -Dlegate_ROOT="${legate_root}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CMAKE_CUDA_ARCHITECTURES}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    cmake . -B build_clang_tidy "${CMAKE_CONFIGURE_ARGS[@]}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
     FIX_ARG=""
     if hasArg --fix; then
         FIX_ARG="-fix"
