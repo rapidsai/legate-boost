@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils import Tags, check_random_state
@@ -12,23 +10,7 @@ from .input_validation import _lb_check_X, check_array
 from .library import user_context, user_lib
 from .utils import PickleCupynumericMixin, get_store
 
-__all__ = ["TargetEncoder", "KFold"]
-
-
-# This uniquely defines a cross-validation split
-# It is passed to the legate tasks which call something like
-# fold = rng(seed).advance(row_idx).rantint(0, n_folds)
-# thus each instance is assigned to a fold
-# It differs from the sklearn KFold, which shuffles the data
-# The size of each of our folds can vary slightly, but still
-# each instance has equal chance of being assigned to each fold
-# If n_folds is set to 0, the test and train sets both contain
-# all instances
-@dataclass
-class KFold:
-    seed: np.int64
-    n_folds: int
-    shuffle: bool
+__all__ = ["TargetEncoder"]
 
 
 class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
@@ -148,9 +130,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
 
         y_ = self._maybe_expand_labels(y)
         # no cross validation
-        self.encodings_, self.target_mean_ = self._get_encoding(
-            X, y_, KFold(seed=0, n_folds=0, shuffle=self.shuffle), 0
-        )
+        self.encodings_, self.target_mean_ = self._get_encoding(X, y_, None, 0)
         return self
 
     # fit on cv splits
@@ -174,14 +154,20 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         if self.cv == 0:
             return self.transform(X)
 
-        cv = KFold(
-            seed=self.random_state_.randint(0, 2**32),
-            n_folds=self.cv,
-            shuffle=self.shuffle,
-        )
+        if self.shuffle:
+            # assign each instance to a fold
+            seed = self.random_state_.randint(0, 2**32)
+            # need to seed both due to
+            # https://github.com/nv-legate/cupynumeric/issues/964
+            np.random.seed(seed)
+            cn.random.seed(seed)
+            cv_indices = cn.random.randint(0, self.cv, size=X.shape[0], dtype=cn.int64)
+        else:
+            fold_size = int(np.ceil(X.shape[0] / self.cv))
+            cv_indices = cn.arange(X.shape[0]) // fold_size
         for fold_idx in range(self.cv):
-            encoding, y_mean = self._get_encoding(X, y_, cv, fold_idx)
-            self._transform_X(X, X_out, encoding, cv, fold_idx, y_mean)
+            encoding, y_mean = self._get_encoding(X, y_, cv_indices, fold_idx)
+            self._transform_X(X, X_out, encoding, cv_indices, fold_idx, y_mean)
 
         return X_out.reshape(X.shape[:-1] + (-1,))
 
@@ -221,22 +207,23 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             X,
             X_out,
             self.encodings_,
-            KFold(seed=0, n_folds=0, shuffle=self.shuffle),
+            None,
             0,
             self.target_mean_,
         )
         return X_out.reshape(X.shape[:-1] + (-1,))
 
-    def _transform_X(self, X_in, X_out, encodings, cv: KFold, fold: int, y_mean):
+    # if cv_indices is None, use all data
+    def _transform_X(
+        self, X_in, X_out, encodings, cv_indices, cv_fold_idx: int, y_mean
+    ):
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.TARGET_ENCODER_ENCODE
         )
         # inputs
-        task.add_scalar_arg(cv.seed, types.int64)
-        task.add_scalar_arg(cv.n_folds, types.int64)
-        task.add_scalar_arg(cv.shuffle, types.bool_)
-        task.add_scalar_arg(fold, types.int64)
-        task.add_scalar_arg(X_in.shape[0], types.int64)
+        task.add_scalar_arg(cv_fold_idx, types.int64)
+        do_cv = cv_indices is not None
+        task.add_scalar_arg(do_cv, types.bool_)
 
         X_in_ = get_store(X_in).promote(2, X_out.shape[2])
         task.add_input(X_in_)
@@ -253,10 +240,19 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         task.add_output(get_store(X_out))
         task.add_alignment(X_in_, get_store(X_out))
 
+        if do_cv:
+            cv_indices_ = (
+                get_store(cv_indices)
+                .promote(1, X_in.shape[1])
+                .promote(2, X_out.shape[2])
+            )
+            task.add_input(cv_indices_)
+            task.add_alignment(cv_indices_, get_store(X_out))
+
         task.execute()
         return X_out
 
-    def _get_category_means(self, X, y, cv: KFold, fold: int):
+    def _get_category_means(self, X, y, cv_indices, cv_fold_idx: int):
         """Compute some label summary statistics for each category in the input
         data.
 
@@ -267,11 +263,9 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             user_context, user_lib.cffi.TARGET_ENCODER_MEAN
         )
         # inputs
-        task.add_scalar_arg(cv.seed, types.int64)
-        task.add_scalar_arg(cv.n_folds, types.int64)
-        task.add_scalar_arg(cv.shuffle, types.bool_)
-        task.add_scalar_arg(fold, types.int64)
-        task.add_scalar_arg(X.shape[0], types.int64)
+        task.add_scalar_arg(cv_fold_idx, types.int64)
+        do_cv = cv_indices is not None
+        task.add_scalar_arg(do_cv, types.bool_)
         X_ = get_store(X).promote(2, y.shape[1])
         y_ = get_store(y.astype(X.dtype, copy=False)).promote(1, X.shape[1])
         task.add_input(X_)
@@ -289,20 +283,29 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         task.add_reduction(get_store(means), types.ReductionOpKind.ADD)
 
         task.add_alignment(X_, y_)
+        if do_cv:
+            print(cv_indices)
+            cv_indices_ = (
+                get_store(cv_indices).promote(1, X.shape[1]).promote(2, y.shape[1])
+            )
+            task.add_input(cv_indices_)
+            task.add_alignment(cv_indices_, X_)
         task.execute()
         return means
 
-    def _get_category_variances(self, X, y, means, y_mean, cv: KFold, fold: int):
+    def _get_category_variances(
+        self, X, y, means, y_mean, cv_indices, cv_fold_idx: int
+    ):
         # means is the sum, count of the labels for each category and output
         # y_mean is the mean of the labels for this train fold
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.TARGET_ENCODER_VARIANCE
         )
         # inputs
-        task.add_scalar_arg(cv.seed, types.int64)
-        task.add_scalar_arg(cv.n_folds, types.int64)
-        task.add_scalar_arg(cv.shuffle, types.bool_)
-        task.add_scalar_arg(fold, types.int64)
+        # inputs
+        task.add_scalar_arg(cv_fold_idx, types.int64)
+        do_cv = cv_indices is not None
+        task.add_scalar_arg(do_cv, types.bool_)
         task.add_scalar_arg(X.shape[0], types.int64)
         X_ = get_store(X).promote(2, y.shape[1])
         y_ = get_store(y.astype(X.dtype, copy=False)).promote(1, X.shape[1])
@@ -326,11 +329,17 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         task.add_reduction(get_store(variances_sum), types.ReductionOpKind.ADD)
         task.add_reduction(get_store(y_variances_sum), types.ReductionOpKind.ADD)
         task.add_alignment(X_, y_)
+        if do_cv:
+            cv_indices_ = (
+                get_store(cv_indices).promote(1, X.shape[1]).promote(2, y.shape[1])
+            )
+            task.add_input(cv_indices_)
+            task.add_alignment(cv_indices_, X_)
         task.execute()
         return variances_sum / means[:, :, 1], y_variances_sum / means[:, :, 1].sum()
 
-    def _get_encoding(self, X, y, cv: KFold, fold: int):
-        means = self._get_category_means(X, y, cv, fold)
+    def _get_encoding(self, X, y, cv_indices, cv_fold_idx: int):
+        means = self._get_category_means(X, y, cv_indices, cv_fold_idx)
         y_mean = means[:, :, 0].sum(axis=0) / means[:, :, 1].sum(axis=0)
         if self.smooth != "auto":
             sums = means[:, :, 0]
@@ -341,7 +350,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             return encoding, y_mean
         else:
             variances, y_variance = self._get_category_variances(
-                X, y, means, y_mean, cv, fold
+                X, y, means, y_mean, cv_indices, cv_fold_idx
             )
             sums = means[:, :, 0]
             counts = means[:, :, 1]

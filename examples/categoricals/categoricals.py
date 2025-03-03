@@ -24,7 +24,6 @@ for c in categorical_features:
     print("Num unique values in", c, ":", len(df[c].unique()))
 
 X = df[numerical_features + categorical_features].to_numpy()
-print(X.shape[0])
 y = df[target_name].to_numpy()
 
 encoded_categoricals = lb.encoder.TargetEncoder(

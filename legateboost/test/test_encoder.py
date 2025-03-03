@@ -111,10 +111,10 @@ class TestTargetEncoder:
             target_type="binary", cv=2, random_state=0, shuffle=False
         )
         enc.fit(X, y)
-        from legateboost.encoder import KFold
 
+        cv_indices = cn.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
         # fold 0: train instances 5, 6, 7, 8, 9
-        sums_counts = enc._get_category_means(X, y, KFold(0, 2, shuffle=False), 0)
+        sums_counts = enc._get_category_means(X, y, cv_indices, 0)
         sums = sums_counts[:, 0, 0]
         counts = sums_counts[:, 0, 1]
         assert cn.allclose(sums, cn.array([0, 3]))
@@ -122,13 +122,12 @@ class TestTargetEncoder:
 
         y_mean = sums_counts[:, :, 0].sum(axis=0) / sums_counts[:, :, 1].sum(axis=0)
         variances, y_variance = enc._get_category_variances(
-            X, y, sums_counts, y_mean, KFold(0, 2, shuffle=False), 0
+            X, y, sums_counts, y_mean, cv_indices, 0
         )
         assert cn.isclose(y_variance[0], y[5:].var())
         assert cn.allclose(variances[:, 0], cn.array([0.0, 0.0]))
 
-        # fold 1: train instances 0, 1, 2, 3, 4
-        sums_counts = enc._get_category_means(X, y, KFold(0, 2, shuffle=False), 1)
+        sums_counts = enc._get_category_means(X, y, cv_indices, 1)
         sums = sums_counts[:, 0, 0]
         counts = sums_counts[:, 0, 1]
         assert cn.allclose(sums, cn.array([1, 1]))
@@ -136,7 +135,7 @@ class TestTargetEncoder:
 
         y_mean = sums_counts[:, :, 0].sum(axis=0) / sums_counts[:, :, 1].sum(axis=0)
         variances, y_variance = enc._get_category_variances(
-            X, y, sums_counts, y_mean, KFold(0, 2, shuffle=False), 1
+            X, y, sums_counts, y_mean, cv_indices, 1
         )
         assert cn.isclose(y_variance[0], y[:5].var())
         assert cn.allclose(variances[:, 0], cn.array([y[0:2].var(), y[2:5].var()]))
