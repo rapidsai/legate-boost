@@ -32,7 +32,7 @@ struct CV {
     : seed(seed), n_splits(n_splits), shuffle(shuffle)
   {
     // We must round up here to ensure that we don't miss any rows
-    partition_size = std::ceil(static_assert<double>(global_rows) / n_splits);
+    partition_size = std::ceil(static_cast<double>(global_rows) / n_splits);
   }
   // TODO(Rory): this is not fast, use Philox
   bool is_train(int64_t fold, int64_t row_idx) const

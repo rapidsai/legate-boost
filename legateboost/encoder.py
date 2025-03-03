@@ -32,6 +32,50 @@ class KFold:
 
 
 class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
+    """TargetEncoder is a transformer that encodes categorical features using
+    the mean of the target variable. When `fit_transform` is called, a cross-
+    validation procedure is used to generate encodings for each training fold,
+    which are then applied to the test fold. `fit().transform()` differs from
+    `fit_transform()` in that the former fits the encoder on all the data and
+    generates encodings for each feature. This encoder is modelled on the
+    sklearn TargetEncoder with only minor differences in how the CV folds are
+    generated. As it is difficult to rearrange and gather data from each fold
+    in distributed environment, training rows are kept in place and then
+    assigned a cv fold by generating a random integer in the range [0,
+    n_folds). As per sklearn, when smooth="auto", an empirical Bayes estimate
+    per [#]_ is used to avoid overfitting.
+
+    .. [#] Micci-Barreca, Daniele. "A preprocessing scheme for high-cardinality categorical attributes in classification and prediction problems." ACM SIGKDD explorations newsletter 3.1 (2001): 27-32.
+
+    Parameters
+    ----------
+    target_type : str
+        The type of target variable. Must be one of {"continuous", "binary", "multiclass"}.
+    smooth : float, default=1.0
+        Smoothing parameter to avoid overfitting. If "auto", the smoothing parameter is determined automatically.
+    cv : int, default=5
+        Number of cross-validation folds. If 0, no cross-validation is performed.
+    shuffle : bool, default=True
+        Whether to shuffle the data before splitting into folds.
+    random_state : int or None, default=None
+        Seed for the random number generator.
+
+    Attributes
+    ----------
+    n_features_in_ : int
+        Number of features seen during fit.
+    categories_ : list of arrays
+        List of unique categories for each feature.
+    categories_sparse_matrix_ : array
+        Concatenated array of unique categories for all features.
+    categories_row_pointers_ : array
+        Array of row pointers for the concatenated categories array.
+    encodings_ : list of arrays
+        List of encoding arrays for each feature.
+    target_mean_ : array
+        Mean of the target variable.
+    """  # noqa: E501
+
     def __init__(
         self,
         target_type: str,
@@ -67,8 +111,26 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             return y.reshape(-1, 1)
         return y
 
-    # fit on all data
     def fit(self, X, y):
+        """Fit the encoder to the data.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input samples.
+        y : array-like of shape (n_samples,)
+            The target values. Cannot be None.
+
+        Returns
+        -------
+        self : object
+            Fitted encoder.
+
+        Raises
+        ------
+        ValueError
+            If the target `y` is None.
+        """
         if y is None:
             raise ValueError("requires y to be passed, but the target y is None")
         self.random_state_ = check_random_state(self.random_state)
@@ -124,6 +186,24 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         return X_out.reshape(X.shape[:-1] + (-1,))
 
     def transform(self, X):
+        """Transforms the input data X using the target encoding.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input data to transform.
+
+        Returns
+        -------
+        X_out : ndarray of shape (n_samples, n_features * encoding_dim)
+            The transformed data with target encoding applied.
+
+        Raises
+        ------
+        ValueError
+            If the number of features in X does not match the number of features
+            the encoder was fitted with.
+        """
         X = _lb_check_X(X)
         check_is_fitted(self)
         if X.shape[1] != self.n_features_in_:
