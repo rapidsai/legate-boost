@@ -284,7 +284,6 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
 
         task.add_alignment(X_, y_)
         if do_cv:
-            print(cv_indices)
             cv_indices_ = (
                 get_store(cv_indices).promote(1, X.shape[1]).promote(2, y.shape[1])
             )
