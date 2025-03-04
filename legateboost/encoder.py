@@ -1,3 +1,5 @@
+from typing import Optional, Tuple, Union
+
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils import Tags, check_random_state
@@ -14,18 +16,18 @@ __all__ = ["TargetEncoder"]
 
 
 class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
-    """TargetEncoder is a transformer that encodes categorical features using
-    the mean of the target variable. When `fit_transform` is called, a cross-
+    """TargetEncoder is a transformer that encodes categorical features using the
+    mean of the target variable. When `fit_transform` is called, a cross-
     validation procedure is used to generate encodings for each training fold,
     which are then applied to the test fold. `fit().transform()` differs from
     `fit_transform()` in that the former fits the encoder on all the data and
-    generates encodings for each feature. This encoder is modelled on the
-    sklearn TargetEncoder with only minor differences in how the CV folds are
-    generated. As it is difficult to rearrange and gather data from each fold
-    in distributed environment, training rows are kept in place and then
-    assigned a cv fold by generating a random integer in the range [0,
-    n_folds). As per sklearn, when smooth="auto", an empirical Bayes estimate
-    per [#]_ is used to avoid overfitting.
+    generates encodings for each feature. This encoder is modelled on the sklearn
+    TargetEncoder with only minor differences in how the CV folds are generated.
+    As it is difficult to rearrange and gather data from each fold in distributed
+    environment, training rows are kept in place and then assigned a cv fold by
+    generating a random integer in the range [0, n_folds). As per sklearn, when
+    smooth="auto", an empirical Bayes estimate per [#]_ is used to avoid
+    overfitting.
 
     .. [#] Micci-Barreca, Daniele. "A preprocessing scheme for high-cardinality categorical attributes in classification and prediction problems." ACM SIGKDD explorations newsletter 3.1 (2001): 27-32.
 
@@ -61,10 +63,10 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
     def __init__(
         self,
         target_type: str,
-        smooth: float = 1.0,
-        cv=5,
-        shuffle=True,
-        random_state=None,
+        smooth: Union[str, float] = "auto",
+        cv: int = 5,
+        shuffle: bool = True,
+        random_state: Optional[np.random.RandomState] = None,
     ):
         self.smooth = smooth
         self.target_type = target_type
@@ -82,7 +84,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
 
     # integer multiclass labels must be one-hot encoded
     # force 2-d y
-    def _maybe_expand_labels(self, y):
+    def _maybe_expand_labels(self, y: cn.ndarray) -> cn.ndarray:
         if self.target_type == "multiclass":
             # expand y to one-hot encoding
             n_outputs = y.max() + 1
@@ -93,7 +95,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             return y.reshape(-1, 1)
         return y
 
-    def fit(self, X, y):
+    def fit(self, X: cn.array, y: cn.array) -> "TargetEncoder":
         """Fit the encoder to the data.
 
         Parameters
@@ -120,7 +122,6 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         y = check_array(y)
         self.n_features_in_ = X.shape[1]
         self.categories_ = []
-        self.encodings_ = []
         for column in X.T:
             self.categories_.append(cn.unique(column))
         self.categories_sparse_matrix_ = cn.concatenate(self.categories_)
@@ -133,8 +134,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         self.encodings_, self.target_mean_ = self._get_encoding(X, y_, None, 0)
         return self
 
-    # fit on cv splits
-    def fit_transform(self, X, y):
+    def fit_transform(self, X: cn.array, y: cn.array) -> cn.array:
         X = _lb_check_X(X)
         y = check_array(y)
         # fit on all of the data first
@@ -171,7 +171,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
 
         return X_out.reshape(X.shape[:-1] + (-1,))
 
-    def transform(self, X):
+    def transform(self, X: cn.array) -> cn.array:
         """Transforms the input data X using the target encoding.
 
         Parameters
@@ -215,8 +215,14 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
 
     # if cv_indices is None, use all data
     def _transform_X(
-        self, X_in, X_out, encodings, cv_indices, cv_fold_idx: int, y_mean
-    ):
+        self,
+        X_in: cn.array,
+        X_out: cn.array,
+        encodings: cn.array,
+        cv_indices: Optional[cn.array],
+        cv_fold_idx: int,
+        y_mean: cn.array,
+    ) -> cn.array:
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.TARGET_ENCODER_ENCODE
         )
@@ -252,12 +258,14 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         task.execute()
         return X_out
 
-    def _get_category_means(self, X, y, cv_indices, cv_fold_idx: int):
+    def _get_category_means(
+        self, X: cn.array, y: cn.array, cv_indices: Optional[cn.array], cv_fold_idx: int
+    ) -> cn.array:
         """Compute some label summary statistics for each category in the input
         data.
 
-        Returns a 3D array of shape (n_categories, n_outputs, 2)
-        containing the sum, count of the labels for each category.
+        Returns a 3D array of shape (n_categories, n_outputs, 2) containing the
+        sum, count of the labels for each category.
         """
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.TARGET_ENCODER_MEAN
@@ -293,8 +301,14 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         return means
 
     def _get_category_variances(
-        self, X, y, means, y_mean, cv_indices, cv_fold_idx: int
-    ):
+        self,
+        X: cn.array,
+        y: cn.array,
+        means: cn.array,
+        y_mean: cn.array,
+        cv_indices: Optional[cn.array],
+        cv_fold_idx: int,
+    ) -> Tuple[cn.array, cn.array]:
         # means is the sum, count of the labels for each category and output
         # y_mean is the mean of the labels for this train fold
         task = get_legate_runtime().create_auto_task(
@@ -337,7 +351,9 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         task.execute()
         return variances_sum / means[:, :, 1], y_variances_sum / means[:, :, 1].sum()
 
-    def _get_encoding(self, X, y, cv_indices, cv_fold_idx: int):
+    def _get_encoding(
+        self, X: cn.array, y: cn.array, cv_indices: Optional[cn.array], cv_fold_idx: int
+    ) -> Tuple[cn.array, cn.array]:
         means = self._get_category_means(X, y, cv_indices, cv_fold_idx)
         y_mean = means[:, :, 0].sum(axis=0) / means[:, :, 1].sum(axis=0)
         if self.smooth != "auto":
