@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
+from sklearn.linear_model import Ridge
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import TargetEncoder
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import KBinsDiscretizer, TargetEncoder
 from sklearn.utils.estimator_checks import check_estimator
 
 import cupynumeric as cn
@@ -168,3 +170,79 @@ class TestTargetEncoder:
 
         assert cn.allclose(X_train_encoded, X_train_permuted_encoded)
         assert cn.allclose(X_test_encoded, X_test_permuted_encoded)
+
+    @pytest.mark.parametrize("smooth", [0.0, "auto"])
+    def test_with_linear(self, smooth):
+        model = Ridge(alpha=1e-6, solver="lsqr")
+        rng = np.random.RandomState(23232)
+        y = rng.normal(0.0, 5.0, size=1000)
+        n_categories = 100
+        X = KBinsDiscretizer(
+            n_bins=n_categories,
+            encode="ordinal",
+            strategy="uniform",
+            random_state=rng,
+        ).fit_transform((y).reshape(-1, 1))
+
+        # randomly permute the categories
+        # this removes the ordering information
+        permutated_labels = rng.permutation(n_categories)
+        X_permuted = permutated_labels[X.astype(np.int32)]
+
+        # linear regression performs well X
+        assert model.fit(X, y).score(X, y) > 0.9
+        # linear regression performs poorly on the permuted data
+        assert model.fit(X_permuted, y).score(X_permuted, y) < 0.1
+
+        # encode without any cross validation
+        X_encoded = (
+            lb.encoder.TargetEncoder(
+                smooth=smooth, random_state=rng, target_type="continuous"
+            )
+            .fit(X_permuted, y)
+            .transform(X_permuted)
+        )
+
+        # linear regression performs well again after encoding
+        assert model.fit(X_encoded, y).score(X_encoded, y) > 0.9
+
+    def test_overfitting(self):
+        rng = np.random.RandomState(3)
+        y = rng.normal(size=100)
+        # X is a unique identifier and a categorical variable
+        n_categories = 10
+        X_ids = np.arange(100).reshape(-1, 1)
+        X_informative = KBinsDiscretizer(
+            n_bins=n_categories,
+            encode="ordinal",
+            strategy="uniform",
+            random_state=rng,
+        ).fit_transform(y.reshape(-1, 1))
+
+        X = np.concatenate([X_ids, X_informative], axis=1)
+        model = Ridge(alpha=1e-6, solver="lsqr")
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=3)
+
+        # encode without cv
+        # overfits badly on the unique ids column
+        # test score is poor
+        encoder = lb.encoder.TargetEncoder(smooth=0.0, target_type="continuous").fit(
+            X_train, y_train
+        )
+        X_train_encoded = encoder.transform(X_train)
+        X_test_encoded = encoder.transform(X_test)
+
+        model.fit(X_train_encoded, y_train)
+        assert model.score(X_train_encoded, y_train) > 0.9
+        assert model.score(X_test_encoded, y_test) < 0.1
+
+        # encode with cv
+        # avoids overfitting on ids column
+        # test score is good
+        encoder = lb.encoder.TargetEncoder(smooth="auto", target_type="binary")
+        X_train_encoded = encoder.fit_transform(X_train, y_train)
+        X_test_encoded = encoder.transform(X_test)
+        model.fit(X_train_encoded, y_train)
+        assert model.score(X_train_encoded, y_train) > 0.9
+        assert model.score(X_test_encoded, y_test) > 0.9
