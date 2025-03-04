@@ -129,7 +129,8 @@ dependencies:
         packages:
           - myst-parser>=4.0
           - pydata-sphinx-theme>=0.16
-          - sphinx>=8.1
+           # the ceiling on sphinx can be removed when https://github.com/spatialaudio/nbsphinx/issues/825 is resolved
+          - sphinx>=8.0,<8.2.0
       - output_types: [conda]
         packages:
           - make

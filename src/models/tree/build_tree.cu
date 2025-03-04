@@ -551,6 +551,8 @@ struct HistogramKernel {
                       int64_t seed,
                       cudaStream_t stream)
   {
+    if (batch.InstancesInBatch() == 0) return;
+
     int const average_features_per_group = split_proposals.num_features / num_groups;
     std::size_t const average_elements_per_group =
       batch.InstancesInBatch() * average_features_per_group;
@@ -690,7 +692,8 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
                      legate::Buffer<double, 1> tree_split_value,
                      legate::Buffer<double, 1> tree_gain,
                      NodeBatch batch,
-                     GradientQuantiser quantiser)
+                     GradientQuantiser quantiser,
+                     std::optional<legate::AccessorRO<bool, 1>> optional_feature_set)
 {
   // using one block per (level) node to have blockwise reductions
   int const node_id = narrow<int>(batch.node_idx_begin + blockIdx.x);
@@ -708,6 +711,12 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
 
   for (int bin_idx = narrow_cast<int>(threadIdx.x); bin_idx < split_proposals.histogram_size;
        bin_idx += BLOCK_THREADS) {
+    // Check if this feature is in the feature set
+    if (optional_feature_set.has_value() &&
+        !optional_feature_set.value()[split_proposals.FindFeature(bin_idx)]) {
+      continue;
+    }
+
     double gain = 0;
     for (int output = 0; output < n_outputs; ++output) {
       auto node_sum  = vectorised_load(&node_sums[{node_id, output}]);
@@ -991,12 +1000,12 @@ struct TreeBuilder {
     while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) {
       depth++;
     }
-    histogram      = Histogram<IntegerGPair>(BinaryTree::LevelBegin(0),
-                                        BinaryTree::LevelEnd(depth),
-                                        num_outputs,
-                                        split_proposals.histogram_size,
-                                        stream);
-    max_batch_size = max_histogram_nodes;
+    cached_histogram = Histogram<IntegerGPair>(BinaryTree::LevelBegin(0),
+                                               BinaryTree::LevelEnd(depth),
+                                               num_outputs,
+                                               split_proposals.histogram_size,
+                                               stream);
+    max_batch_size   = max_histogram_nodes;
   }
 
   TreeBuilder(const TreeBuilder&)                    = delete;
@@ -1111,7 +1120,8 @@ struct TreeBuilder {
                         NodeBatch batch,
                         double l1_regularization,
                         double l2_regularization,
-                        double min_split_gain)
+                        double min_split_gain,
+                        const std::optional<legate::AccessorRO<bool, 1>>& optional_feature_set)
   {
     const int kBlockThreads = 512;
     perform_best_split<T, kBlockThreads>
@@ -1127,7 +1137,8 @@ struct TreeBuilder {
                                                            tree.split_value,
                                                            tree.gain,
                                                            batch,
-                                                           quantiser);
+                                                           quantiser,
+                                                           optional_feature_set);
     CHECK_CUDA_STREAM(stream);
   }
   void InitialiseRoot(legate::TaskContext context,
@@ -1169,16 +1180,18 @@ struct TreeBuilder {
   // Destroy the old one
   auto GetHistogram(NodeBatch batch) -> Histogram<IntegerGPair>
   {
-    if (histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) { return histogram; }
+    if (cached_histogram.ContainsBatch(batch.node_idx_begin, batch.node_idx_end)) {
+      return cached_histogram;
+    }
 
     CHECK_CUDA(cudaStreamSynchronize(stream));
-    histogram.Destroy();
-    histogram = Histogram<IntegerGPair>(batch.node_idx_begin,
-                                        batch.node_idx_end,
-                                        num_outputs,
-                                        split_proposals.histogram_size,
-                                        stream);
-    return histogram;
+    cached_histogram.Destroy();
+    cached_histogram = Histogram<IntegerGPair>(batch.node_idx_begin,
+                                               batch.node_idx_end,
+                                               num_outputs,
+                                               split_proposals.histogram_size,
+                                               stream);
+    return cached_histogram;
   }
 
   auto PrepareBatches(int depth) -> std::vector<NodeBatch>
@@ -1221,8 +1234,7 @@ struct TreeBuilder {
                                                cuda::std::tuple(batch_end - 1, 0),
                                                comp);
               tcb::span<cuda::std::tuple<int32_t, int32_t>> const span(lower, upper);
-              batches_span[batch_idx] = {
-                cuda::std::get<0>(span.front()), cuda::std::get<0>(span.back()) + 1, span};
+              batches_span[batch_idx] = {batch_begin, batch_end, span};
             });
 
     std::vector<NodeBatch> result(num_batches);
@@ -1232,11 +1244,6 @@ struct TreeBuilder {
                                cudaMemcpyDeviceToHost,
                                stream));
     CHECK_CUDA(cudaStreamSynchronize(stream));
-    // Filter empty
-    result.erase(
-      std::remove_if(
-        result.begin(), result.end(), [](const NodeBatch& b) { return b.InstancesInBatch() == 0; }),
-      result.end());
     return result;
   }
 
@@ -1246,7 +1253,7 @@ struct TreeBuilder {
   const int32_t num_outputs;
   const int32_t max_nodes;
   SparseSplitProposals<T> split_proposals;
-  Histogram<IntegerGPair> histogram;
+  Histogram<IntegerGPair> cached_histogram;
   int max_batch_size;
   GradientQuantiser quantiser;
   HistogramKernel<T> histogram_kernel;
@@ -1281,6 +1288,14 @@ struct build_tree_fn {
     auto l2_regularization = context.scalars().at(6).value<double>();
     auto min_split_gain    = context.scalars().at(7).value<double>();
 
+    // Get feature sample if it exists
+    std::optional<legate::AccessorRO<bool, 1>> optional_feature_set;
+    if (context.inputs().size() == 4) {
+      auto [feature_set, feature_set_shape, feature_set_accessor] =
+        GetInputStore<bool, 1>(context.input(3).data());
+      optional_feature_set = feature_set_accessor;
+    }
+
     auto* stream            = context.get_task_stream();
     auto thrust_alloc       = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto thrust_exec_policy = DEFAULT_POLICY(thrust_alloc).on(stream);
@@ -1313,8 +1328,13 @@ struct build_tree_fn {
         builder.ComputeHistogram(
           histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch, seed);
 
-        builder.PerformBestSplit(
-          tree, histogram, batch, l1_regularization, l2_regularization, min_split_gain);
+        builder.PerformBestSplit(tree,
+                                 histogram,
+                                 batch,
+                                 l1_regularization,
+                                 l2_regularization,
+                                 min_split_gain,
+                                 optional_feature_set);
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
