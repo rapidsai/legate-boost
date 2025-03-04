@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import KBinsDiscretizer, TargetEncoder
 from sklearn.utils.estimator_checks import check_estimator
 
