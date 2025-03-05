@@ -49,6 +49,7 @@ if(Legion_USE_CUDA)
     models/nn/build_nn.cu
     special/special.cu
     utils/gather.cu
+    encoder/target_encoder.cu
   )
 endif()
 

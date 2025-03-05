@@ -178,9 +178,11 @@ class SparseSplitProposals {
   {
     auto feature_row_begin = row_pointers[feature];
     auto feature_row_end   = row_pointers[feature + 1];
-    auto* ptr              = thrust::lower_bound(
-      thrust::seq, split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
-    EXPECT_DEVICE(ptr != split_proposals.ptr(feature_row_end),
+    auto* ptr              = thrust::lower_bound(thrust::seq,
+                                    split_proposals.ptr(0) + feature_row_begin,
+                                    split_proposals.ptr(0) + feature_row_end,
+                                    x);
+    EXPECT_DEVICE(ptr != split_proposals.ptr(0) + feature_row_end,
                   "Value not found in split proposals");
     return ptr - split_proposals.ptr(0);
   }
