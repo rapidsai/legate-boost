@@ -508,16 +508,16 @@ struct HistogramKernel {
     // Find feature groups
     // This is a bin packing problem
     // We want to pack as many features as possible into a group
-    std::vector<int> split_proposal_row_pointers(split_proposals.num_features + 1);
+    std::vector<int> split_proposal_row_pointers(split_proposals.row_pointers.size());
     CHECK_CUDA(cudaMemcpyAsync(split_proposal_row_pointers.data(),
-                               split_proposals.row_pointers.ptr(0),
-                               (split_proposals.num_features + 1) * sizeof(int),
+                               split_proposals.row_pointers.data(),
+                               split_proposals.row_pointers.size() * sizeof(int),
                                cudaMemcpyDeviceToHost,
                                stream));
     CHECK_CUDA(cudaStreamSynchronize(stream));
     std::vector<int> feature_groups({0});
     int current_bins_in_group = 0;
-    for (int i = 0; i < split_proposals.num_features; i++) {
+    for (int i = 0; i < split_proposals.NumFeatures(); i++) {
       int const bins_in_feature =
         split_proposal_row_pointers[i + 1] - split_proposal_row_pointers[i];
       EXPECT(bins_in_feature <= kMaxSharedBins, "Too many bins in a feature");
@@ -527,9 +527,10 @@ struct HistogramKernel {
       }
       current_bins_in_group += bins_in_feature;
     }
-    feature_groups.push_back(split_proposals.num_features);
+    feature_groups.push_back(split_proposals.NumFeatures());
     num_groups = narrow<int>(feature_groups.size() - 1);
-    EXPECT(num_groups * kMaxSharedBins >= split_proposals.histogram_size, "Too few feature groups");
+    EXPECT(num_groups * kMaxSharedBins >= split_proposals.HistogramSize(),
+           "Too few feature groups");
     this->feature_groups = legate::create_buffer<int>(num_groups + 1);
     CHECK_CUDA(cudaMemcpyAsync(this->feature_groups.ptr(0),
                                feature_groups.data(),
@@ -551,9 +552,9 @@ struct HistogramKernel {
                       int64_t seed,
                       cudaStream_t stream)
   {
-    if (batch.InstancesInBatch() == 0) return;
+    if (batch.InstancesInBatch() == 0) { return; }
 
-    int const average_features_per_group = split_proposals.num_features / num_groups;
+    int const average_features_per_group = split_proposals.NumFeatures() / num_groups;
     std::size_t const average_elements_per_group =
       batch.InstancesInBatch() * average_features_per_group;
     auto min_blocks  = (average_elements_per_group + kItemsPerTile - 1) / kItemsPerTile;
@@ -709,7 +710,7 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
   double thread_best_gain = 0;
   int thread_best_bin_idx = -1;
 
-  for (int bin_idx = narrow_cast<int>(threadIdx.x); bin_idx < split_proposals.histogram_size;
+  for (int bin_idx = narrow_cast<int>(threadIdx.x); bin_idx < split_proposals.HistogramSize();
        bin_idx += BLOCK_THREADS) {
     // Check if this feature is in the feature set
     if (optional_feature_set.has_value() &&
@@ -952,10 +953,11 @@ auto SelectSplitSamples(legate::TaskContext context,
   row_samples.destroy();
   draft_proposals.destroy();
   out_keys.destroy();
-  return SparseSplitProposals<T>(split_proposals, row_pointers, num_features, n_unique);
+  return SparseSplitProposals<T>({split_proposals.ptr(0), narrow<std::size_t>(n_unique)},
+                                 {row_pointers.ptr(0), narrow<std::size_t>(num_features + 1)});
 }
 
-// Can't put a device l1_regularization in constructor so make this a function
+// Can't put a lambda in constructor so make this a function
 void FillPositions(const legate::Buffer<cuda::std::tuple<int32_t, int32_t>>& sorted_positions,
                    std::size_t num_rows,
                    cudaStream_t stream)
@@ -993,8 +995,9 @@ struct TreeBuilder {
     // User a fixed reasonable upper bound on memory usage
     // CAUTION: all workers MUST have the same max_batch_size
     // Therefore we don't try to calculate this based on available memory
-    const std::size_t max_bytes      = 1000000000;  // 1 GB
-    const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
+    const std::size_t max_bytes = 1000000000;  // 1 GB
+    const std::size_t bytes_per_node =
+      num_outputs * split_proposals.HistogramSize() * sizeof(GPair);
     const std::size_t max_histogram_nodes = std::max(1UL, max_bytes / bytes_per_node);
     int depth                             = 0;
     while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) {
@@ -1003,7 +1006,7 @@ struct TreeBuilder {
     cached_histogram = Histogram<IntegerGPair>(BinaryTree::LevelBegin(0),
                                                BinaryTree::LevelEnd(depth),
                                                num_outputs,
-                                               split_proposals.histogram_size,
+                                               split_proposals.HistogramSize(),
                                                stream);
     max_batch_size   = max_histogram_nodes;
   }
@@ -1100,7 +1103,7 @@ struct TreeBuilder {
       context,
       // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       tcb::span<ReduceT>(reinterpret_cast<ReduceT*>(histogram.Ptr(batch.node_idx_begin)),
-                         batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2),
+                         batch.NodesInBatch() * num_outputs * split_proposals.HistogramSize() * 2),
       stream);
 
     const int kScanBlockThreads  = 256;
@@ -1189,7 +1192,7 @@ struct TreeBuilder {
     cached_histogram = Histogram<IntegerGPair>(batch.node_idx_begin,
                                                batch.node_idx_end,
                                                num_outputs,
-                                               split_proposals.histogram_size,
+                                               split_proposals.HistogramSize(),
                                                stream);
     return cached_histogram;
   }

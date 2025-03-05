@@ -155,46 +155,41 @@ __host__ __device__ inline auto CalculateLeafValue(double G,
 template <typename T>
 class SparseSplitProposals {
  public:
-  legate::Buffer<T, 1> split_proposals;
-  legate::Buffer<int32_t, 1> row_pointers;
-  int32_t num_features;
-  std::size_t histogram_size;
+  tcb::span<T> split_proposals;
+  tcb::span<int32_t> row_pointers;
   // The rightmost split proposal for each feature must be +inf
-  SparseSplitProposals(const legate::Buffer<T, 1>& split_proposals,
-                       const legate::Buffer<int32_t, 1>& row_pointers,
-                       int32_t num_features,
-                       std::size_t histogram_size)
-    : split_proposals(split_proposals),
-      row_pointers(row_pointers),
-      num_features(num_features),
-      histogram_size(histogram_size)
+  SparseSplitProposals(const tcb::span<T>& split_proposals, const tcb::span<int32_t> row_pointers)
+    : split_proposals(split_proposals), row_pointers(row_pointers)
   {
   }
 
+  [[nodiscard]] __host__ __device__ std::size_t HistogramSize() const
+  {
+    return split_proposals.size();
+  }
+  [[nodiscard]] __host__ __device__ std::size_t NumFeatures() const
+  {
+    return row_pointers.size() - 1;
+  }
 // Returns the bin index for a given feature and value
 // If the value is not in the split proposals, -1 is returned
 #ifdef __CUDACC__
   __device__ auto FindBin(T x, int feature) const -> int
   {
-    auto feature_row_begin = row_pointers[feature];
-    auto feature_row_end   = row_pointers[feature + 1];
-    auto* ptr              = thrust::lower_bound(thrust::seq,
-                                    split_proposals.ptr(0) + feature_row_begin,
-                                    split_proposals.ptr(0) + feature_row_end,
-                                    x);
-    EXPECT_DEVICE(ptr != split_proposals.ptr(0) + feature_row_end,
-                  "Value not found in split proposals");
-    return ptr - split_proposals.ptr(0);
+    const auto begin   = split_proposals.begin() + row_pointers[feature];
+    const auto end     = split_proposals.begin() + row_pointers[feature + 1];
+    const auto* result = thrust::lower_bound(thrust::seq, begin, end, x);
+    EXPECT_DEVICE(result != end, "Value not found in split proposals");
+    return result - split_proposals.begin();
   }
 #else
   [[nodiscard]] auto FindBin(T x, int feature) const -> int
   {
-    auto feature_row_begin = legate::coord_t{row_pointers[feature]};
-    auto feature_row_end   = legate::coord_t{row_pointers[feature + 1]};
-    auto* ptr              = std::lower_bound(
-      split_proposals.ptr(feature_row_begin), split_proposals.ptr(feature_row_end), x);
-    EXPECT(ptr != split_proposals.ptr(feature_row_end), "Value not found in split proposals");
-    return ptr - split_proposals.ptr(0);
+    const auto begin   = split_proposals.begin() + row_pointers[feature];
+    const auto end     = split_proposals.begin() + row_pointers[feature + 1];
+    const auto* result = std::lower_bound(begin, end, x);
+    EXPECT(result != end, "Value not found in split proposals");
+    return result - split_proposals.begin();
   }
 #endif
 
@@ -202,9 +197,8 @@ class SparseSplitProposals {
   __host__ __device__ auto FindFeature(int bin_idx) const -> int
   {
     // Binary search for the feature
-    return thrust::upper_bound(
-             thrust::seq, row_pointers.ptr(0), row_pointers.ptr(num_features), bin_idx) -
-           row_pointers.ptr(0) - 1;
+    return thrust::upper_bound(thrust::seq, row_pointers.begin(), row_pointers.end(), bin_idx) -
+           row_pointers.begin() - 1;
   }
 #endif
 

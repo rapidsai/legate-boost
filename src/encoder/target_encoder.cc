@@ -29,7 +29,7 @@ std::vector<std::unordered_map<T, int>> create_categories_map(
   const legate::Rect<1>& row_pointers_shape)
 {
   std::vector<std::unordered_map<T, int>> categories_map;
-  for (int feature_idx = row_pointers_shape.lo[0]; feature_idx <= row_pointers_shape.hi[0] - 1;
+  for (auto feature_idx = row_pointers_shape.lo[0]; feature_idx <= row_pointers_shape.hi[0] - 1;
        feature_idx++) {
     auto feature_start = row_pointers[feature_idx];
     auto feature_end   = row_pointers[feature_idx + 1];

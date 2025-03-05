@@ -18,21 +18,22 @@
 #include <vector>
 #include <unordered_map>
 #include <random>
+#include <tcb/span.hpp>
 #include "../cpp_utils/cpp_utils.cuh"
 
 namespace legateboost {
 
 template <typename T>
 struct CategoriesMap {
-  legate::AccessorRO<T, 1> categories;
-  legate::AccessorRO<int64_t, 1> row_pointers;
+  tcb::span<const T> categories;
+  tcb::span<const int64_t> row_pointers;
   __device__ int64_t GetIndex(T x, int64_t feature_idx) const
   {
-    auto begin  = row_pointers[feature_idx];
-    auto end    = row_pointers[feature_idx + 1];
-    auto result = thrust::find(thrust::seq, categories.ptr(0) + begin, categories.ptr(0) + end, x);
-    if (result == categories.ptr(0) + end) { return -1; }
-    return result - categories.ptr(0);
+    const auto* begin  = categories.begin() + row_pointers[feature_idx];
+    const auto* end    = categories.begin() + row_pointers[feature_idx + 1];
+    const auto* result = thrust::find(thrust::seq, begin, end, x);
+    if (result == end) { return -1; }
+    return result - categories.begin();
   }
 };
 
@@ -53,7 +54,9 @@ struct target_encoder_mean_fn {
     auto [row_pointers, row_pointers_shape, row_pointers_accessor] =
       GetInputStore<int64_t, 1>(context.input(3).data());
 
-    CategoriesMap<T> categories_map{categories_accessor, row_pointers_accessor};
+    const CategoriesMap<T> categories_map{
+      {categories_accessor.ptr(0), categories_shape.volume()},
+      {row_pointers_accessor.ptr(0), row_pointers_shape.volume()}};
     auto cv_fold = context.scalars().at(0).value<int64_t>();
     auto do_cv   = context.scalars().at(1).value<bool>();
 
@@ -68,7 +71,7 @@ struct target_encoder_mean_fn {
     auto means =
       context.reduction(0).data().reduce_accessor<legate::SumReduction<double>, true, 3>();
 
-    auto stream       = context.get_task_stream();
+    auto* stream      = context.get_task_stream();
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
     thrust::for_each_n(
@@ -109,7 +112,9 @@ struct target_encoder_variance_fn {
     auto [row_pointers, row_pointers_shape, row_pointers_accessor] =
       GetInputStore<int64_t, 1>(context.input(3).data());
 
-    CategoriesMap<T> categories_map{categories_accessor, row_pointers_accessor};
+    const CategoriesMap<T> categories_map{
+      {categories_accessor.ptr(0), categories_shape.volume()},
+      {row_pointers_accessor.ptr(0), row_pointers_shape.volume()}};
 
     // Sum and count per each category and output
     auto mean          = context.input(4).data();
@@ -137,7 +142,7 @@ struct target_encoder_variance_fn {
     auto y_variance =
       context.reduction(1).data().reduce_accessor<legate::SumReduction<double>, true, 1, true>();
 
-    auto stream       = context.get_task_stream();
+    auto* stream      = context.get_task_stream();
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
     thrust::for_each_n(
@@ -200,8 +205,10 @@ struct target_encoder_encode_fn {
       cv_indices = cv_indices_accessor;
     }
 
-    CategoriesMap<T> categories_map{categories_accessor, row_pointers_accessor};
-    auto stream       = context.get_task_stream();
+    const CategoriesMap<T> categories_map{
+      {categories_accessor.ptr(0), categories_shape.volume()},
+      {row_pointers_accessor.ptr(0), row_pointers_shape.volume()}};
+    auto* stream      = context.get_task_stream();
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
     thrust::for_each_n(policy,
