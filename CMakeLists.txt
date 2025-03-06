@@ -68,8 +68,10 @@ rapids_export(INSTALL legateboost
 # build export targets
 rapids_export(BUILD legateboost
   EXPORT_SET legateboost-export
-  GLOBAL_TARGETS legateboote
+  GLOBAL_TARGETS legateboost
   NAMESPACE legate::)
+
+rapids_cuda_init_architectures(legateboost)
 
 if(SKBUILD)
   add_library(legateboost_python INTERFACE)

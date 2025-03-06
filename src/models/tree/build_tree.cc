@@ -178,8 +178,8 @@ auto SelectSplitSamples(legate::TaskContext context,
     split_proposals[end - 1] = std::numeric_limits<T>::infinity();
   }
 
-  return SparseSplitProposals<T>(
-    split_proposals, row_pointers, num_features, split_proposals_tmp.size());
+  return SparseSplitProposals<T>({split_proposals.ptr(0), split_proposals_tmp.size()},
+                                 {row_pointers.ptr(0), narrow<std::size_t>(num_features + 1)});
 }
 
 template <typename T>
@@ -198,8 +198,9 @@ struct TreeBuilder {
   {
     sorted_positions = legate::create_buffer<std::tuple<int32_t, int32_t>>(num_rows);
     for (auto i = 0; i < num_rows; ++i) { sorted_positions[i] = {0, i}; }
-    const std::size_t max_bytes      = 1000000000;  // 1 GB
-    const std::size_t bytes_per_node = num_outputs * split_proposals.histogram_size * sizeof(GPair);
+    const std::size_t max_bytes = 1000000000;  // 1 GB
+    const std::size_t bytes_per_node =
+      num_outputs * split_proposals.HistogramSize() * sizeof(GPair);
     const std::size_t max_histogram_nodes = std::max(1UL, max_bytes / bytes_per_node);
     int depth                             = 0;
     while (BinaryTree::LevelEnd(depth + 1) <= max_histogram_nodes && depth <= max_depth) {
@@ -208,7 +209,7 @@ struct TreeBuilder {
     histogram      = Histogram<GPair>(BinaryTree::LevelBegin(0),
                                  BinaryTree::LevelEnd(depth),
                                  num_outputs,
-                                 split_proposals.histogram_size);
+                                 split_proposals.HistogramSize());
     max_batch_size = max_histogram_nodes;
   }
   template <typename TYPE>
@@ -243,7 +244,7 @@ struct TreeBuilder {
       context,
       // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       tcb::span<double>(reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
-                        batch.NodesInBatch() * num_outputs * split_proposals.histogram_size * 2));
+                        batch.NodesInBatch() * num_outputs * split_proposals.HistogramSize() * 2));
     this->Scan(histogram, batch, tree);
   }
 
@@ -383,7 +384,7 @@ struct TreeBuilder {
 
     histogram.Destroy();
     histogram = Histogram<GPair>(
-      batch.node_idx_begin, batch.node_idx_end, num_outputs, split_proposals.histogram_size);
+      batch.node_idx_begin, batch.node_idx_end, num_outputs, split_proposals.HistogramSize());
     return histogram;
   }
 

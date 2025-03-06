@@ -15,6 +15,7 @@ Checks: >
   -misc-include-cleaner,
   -misc-use-internal-linkage,
   modernize-*,
+  -modernize-use-trailing-return-type,
   hicpp-*,
   -hicpp-signed-bitwise,
   readability-*,
