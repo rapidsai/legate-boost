@@ -12,3 +12,4 @@ Python API Reference
    objectives
    models
    callbacks
+   encoders

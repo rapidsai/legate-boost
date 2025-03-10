@@ -12,7 +12,7 @@ on:
 
 env:
   # CUDA architectures to build for
-  CUDAARCHS: "all-major"
+  CUDAARCHS: "RAPIDS"
   # where jobs that download conda packages store the local channel
   RAPIDS_LOCAL_CONDA_CHANNEL: /tmp/local-conda-packages
 
