@@ -29,6 +29,32 @@
 namespace legateboost {
 namespace {
 
+class BinnedX {
+  // We could use int16 here if we store the indices offset from their minimum value
+  std::vector<int32_t> data;
+
+ public:
+  legate::Rect<3> shape;
+  int64_t num_features;
+  int64_t num_rows;
+  template <typename T>
+  BinnedX(legate::AccessorRO<T, 3> X,
+          legate::Rect<3> shape,
+          const SparseSplitProposals<T>& split_proposals)
+    : shape(shape),
+      num_features(shape.hi[1] - shape.lo[1] + 1),
+      num_rows(shape.hi[0] - shape.lo[0] + 1)
+  {
+    data.resize(num_features * num_rows);
+    for (int i = 0; i < num_rows; i++) {
+      for (int j = 0; j < num_features; j++) {
+        data[i * num_features + j] = split_proposals.FindBin(X[{i, j, 0}], j);
+      }
+    }
+  }
+  int64_t operator[](const legate::Point<2>& p) const { return data[p[0] * num_features + p[1]]; }
+};
+
 struct NodeBatch {
   int32_t node_idx_begin{};
   int32_t node_idx_end{};
@@ -211,25 +237,22 @@ struct TreeBuilder {
                                  split_proposals.histogram_size);
     max_batch_size = max_histogram_nodes;
   }
-  template <typename TYPE>
   void ComputeHistogram(Histogram<GPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
-                        const legate::AccessorRO<TYPE, 3>& X,
-                        legate::Rect<3> X_shape,
+                        const BinnedX& X,
                         const legate::AccessorRO<double, 3>& g,
                         const legate::AccessorRO<double, 3>& h,
                         NodeBatch batch)
   {
     // Build the histogram
     for (auto [position, index_local] : batch) {
-      auto index_global  = index_local + X_shape.lo[0];
+      auto index_global  = index_local + X.shape.lo[0];
       bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
       if (position < 0 || !compute) { continue; }
       for (int64_t j = 0; j < num_features; j++) {
-        auto x_value      = X[{index_global, j, 0}];
-        int const bin_idx = split_proposals.FindBin(x_value, j);
+        auto bin_idx = X[{index_local, j}];
 
         for (int64_t k = 0; k < num_outputs; ++k) {
           histogram[{position, k, bin_idx}] +=
@@ -499,6 +522,8 @@ struct build_tree_fn {
     SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
 
+    BinnedX binned_X(X_accessor, X_shape, split_proposals);
+
     // Begin building the tree
     TreeBuilder<T> builder(
       num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
@@ -510,8 +535,7 @@ struct build_tree_fn {
       for (auto batch : batches) {
         auto histogram = builder.GetHistogram(batch);
 
-        builder.ComputeHistogram(
-          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
+        builder.ComputeHistogram(histogram, context, tree, binned_X, g_accessor, h_accessor, batch);
 
         builder.PerformBestSplit(tree,
                                  histogram,
