@@ -119,6 +119,7 @@ class Tree(BaseModel):
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
+        task.add_broadcast(X_, 2)
         task.add_input(g_)
         task.add_input(h_)
         task.add_alignment(g_, h_)

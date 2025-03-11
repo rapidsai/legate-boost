@@ -12,6 +12,6 @@ source ./ci/test_python_common.sh
 rapids-logger "Running mypy"
 ./ci/run_mypy.sh
 
-# run the GPU tests
+# run the CPU tests
 rapids-logger "Running tests"
 ./ci/run_pytests_cpu.sh

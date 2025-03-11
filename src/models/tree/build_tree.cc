@@ -55,7 +55,7 @@ class BinnedX {
               row_pointers.ptr(0));
     for (int i = 0; i < num_rows; i++) {
       for (int j = 0; j < num_features; j++) {
-        auto bin_idx = split_proposals.FindBin(X[{i, j, 0}], j);
+        auto bin_idx = split_proposals.FindBin(X[{shape.lo[0] + i, j, 0}], j);
         // Store the bin index relative to the feature to save space
         data[i * num_features + j] = bin_idx - row_pointers[j];
       }
