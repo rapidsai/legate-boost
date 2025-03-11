@@ -30,11 +30,14 @@ namespace legateboost {
 namespace {
 
 class BinnedX {
-  // We could use int16 here if we store the indices offset from their minimum value
-  std::vector<int32_t> data;
+  // These are stored as int16_t to save space
+  // Indices are relative to the feature, not the entire histogram
+  // The maximum number of bins in legate-boost is 2048
+  legate::Buffer<int16_t> data;
 
  public:
   legate::Rect<3> shape;
+  legate::Buffer<int32_t> row_pointers;
   int64_t num_features;
   int64_t num_rows;
   template <typename T>
@@ -42,17 +45,27 @@ class BinnedX {
           legate::Rect<3> shape,
           const SparseSplitProposals<T>& split_proposals)
     : shape(shape),
-      num_features(shape.hi[1] - shape.lo[1] + 1),
-      num_rows(shape.hi[0] - shape.lo[0] + 1)
+      row_pointers(legate::create_buffer<int32_t, 1>(split_proposals.row_pointers.size())),
+      num_features(std::max(shape.hi[1] - shape.lo[1] + 1, 0ll)),
+      num_rows(std::max(shape.hi[0] - shape.lo[0] + 1, 0ll))
   {
-    data.resize(num_features * num_rows);
+    data = legate::create_buffer<int16_t>(num_features * num_rows);
+    std::copy(split_proposals.row_pointers.begin(),
+              split_proposals.row_pointers.end(),
+              row_pointers.ptr(0));
     for (int i = 0; i < num_rows; i++) {
       for (int j = 0; j < num_features; j++) {
-        data[i * num_features + j] = split_proposals.FindBin(X[{i, j, 0}], j);
+        auto bin_idx = split_proposals.FindBin(X[{i, j, 0}], j);
+        // Store the bin index relative to the feature to save space
+        data[i * num_features + j] = bin_idx - row_pointers[j];
       }
     }
   }
-  int64_t operator[](const legate::Point<2>& p) const { return data[p[0] * num_features + p[1]]; }
+  // This should use the local row index, not global
+  int64_t operator[](const legate::Point<2>& p) const
+  {
+    return data[p[0] * num_features + p[1]] + row_pointers[p[1]];
+  }
 };
 
 struct NodeBatch {
@@ -193,6 +206,8 @@ auto SelectSplitSamples(legate::TaskContext context,
     row_pointers[j + 1] = row_pointers[j] + unique.size();
     split_proposals_tmp.insert(split_proposals_tmp.end(), unique.begin(), unique.end());
   }
+
+  draft_proposals.destroy();
 
   auto split_proposals = legate::create_buffer<T, 1>(split_proposals_tmp.size());
   std::copy(split_proposals_tmp.begin(), split_proposals_tmp.end(), split_proposals.ptr(0));
