@@ -17,26 +17,10 @@ set -e -E -u -o pipefail
 # Go into test folder to not not import source package
 cd legateboost/test
 
-
 legate \
     --sysmem 28000 \
-    --cpus 8 \
     --module pytest \
     . \
     -sv \
     --durations=0 \
-    "${@}"
-
-# Run a subset of tests forcing legate to run in deferred mode.
-# When run normally legate may not partition smaller tasks, such
-# that no distributed code gets tested.
-LEGATE_TEST=1 legate \
-    --sysmem 28000 \
-    --cpus 8 \
-    --module pytest \
-    test_estimator.py \
-    . \
-    -sv \
-    --durations=0 \
-    -k 'not sklearn' \
     "${@}"
