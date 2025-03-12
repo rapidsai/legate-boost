@@ -20,7 +20,6 @@ cd legateboost/test
 
 legate \
     --sysmem 28000 \
-    --gpus 0 \
     --cpus 8 \
     --module pytest \
     . \
@@ -33,9 +32,9 @@ legate \
 # that no distributed code gets tested.
 LEGATE_TEST=1 legate \
     --sysmem 28000 \
-    --gpus 0 \
     --cpus 8 \
     --module pytest \
+    test_estimator.py \
     . \
     -sv \
     --durations=0 \

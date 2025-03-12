@@ -34,20 +34,20 @@ class BinnedX {
   // Indices are relative to the feature, not the entire histogram
   // The maximum number of bins in legate-boost is 2048
   legate::Buffer<int16_t> data;
-
- public:
-  legate::Rect<3> shape;
   legate::Buffer<int32_t> row_pointers;
   int64_t num_features;
   int64_t num_rows;
+
+ public:
+  const legate::Rect<3> shape;
   template <typename T>
-  BinnedX(legate::AccessorRO<T, 3> X,
+  BinnedX(const legate::AccessorRO<T, 3>& X,
           legate::Rect<3> shape,
           const SparseSplitProposals<T>& split_proposals)
     : shape(shape),
       row_pointers(legate::create_buffer<int32_t, 1>(split_proposals.row_pointers.size())),
-      num_features(std::max(shape.hi[1] - shape.lo[1] + 1, 0ll)),
-      num_rows(std::max(shape.hi[0] - shape.lo[0] + 1, 0ll))
+      num_features(std::max(shape.hi[1] - shape.lo[1] + 1, 0LL)),
+      num_rows(std::max(shape.hi[0] - shape.lo[0] + 1, 0LL))
   {
     data = legate::create_buffer<int16_t>(num_features * num_rows);
     std::copy(split_proposals.row_pointers.begin(),
@@ -57,14 +57,14 @@ class BinnedX {
       for (int j = 0; j < num_features; j++) {
         auto bin_idx = split_proposals.FindBin(X[{shape.lo[0] + i, j, 0}], j);
         // Store the bin index relative to the feature to save space
-        data[i * num_features + j] = bin_idx - row_pointers[j];
+        data[(i * num_features) + j] = bin_idx - row_pointers[j];
       }
     }
   }
   // This should use the local row index, not global
   int64_t operator[](const legate::Point<2>& p) const
   {
-    return data[p[0] * num_features + p[1]] + row_pointers[p[1]];
+    return data[(p[0] * num_features) + p[1]] + row_pointers[p[1]];
   }
 };
 
@@ -538,7 +538,7 @@ struct build_tree_fn {
     SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
 
-    BinnedX binned_X(X_accessor, X_shape, split_proposals);
+    const BinnedX binned_X(X_accessor, X_shape, split_proposals);
 
     // Begin building the tree
     TreeBuilder<T> builder(
