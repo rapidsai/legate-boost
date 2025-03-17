@@ -3,6 +3,7 @@
 channels:
 - rapidsai
 - legate
+- legate/label/rc
 - legate/label/experimental
 - conda-forge
 - nvidia
