@@ -16,12 +16,12 @@
 #include "../cpp_utils/cpp_utils.h"
 namespace  // unnamed
 {
-void __attribute__((constructor)) register_tasks()
-{
+const auto reg_tasks_ = []() -> char {
   legateboost::ErfTask::register_variants();
   legateboost::LgammaTask::register_variants();
   legateboost::TgammaTask::register_variants();
   legateboost::DigammaTask::register_variants();
   legateboost::ZetaTask::register_variants();
-}
+  return 0;
+}();
 }  // namespace
