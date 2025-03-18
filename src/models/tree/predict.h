@@ -22,6 +22,8 @@ namespace legateboost {
 
 class PredictTask : public Task<PredictTask, PREDICT> {
  public:
+  static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{PREDICT}};
+
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA
   static void gpu_variant(legate::TaskContext context);

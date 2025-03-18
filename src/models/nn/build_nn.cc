@@ -570,7 +570,7 @@ struct build_nn_fn {
 }  // namespace legateboost
 namespace  // unnamed
 {
-const auto reg_tasks_ = []() -> char {
+static const auto reg_id_ = []() -> char {
   legateboost::BuildNNTask::register_variants();
   return 0;
 }();

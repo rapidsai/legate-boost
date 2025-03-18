@@ -315,8 +315,8 @@ struct ZetaOp {
 };
 
 using ErfTask     = UnaryOpTask<ErfOp, ERF>;
-using TgammaTask  = UnaryOpTask<TgammaOp, TGAMMA>;
 using LgammaTask  = UnaryOpTask<LgammaOp, LGAMMA>;
+using TgammaTask  = UnaryOpTask<TgammaOp, TGAMMA>;
 using DigammaTask = UnaryOpTask<DigammaOp, DIGAMMA>;
 using ZetaTask    = UnaryOpTask<ZetaOp, ZETA>;
 

@@ -122,6 +122,7 @@ struct update_tree_fn {
 class UpdateTreeTask : public Task<UpdateTreeTask, UPDATE_TREE> {
  public:
   static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(true);
+  static inline const auto TASK_CONFIG      = legate::TaskConfig{legate::LocalTaskID{UPDATE_TREE}};
 
   static void cpu_variant(legate::TaskContext context)
   {
@@ -134,7 +135,7 @@ class UpdateTreeTask : public Task<UpdateTreeTask, UPDATE_TREE> {
 
 namespace  // unnamed
 {
-const auto reg_tasks_ = []() -> char {
+static const auto reg_id_ = []() -> char {
   legateboost::UpdateTreeTask::register_variants();
   return 0;
 }();

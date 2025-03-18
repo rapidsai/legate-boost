@@ -17,8 +17,10 @@
 #include "models/krr/rbf.h"
 namespace  // unnamed
 {
-const auto reg_tasks_ = []() -> char {
-  legateboost::RbfTask::register_variants();
+struct RbfTask : legateboost::RbfTask {};
+
+static const auto reg_id_ = []() -> char {
+  RbfTask::register_variants();
   return 0;
 }();
 }  // namespace
