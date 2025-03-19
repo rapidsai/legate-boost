@@ -267,12 +267,12 @@ struct TreeBuilder {
       bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
       if (position < 0 || !compute) { continue; }
-      for (int64_t j = 0; j < num_features; j++) {
-        auto bin_idx = X[{index_local, j}];
+      for (int64_t k = 0; k < num_outputs; ++k) {
+        GPair grad = {g[{index_global, 0, k}], h[{index_global, 0, k}]};
+        for (int64_t j = 0; j < num_features; j++) {
+          auto bin_idx = X[{index_local, j}];
 
-        for (int64_t k = 0; k < num_outputs; ++k) {
-          histogram[{position, k, bin_idx}] +=
-            GPair{g[{index_global, 0, k}], h[{index_global, 0, k}]};
+          histogram[{position, k, bin_idx}] += grad;
         }
       }
     }
