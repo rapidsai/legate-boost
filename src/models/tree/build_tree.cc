@@ -37,9 +37,9 @@ class BinnedX {
   legate::Buffer<int32_t> row_pointers;
   int64_t num_features;
   int64_t num_rows;
+  legate::Rect<3> shape;
 
  public:
-  const legate::Rect<3> shape;
   template <typename T>
   BinnedX(const legate::AccessorRO<T, 3>& X,
           legate::Rect<3> shape,
@@ -61,6 +61,7 @@ class BinnedX {
       }
     }
   }
+  [[nodiscard]] auto Shape() const { return shape; }
   // This should use the local row index, not global
   int64_t operator[](const legate::Point<2>& p) const
   {
@@ -263,12 +264,12 @@ struct TreeBuilder {
   {
     // Build the histogram
     for (auto [position, index_local] : batch) {
-      auto index_global  = index_local + X.shape.lo[0];
+      auto index_global  = index_local + X.Shape().lo[0];
       bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
       if (position < 0 || !compute) { continue; }
       for (int64_t k = 0; k < num_outputs; ++k) {
-        GPair grad = {g[{index_global, 0, k}], h[{index_global, 0, k}]};
+        const GPair grad = {g[{index_global, 0, k}], h[{index_global, 0, k}]};
         for (int64_t j = 0; j < num_features; j++) {
           auto bin_idx = X[{index_local, j}];
 
