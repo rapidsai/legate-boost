@@ -14,20 +14,42 @@
  */
 #include "special/special.h"
 #include "../cpp_utils/cpp_utils.h"
-namespace  // unnamed
-{
-struct ErfTask : legateboost::ErfTask {};
-struct LgammaTask : legateboost::LgammaTask {};
-struct TgammaTask : legateboost::TgammaTask {};
-struct DigammaTask : legateboost::DigammaTask {};
-struct ZetaTask : legateboost::ZetaTask {};
+namespace legateboost {
 
-static const auto reg_id_ = []() -> char {
-  ErfTask::register_variants();
-  LgammaTask::register_variants();
-  TgammaTask::register_variants();
-  DigammaTask::register_variants();
-  ZetaTask::register_variants();
+/*static*/ void ErfTask::cpu_variant(legate::TaskContext context)
+{
+  legateboost::UnaryOp<ErfOp>::cpu_variant(context);
+}
+
+/*static*/ void LgammaTask::cpu_variant(legate::TaskContext context)
+{
+  legateboost::UnaryOp<LgammaOp>::cpu_variant(context);
+}
+
+/*static*/ void TgammaTask::cpu_variant(legate::TaskContext context)
+{
+  legateboost::UnaryOp<TgammaOp>::cpu_variant(context);
+}
+
+/*static*/ void DigammaTask::cpu_variant(legate::TaskContext context)
+{
+  legateboost::UnaryOp<DigammaOp>::cpu_variant(context);
+}
+
+/*static*/ void ZetaTask::cpu_variant(legate::TaskContext context)
+{
+  legateboost::UnaryOp<ZetaOp>::cpu_variant(context);
+}
+
+}  // namespace legateboost
+
+namespace {
+const auto reg_id_ = []() -> char {
+  legateboost::ErfTask::register_variants();
+  legateboost::LgammaTask::register_variants();
+  legateboost::TgammaTask::register_variants();
+  legateboost::DigammaTask::register_variants();
+  legateboost::ZetaTask::register_variants();
   return 0;
 }();
 }  // namespace

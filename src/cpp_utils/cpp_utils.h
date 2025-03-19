@@ -308,11 +308,9 @@ void extract_scalars(std::tuple<Tp...>& t, legate::TaskContext context)
 }
 inline void extract_scalars(std::tuple<>& t, legate::TaskContext context) {}
 
-template <typename F, int OpCode>
-class UnaryOpTask : public Task<UnaryOpTask<F, OpCode>, OpCode> {
+template <typename F>
+class UnaryOp {
  public:
-  static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{OpCode}};
-
   template <std::int32_t kDim, typename Policy>
   struct DispatchTypeOp {
     template <typename T>

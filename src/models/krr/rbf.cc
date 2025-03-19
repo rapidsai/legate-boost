@@ -15,12 +15,16 @@
  *
  */
 #include "models/krr/rbf.h"
-namespace  // unnamed
+namespace legateboost {
+/*static*/ void RbfTask::cpu_variant(legate::TaskContext context)
 {
-struct RbfTask : legateboost::RbfTask {};
+  legateboost::UnaryOp<RbfOp>::cpu_variant(context);
+}
+}  // namespace legateboost
 
+namespace {
 static const auto reg_id_ = []() -> char {
-  RbfTask::register_variants();
+  legateboost::RbfTask::register_variants();
   return 0;
 }();
 }  // namespace
