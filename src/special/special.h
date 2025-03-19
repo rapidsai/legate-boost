@@ -314,10 +314,48 @@ struct ZetaOp {
   }
 };
 
-using ErfTask     = UnaryOpTask<ErfOp, ERF>;
-using TgammaTask  = UnaryOpTask<TgammaOp, TGAMMA>;
-using LgammaTask  = UnaryOpTask<LgammaOp, LGAMMA>;
-using DigammaTask = UnaryOpTask<DigammaOp, DIGAMMA>;
-using ZetaTask    = UnaryOpTask<ZetaOp, ZETA>;
+class ErfTask : public Task<ErfTask, ERF> {
+ public:
+  static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{ERF}};
+  static void cpu_variant(legate::TaskContext context);
+#ifdef LEGATEBOOST_USE_CUDA
+  static void gpu_variant(legate::TaskContext context);
+#endif
+};
 
+class LgammaTask : public Task<LgammaTask, LGAMMA> {
+ public:
+  static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{LGAMMA}};
+  static void cpu_variant(legate::TaskContext context);
+#ifdef LEGATEBOOST_USE_CUDA
+  static void gpu_variant(legate::TaskContext context);
+#endif
+};
+
+class TgammaTask : public Task<TgammaTask, TGAMMA> {
+ public:
+  static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{TGAMMA}};
+  static void cpu_variant(legate::TaskContext context);
+#ifdef LEGATEBOOST_USE_CUDA
+  static void gpu_variant(legate::TaskContext context);
+#endif
+};
+
+class DigammaTask : public Task<DigammaTask, DIGAMMA> {
+ public:
+  static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{DIGAMMA}};
+  static void cpu_variant(legate::TaskContext context);
+#ifdef LEGATEBOOST_USE_CUDA
+  static void gpu_variant(legate::TaskContext context);
+#endif
+};
+
+class ZetaTask : public Task<ZetaTask, ZETA> {
+ public:
+  static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{ZETA}};
+  static void cpu_variant(legate::TaskContext context);
+#ifdef LEGATEBOOST_USE_CUDA
+  static void gpu_variant(legate::TaskContext context);
+#endif
+};
 }  // namespace legateboost

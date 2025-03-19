@@ -22,6 +22,8 @@ class TargetEncoderMeanTask : public Task<TargetEncoderMeanTask, TARGET_ENCODER_
  public:
   static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(false);
   static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(false);
+  static inline const auto TASK_CONFIG =
+    legate::TaskConfig{legate::LocalTaskID{TARGET_ENCODER_MEAN}};
 
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA
@@ -33,6 +35,8 @@ class TargetEncoderVarianceTask : public Task<TargetEncoderVarianceTask, TARGET_
  public:
   static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(false);
   static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(false);
+  static inline const auto TASK_CONFIG =
+    legate::TaskConfig{legate::LocalTaskID{TARGET_ENCODER_VARIANCE}};
 
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA
@@ -44,6 +48,8 @@ class TargetEncoderEncodeTask : public Task<TargetEncoderEncodeTask, TARGET_ENCO
  public:
   static constexpr auto CPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(false);
   static constexpr auto GPU_VARIANT_OPTIONS = legate::VariantOptions{}.with_has_allocations(false);
+  static inline const auto TASK_CONFIG =
+    legate::TaskConfig{legate::LocalTaskID{TARGET_ENCODER_ENCODE}};
 
   static void cpu_variant(legate::TaskContext context);
 #ifdef LEGATEBOOST_USE_CUDA
