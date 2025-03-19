@@ -23,7 +23,7 @@ namespace legateboost {
 }  // namespace legateboost
 
 namespace {
-static const auto reg_id_ = []() -> char {
+const auto reg_id_ = []() -> char {
   legateboost::RbfTask::register_variants();
   return 0;
 }();

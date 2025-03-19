@@ -223,7 +223,7 @@ struct target_encoder_encode_fn {
 namespace  // unnamed
 {
 
-static const auto reg_id_ = []() -> char {
+const auto reg_id_ = []() -> char {
   legateboost::TargetEncoderMeanTask::register_variants();
   legateboost::TargetEncoderEncodeTask::register_variants();
   legateboost::TargetEncoderVarianceTask::register_variants();

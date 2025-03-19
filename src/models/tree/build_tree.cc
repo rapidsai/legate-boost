@@ -542,7 +542,7 @@ struct build_tree_fn {
 
 namespace  // unnamed
 {
-static const auto reg_id_ = []() -> char {
+const auto reg_id_ = []() -> char {
   legateboost::BuildTreeTask::register_variants();
   return 0;
 }();

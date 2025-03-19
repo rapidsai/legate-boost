@@ -135,7 +135,7 @@ class UpdateTreeTask : public Task<UpdateTreeTask, UPDATE_TREE> {
 
 namespace  // unnamed
 {
-static const auto reg_id_ = []() -> char {
+const auto reg_id_ = []() -> char {
   legateboost::UpdateTreeTask::register_variants();
   return 0;
 }();
