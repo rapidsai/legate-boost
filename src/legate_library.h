@@ -26,8 +26,7 @@ struct Task : public legate::LegateTask<T> {
   Task() = default;
 
  public:
-  using Registrar               = Registry;
-  static constexpr auto TASK_ID = legate::LocalTaskID{ID};
+  using Registrar = Registry;
   friend T;
 };
 

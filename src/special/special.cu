@@ -17,10 +17,29 @@
 #include "../cpp_utils/cpp_utils.cuh"
 
 namespace legateboost {
-// Explicit instantiation
-template void ErfTask::gpu_variant(legate::TaskContext context);
-template void TgammaTask::gpu_variant(legate::TaskContext context);
-template void LgammaTask::gpu_variant(legate::TaskContext context);
-template void DigammaTask::gpu_variant(legate::TaskContext context);
-template void ZetaTask::gpu_variant(legate::TaskContext context);
+/*static*/ void ErfTask::gpu_variant(legate::TaskContext context)
+{
+  UnaryOp<ErfOp>::gpu_variant(context);
+}
+
+/*static*/ void LgammaTask::gpu_variant(legate::TaskContext context)
+{
+  UnaryOp<LgammaOp>::gpu_variant(context);
+}
+
+/*static*/ void TgammaTask::gpu_variant(legate::TaskContext context)
+{
+  UnaryOp<TgammaOp>::gpu_variant(context);
+}
+
+/*static*/ void DigammaTask::gpu_variant(legate::TaskContext context)
+{
+  UnaryOp<DigammaOp>::gpu_variant(context);
+}
+
+/*static*/ void ZetaTask::gpu_variant(legate::TaskContext context)
+{
+  UnaryOp<ZetaOp>::gpu_variant(context);
+}
+
 }  // namespace legateboost
