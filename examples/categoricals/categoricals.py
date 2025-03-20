@@ -25,9 +25,9 @@ df[categorical_features] = df[categorical_features].apply(
 X = df[numerical_features + categorical_features].to_numpy()
 y = df[target_name].to_numpy()
 
-encoded_categoricals = lb.encoder.TargetEncoder(target_type="continuous").fit_transform(
-    df[categorical_features].to_numpy(), y
-)
+encoded_categoricals = lb.encoder.TargetEncoder(
+    target_type="continuous", random_state=1
+).fit_transform(df[categorical_features].to_numpy(), y)
 X_encoded = df[numerical_features].to_numpy()
 X_encoded = np.concatenate((X_encoded, encoded_categoricals), axis=1)
 
