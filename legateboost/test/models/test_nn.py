@@ -10,7 +10,7 @@ import legateboost as lb
 
 
 @pytest.mark.parametrize("random_state", [0, 1])
-@pytest.mark.parametrize("hidden_layer_sizes", [(), (100,), (100, 100), (10, 10, 10)])
+@pytest.mark.parametrize("hidden_layer_sizes", [(), (50,), (25, 10), (10, 10, 10)])
 @pytest.mark.parametrize("l2_regularization", [0.5])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_nn(random_state, hidden_layer_sizes, l2_regularization, dtype):
@@ -68,7 +68,6 @@ def test_l2_regularization(l2_regularization):
         learning_rate=1.0,
         base_models=(
             lb.models.NN(
-                verbose=1,
                 hidden_layer_sizes=hidden_layer_sizes,
                 l2_regularization=l2_regularization,
                 gtol=gtol,

@@ -27,9 +27,9 @@ def test_init():
     model = lb.LBClassifier(n_estimators=0, init="average").fit(X, y)
     obj = lb.LogLossObjective()
     p = y.mean()
-    assert cn.allclose(obj.transform(model.model_init_.reshape(-1, 1)), p)
+    assert cn.isclose(obj.transform(model.model_init_.reshape(-1, 1)), p)
     model = lb.LBClassifier(n_estimators=0, init=None).fit(X, y)
-    assert cn.allclose(model.model_init_, 0.0)
+    assert cn.isclose(model.model_init_, 0.0)
 
 
 @pytest.mark.parametrize("init", [None, "average"])

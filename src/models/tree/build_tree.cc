@@ -29,6 +29,46 @@
 namespace legateboost {
 namespace {
 
+class BinnedX {
+  // These are stored as int16_t to save space
+  // Indices are relative to the feature, not the entire histogram
+  // The maximum number of bins in legate-boost is 2048
+  legate::Buffer<int16_t> data;
+  legate::Buffer<int32_t> row_pointers;
+  int64_t num_features;
+  int64_t num_rows;
+  legate::Rect<3> shape;
+
+ public:
+  template <typename T>
+  BinnedX(const legate::AccessorRO<T, 3>& X,
+          legate::Rect<3> shape,
+          const SparseSplitProposals<T>& split_proposals)
+    : shape(shape),
+      row_pointers(legate::create_buffer<int32_t, 1>(split_proposals.row_pointers.size())),
+      num_features(std::max(shape.hi[1] - shape.lo[1] + 1, 0LL)),
+      num_rows(std::max(shape.hi[0] - shape.lo[0] + 1, 0LL))
+  {
+    data = legate::create_buffer<int16_t>(num_features * num_rows);
+    std::copy(split_proposals.row_pointers.begin(),
+              split_proposals.row_pointers.end(),
+              row_pointers.ptr(0));
+    for (int i = 0; i < num_rows; i++) {
+      for (int j = 0; j < num_features; j++) {
+        auto bin_idx = split_proposals.FindBin(X[{shape.lo[0] + i, j, 0}], j);
+        // Store the bin index relative to the feature to save space
+        data[(i * num_features) + j] = bin_idx - row_pointers[j];
+      }
+    }
+  }
+  [[nodiscard]] auto Shape() const { return shape; }
+  // This should use the local row index, not global
+  int64_t operator[](const legate::Point<2>& p) const
+  {
+    return data[(p[0] * num_features) + p[1]] + row_pointers[p[1]];
+  }
+};
+
 struct NodeBatch {
   int32_t node_idx_begin{};
   int32_t node_idx_end{};
@@ -168,6 +208,8 @@ auto SelectSplitSamples(legate::TaskContext context,
     split_proposals_tmp.insert(split_proposals_tmp.end(), unique.begin(), unique.end());
   }
 
+  draft_proposals.destroy();
+
   auto split_proposals = legate::create_buffer<T, 1>(split_proposals_tmp.size());
   std::copy(split_proposals_tmp.begin(), split_proposals_tmp.end(), split_proposals.ptr(0));
 
@@ -212,29 +254,26 @@ struct TreeBuilder {
                                  split_proposals.HistogramSize());
     max_batch_size = max_histogram_nodes;
   }
-  template <typename TYPE>
   void ComputeHistogram(Histogram<GPair> histogram,
                         legate::TaskContext context,
                         Tree& tree,
-                        const legate::AccessorRO<TYPE, 3>& X,
-                        legate::Rect<3> X_shape,
+                        const BinnedX& X,
                         const legate::AccessorRO<double, 3>& g,
                         const legate::AccessorRO<double, 3>& h,
                         NodeBatch batch)
   {
     // Build the histogram
     for (auto [position, index_local] : batch) {
-      auto index_global  = index_local + X_shape.lo[0];
+      auto index_global  = index_local + X.Shape().lo[0];
       bool const compute = ComputeHistogramBin(
         position, tree.node_sums, histogram.ContainsNode(BinaryTree::Parent(position)));
       if (position < 0 || !compute) { continue; }
-      for (int64_t j = 0; j < num_features; j++) {
-        auto x_value      = X[{index_global, j, 0}];
-        int const bin_idx = split_proposals.FindBin(x_value, j);
+      for (int64_t k = 0; k < num_outputs; ++k) {
+        const GPair grad = {g[{index_global, 0, k}], h[{index_global, 0, k}]};
+        for (int64_t j = 0; j < num_features; j++) {
+          auto bin_idx = X[{index_local, j}];
 
-        for (int64_t k = 0; k < num_outputs; ++k) {
-          histogram[{position, k, bin_idx}] +=
-            GPair{g[{index_global, 0, k}], h[{index_global, 0, k}]};
+          histogram[{position, k, bin_idx}] += grad;
         }
       }
     }
@@ -500,6 +539,8 @@ struct build_tree_fn {
     SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
 
+    const BinnedX binned_X(X_accessor, X_shape, split_proposals);
+
     // Begin building the tree
     TreeBuilder<T> builder(
       num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
@@ -511,8 +552,7 @@ struct build_tree_fn {
       for (auto batch : batches) {
         auto histogram = builder.GetHistogram(batch);
 
-        builder.ComputeHistogram(
-          histogram, context, tree, X_accessor, X_shape, g_accessor, h_accessor, batch);
+        builder.ComputeHistogram(histogram, context, tree, binned_X, g_accessor, h_accessor, batch);
 
         builder.PerformBestSplit(tree,
                                  histogram,

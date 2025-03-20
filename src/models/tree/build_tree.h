@@ -183,12 +183,29 @@ class SparseSplitProposals {
     return result - split_proposals.begin();
   }
 #else
+  // This function from
+  // Khuong, Paul-Virak, and Pat Morin. "Array layouts for comparison-based searching."
+  // Journal of Experimental Algorithmics (JEA) 22 (2017): 1-39.
+  // This could potentially be specialised for the 256 items case
+  // https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
+  template <class ForwardIt>
+  constexpr ForwardIt branchless_lower_bound(ForwardIt first, ForwardIt last, const T& value) const
+  {
+    int n          = last - first;
+    ForwardIt base = first;
+    while (n > 1) {
+      const int half = n / 2;
+      base           = (base[half] < value) ? &base[half] : base;
+      n -= half;
+    }
+    return (*base < value) + base;
+  }
+
   [[nodiscard]] auto FindBin(T x, int feature) const -> int
   {
     const auto begin   = split_proposals.begin() + row_pointers[feature];
     const auto end     = split_proposals.begin() + row_pointers[feature + 1];
-    const auto* result = std::lower_bound(begin, end, x);
-    EXPECT(result != end, "Value not found in split proposals");
+    const auto* result = branchless_lower_bound(begin, end, x);
     return result - split_proposals.begin();
   }
 #endif
