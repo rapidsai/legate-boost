@@ -58,7 +58,7 @@ class Linear(BaseModel):
             self.l2_regularization = alpha
 
     def _fit_solve(self, X: cn.ndarray, g: cn.ndarray, h: cn.ndarray) -> None:
-        self.betas_ = cn.zeros((X.shape[1] + 1, g.shape[1]))
+        self.betas_ = cn.zeros((X.shape[1] + 1, g.shape[1]), dtype=X.dtype)
         num_outputs = g.shape[1]
         for k in range(num_outputs):
             W = cn.sqrt(h[:, k])
@@ -135,12 +135,13 @@ class Linear(BaseModel):
         # summing together the coeffiecients of each model then predicting
         # saves a lot of work
         betas = cn.sum([model.betas_ for model in models], axis=0)
-        return betas[0] + X.dot(betas[1:].astype(X.dtype))
+        betas = betas.astype(X.dtype)
+        return betas[0] + X.dot(betas[1:])
 
     def __str__(self) -> str:
         return (
             "Bias: "
-            + str(self.betas_[1])
+            + str(self.betas_[0])
             + "\nCoefficients: "
             + str(self.betas_[1:])
             + "\n"
@@ -150,3 +151,35 @@ class Linear(BaseModel):
         new = copy.deepcopy(self)
         new.betas_ *= scalar
         return new
+
+    def to_onnx(self) -> Any:
+        from onnx import numpy_helper
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_tensor_value_info,
+            np_dtype_to_tensor_dtype,
+        )
+
+        # model constants
+        betas = numpy_helper.from_array(self.betas_[1:].__array__(), name="betas")
+        intercept = numpy_helper.from_array(
+            self.betas_[0].__array__(), name="intercept"
+        )
+
+        # pred inputs
+        X = make_tensor_value_info(
+            "X", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, None]
+        )
+        pred = make_tensor_value_info(
+            "pred", np_dtype_to_tensor_dtype(self.betas_.dtype), [None]
+        )
+
+        node1 = make_node("MatMul", ["X", "betas"], ["XBeta"])
+        node2 = make_node("Add", ["XBeta", "intercept"], ["pred"])
+        graph = make_graph([node1, node2], "lr", [X], [pred], [betas, intercept])
+        onnx_model = make_model(graph)
+        check_model(onnx_model)
+        return onnx_model
