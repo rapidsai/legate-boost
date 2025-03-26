@@ -256,7 +256,7 @@ class KRR(BaseModel):
 
         assert self.X_train.dtype == self.betas_.dtype
 
-        def make_constant_node(value, name):
+        def make_constant_node(value: cn.array, name: str) -> Any:
             return make_node(
                 "Constant",
                 inputs=[],
@@ -331,6 +331,8 @@ class KRR(BaseModel):
             np_dtype_to_tensor_dtype(self.betas_.dtype),
             [None, self.X_train.shape[0]],
         )
+        if self.sigma is None:
+            raise ValueError("sigma is None. Has fit been called?")
         nodes.append(
             make_constant_node(
                 np.array([-2.0 * self.sigma**2], self.betas_.dtype), "denominator"

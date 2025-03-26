@@ -92,13 +92,13 @@ class Tree(BaseModel):
     def num_nodes(self) -> int:
         return int(cn.sum(self.hessian > 0.0))
 
-    def is_leaf(self, id: int) -> Any:
+    def is_leaf(self, id: cn.array) -> cn.array:
         return self.feature[id] == -1
 
-    def left_child(self, id) -> int:
+    def left_child(self, id: cn.array) -> cn.array:
         return id * 2 + 1
 
-    def right_child(self, id) -> int:
+    def right_child(self, id: cn.array) -> cn.array:
         return id * 2 + 2
 
     def fit(
