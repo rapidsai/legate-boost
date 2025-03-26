@@ -179,7 +179,9 @@ class Linear(BaseModel):
 
         node1 = make_node("MatMul", ["X", "betas"], ["XBeta"])
         node2 = make_node("Add", ["XBeta", "intercept"], ["pred"])
-        graph = make_graph([node1, node2], "lr", [X], [pred], [betas, intercept])
+        graph = make_graph(
+            [node1, node2], "legateboost.model.Linear", [X], [pred], [betas, intercept]
+        )
         onnx_model = make_model(graph)
         check_model(onnx_model)
         return onnx_model

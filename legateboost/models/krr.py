@@ -347,7 +347,9 @@ class KRR(BaseModel):
         # prediction
         # pred = np.dot(K, self.betas_)
         nodes.append(make_node("MatMul", ["K", "betas"], ["pred"]))
-        graph = make_graph(nodes, "krr", [X], [pred], [betas, X_train])
+        graph = make_graph(
+            nodes, "legateboost.model.KRR", [X], [pred], [betas, X_train]
+        )
         onnx_model = make_model(graph)
         check_model(onnx_model)
         return onnx_model
