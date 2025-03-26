@@ -29,7 +29,7 @@ def test_onnx(Model, n_outputs, dtype):
         return sess.run(None, feeds)
 
     assert np.allclose(
-        model.predict(X),
+        model.predict(cn.array(X)),
         pred_onnx(model.to_onnx(), X)[0],
         atol=1e-3 if dtype == np.float32 else 1e-6,
     )
