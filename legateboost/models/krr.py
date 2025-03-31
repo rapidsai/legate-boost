@@ -243,13 +243,14 @@ class KRR(BaseModel):
         self.betas_ *= scalar
         return new
 
-    def to_onnx(self) -> Any:
+    def to_onnx(self, X_dtype) -> Any:
         from onnx import numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
             make_model,
             make_node,
+            make_opsetid,
             make_tensor_value_info,
             np_dtype_to_tensor_dtype,
         )
@@ -271,66 +272,34 @@ class KRR(BaseModel):
         X_train = numpy_helper.from_array(self.X_train.__array__(), name="X_train")
 
         # pred inputs
-        X = make_tensor_value_info(
-            "X",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[1]],
+        n_features = self.X_train.shape[1]
+        n_outputs = self.betas_.shape[1]
+        X_in = make_tensor_value_info(
+            "X_in", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, n_features]
         )
-        pred = make_tensor_value_info(
-            "pred",
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
             np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.betas_.shape[1]],
+            [None, n_outputs],
         )
-
         # exanded l2 distance
         # distance = np.sum(X**2, axis=1)[:, np.newaxis] - 2 * np.dot(X, self.X_train.T)
         # + np.sum(self.X_train**2, axis=1)
-        make_tensor_value_info(
-            "XX", np_dtype_to_tensor_dtype(self.betas_.dtype), [None]
-        )
-        make_tensor_value_info(
-            "YY",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [self.X_train.shape[0], 1],
-        )
-        make_tensor_value_info(
-            "XY_reshaped",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [1, self.X_train.shape[0]],
-        )
-        make_tensor_value_info(
-            "XY",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
         nodes.append(make_constant_node(np.array([1]), "axis1"))
-        nodes.append(make_node("ReduceSumSquare", ["X", "axis1"], ["XX"]))
-        nodes.append(make_node("Gemm", ["X", "X_train"], ["XY"], alpha=-2.0, transB=1))
+        nodes.append(make_node("ReduceSumSquare", ["X_in", "axis1"], ["XX"]))
+        nodes.append(
+            make_node("Gemm", ["X_in", "X_train"], ["XY"], alpha=-2.0, transB=1)
+        )
         nodes.append(make_node("ReduceSumSquare", ["X_train", "axis1"], ["YY"]))
         nodes.append(make_constant_node(np.array([1, -1]), "reshape"))
         nodes.append(make_node("Reshape", ["YY", "reshape"], ["YY_reshaped"]))
         nodes.append(make_node("Add", ["XX", "XY"], ["add0"]))
-        make_tensor_value_info(
-            "l2",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
         nodes.append(make_node("Add", ["YY_reshaped", "add0"], ["l2"]))
         nodes.append(make_constant_node(np.array([0.0], self.betas_.dtype), "zero"))
-        make_tensor_value_info(
-            "l2_clipped",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
         nodes.append(make_node("Max", ["l2", "zero"], ["l2_clipped"]))
 
         # RBF kernel
         # K = np.exp(-distance / (2 * self.sigma**2))
-        make_tensor_value_info(
-            "rbf0",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
         if self.sigma is None:
             raise ValueError("sigma is None. Has fit been called?")
         nodes.append(
@@ -339,19 +308,37 @@ class KRR(BaseModel):
             )
         )
         nodes.append(make_node("Div", ["l2_clipped", "denominator"], ["rbf0"]))
-        make_tensor_value_info(
-            "K",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
         nodes.append(make_node("Exp", ["rbf0"], ["K"]))
 
         # prediction
         # pred = np.dot(K, self.betas_)
-        nodes.append(make_node("MatMul", ["K", "betas"], ["pred"]))
-        graph = make_graph(
-            nodes, "legateboost.model.KRR", [X], [pred], [betas, X_train]
+        nodes.append(make_node("MatMul", ["K", "betas"], ["dot"]))
+
+        # outputs
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            np_dtype_to_tensor_dtype(self.betas_.dtype),
+            [None, n_outputs],
         )
-        onnx_model = make_model(graph)
+        X_out = make_tensor_value_info(
+            "X_out", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, n_features]
+        )
+
+        nodes.append(make_node("Add", ["dot", "predictions_in"], ["predictions_out"]))
+        nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
+
+        graph = make_graph(
+            nodes,
+            "legateboost.model.KRR",
+            [X_in, predictions_in],
+            [X_out, predictions_out],
+            [betas, X_train],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[
+                make_opsetid("", 21),
+            ],
+        )
         check_model(onnx_model)
         return onnx_model

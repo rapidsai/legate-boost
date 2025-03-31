@@ -316,15 +316,17 @@ class Tree(BaseModel):
         new.leaf_value *= scalar
         return new
 
-    def to_onnx(self) -> Any:
+    def to_onnx(self, X_dtype) -> Any:
         import onnx
         from onnx import numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
             make_model,
+            make_node,
             make_tensor,
             make_tensor_value_info,
+            np_dtype_to_tensor_dtype,
         )
 
         onnx_nodes = []
@@ -345,7 +347,9 @@ class Tree(BaseModel):
         tree_max_nodes = self.feature.size
         all_nodes_idx = np.arange(tree_max_nodes)
         nodes_featureids = self.feature.__array__()
-        nodes_splits = numpy_helper.from_array(self.split_value.__array__())
+        nodes_splits = numpy_helper.from_array(
+            self.split_value.__array__().astype(X_dtype)
+        )
         nodes_truenodeids = self.left_child(all_nodes_idx)
         # get the left child of each node and check if it is a leaf
         # if the node is already leaf then its child can go off the end of the array
@@ -357,17 +361,17 @@ class Tree(BaseModel):
         nodes_falseleafs = self.is_leaf(
             np.minimum(tree_max_nodes - 1, self.right_child(all_nodes_idx))
         ).astype(int)
-
-        for output_idx in range(0, self.leaf_value.shape[1]):
+        num_outputs = self.leaf_value.shape[1]
+        for output_idx in range(0, num_outputs):
             leaf_targetids = np.full(self.feature.size, output_idx, dtype=np.int64)
             leaf_weights = numpy_helper.from_array(
-                self.leaf_value[:, output_idx].__array__()
+                self.leaf_value[:, output_idx].__array__().astype(X_dtype)
             )
 
             onnx_nodes.append(
-                onnx.helper.make_node(
+                make_node(
                     "TreeEnsemble",
-                    ["X"],
+                    ["X_in"],
                     ["pred" + str(output_idx)],
                     domain="ai.onnx.ml",
                     n_targets=self.leaf_value.shape[1],
@@ -395,9 +399,6 @@ class Tree(BaseModel):
             )
 
             if output_idx == 0:
-                accumulated_pred = make_tensor_value_info(
-                    "accumulated_pred0", onnx.TensorProto.DOUBLE, [None, None]
-                )
                 onnx_nodes.append(
                     onnx.helper.make_node(
                         "Identity",
@@ -406,11 +407,6 @@ class Tree(BaseModel):
                     )
                 )
             else:
-                accumulated_pred = make_tensor_value_info(
-                    "accumulated_pred" + str(output_idx),
-                    onnx.TensorProto.DOUBLE,
-                    [None, None],
-                )
                 onnx_nodes.append(
                     onnx.helper.make_node(
                         "Add",
@@ -422,16 +418,37 @@ class Tree(BaseModel):
                     )
                 )
 
-        # pred inputs
-        X = make_tensor_value_info("X", onnx.TensorProto.DOUBLE, [None, None])
+        X_in = make_tensor_value_info(
+            "X_in", np_dtype_to_tensor_dtype(X_dtype), [None, None]
+        )
+        X_out = make_tensor_value_info(
+            "X_out", np_dtype_to_tensor_dtype(X_dtype), [None, None]
+        )
+        predictions_in = make_tensor_value_info(
+            "predictions_in", np_dtype_to_tensor_dtype(X_dtype), [None, num_outputs]
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out", np_dtype_to_tensor_dtype(X_dtype), [None, num_outputs]
+        )
+        onnx_nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
+        onnx_nodes.append(
+            make_node(
+                "Add",
+                ["predictions_in", "accumulated_pred" + str(num_outputs - 1)],
+                ["predictions_out"],
+            )
+        )
         graph = make_graph(
-            onnx_nodes, "legateboost.models.Tree", [X], [accumulated_pred]
+            onnx_nodes,
+            "legateboost.models.Tree",
+            [X_in, predictions_in],
+            [X_out, predictions_out],
         )
         model = make_model(
             graph,
             opset_imports=[
                 onnx.helper.make_opsetid("ai.onnx.ml", 5),
-                onnx.helper.make_opsetid("", 14),
+                onnx.helper.make_opsetid("", 21),
             ],
         )
         check_model(model)

@@ -540,6 +540,102 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             text += str(m)
         return text
 
+    def _make_onnx_init(self, X_dtype):
+        # turn self.model_init_ into an ONNX model
+        from onnx import numpy_helper
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+            np_dtype_to_tensor_dtype,
+        )
+
+        # model constants
+        X_in = make_tensor_value_info(
+            "X_in", np_dtype_to_tensor_dtype(X_dtype), [None, self.n_features_in_]
+        )
+        nodes = []
+        nodes.append(make_node("Shape", ["X_in"], ["n_rows"], end=1))
+        one = numpy_helper.from_array(np.array([1], dtype=np.int64), name="one")
+        nodes.append(make_node("Concat", ["n_rows", "one"], ["tile_repeat"], axis=0))
+        init = numpy_helper.from_array(
+            np.atleast_2d(self.model_init_.__array__().astype(X_dtype)), name="init"
+        )
+        prediction_out = make_tensor_value_info(
+            "predictions_out",
+            np_dtype_to_tensor_dtype(X_dtype),
+            [None, self.model_init_.shape[0]],
+        )
+        nodes.append(make_node("Tile", ["init", "tile_repeat"], ["predictions_out"]))
+        X_out = make_tensor_value_info(
+            "X_out",
+            np_dtype_to_tensor_dtype(X_dtype),
+            [None, self.model_init_.shape[0]],
+        )
+        nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
+        graph = make_graph(
+            nodes,
+            "legateboost estimator init",
+            [X_in],
+            [X_out, prediction_out],
+            [init, one],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[
+                make_opsetid("", 21),
+            ],
+        )
+        check_model(onnx_model)
+
+        return onnx_model
+
+    def to_onnx(self, X_dtype, predict_function="predict"):
+        """Converts the model to an ONNX model.
+
+        Parameters
+        ----------
+        X_dtype : numpy.dtype
+            The expected data type of the input data. ONNX models hard
+            code the data type of the input data and will crash if this is
+            not set correctly.
+            Can be np.float32 or np.float64.
+        predict_function : str
+            The serialised ONNX model can produce output equivalent to 'predict',
+            'predict_proba', or 'predict_raw'.
+            The default is "predict".
+        Returns
+        -------
+        Any
+            The ONNX model.
+        """
+        from onnx.compose import merge_models
+
+        model = self._make_onnx_init(X_dtype)
+        if self.models_ is not None and len(self.models_) > 0:
+            model = merge_models(
+                model,
+                self.models_[0].to_onnx(X_dtype),
+                io_map=[("X_out", "X_in"), ("predictions_out", "predictions_in")],
+                prefix2="model_0_",
+            )
+
+        for i in range(1, len(self.models_)):
+            model = merge_models(
+                model,
+                self.models_[i].to_onnx(X_dtype),
+                io_map=[
+                    ("model_{}_X_out".format(i - 1), "X_in"),
+                    ("model_{}_predictions_out".format(i - 1), "predictions_in"),
+                ],
+                prefix2="model_{}_".format(i),
+            )
+
+        return model
+
     def global_attributions(
         self,
         X: cn.array,

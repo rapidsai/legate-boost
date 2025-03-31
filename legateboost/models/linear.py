@@ -152,13 +152,14 @@ class Linear(BaseModel):
         new.betas_ *= scalar
         return new
 
-    def to_onnx(self) -> Any:
+    def to_onnx(self, X_dtype) -> Any:
         from onnx import numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
             make_model,
             make_node,
+            make_opsetid,
             make_tensor_value_info,
             np_dtype_to_tensor_dtype,
         )
@@ -170,18 +171,44 @@ class Linear(BaseModel):
         )
 
         # pred inputs
-        X = make_tensor_value_info(
-            "X", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, None]
+        n_features = self.betas_.shape[0] - 1
+        n_outputs = self.betas_.shape[1]
+        X_in = make_tensor_value_info(
+            "X_in", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, n_features]
         )
-        pred = make_tensor_value_info(
-            "pred", np_dtype_to_tensor_dtype(self.betas_.dtype), [None]
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            np_dtype_to_tensor_dtype(self.betas_.dtype),
+            [None, n_outputs],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            np_dtype_to_tensor_dtype(self.betas_.dtype),
+            [None, n_outputs],
         )
 
-        node1 = make_node("MatMul", ["X", "betas"], ["XBeta"])
-        node2 = make_node("Add", ["XBeta", "intercept"], ["pred"])
-        graph = make_graph(
-            [node1, node2], "legateboost.model.Linear", [X], [pred], [betas, intercept]
+        nodes = []
+        nodes.append(make_node("MatMul", ["X_in", "betas"], ["XBeta"]))
+        nodes.append(make_node("Add", ["XBeta", "intercept"], ["result"]))
+        nodes.append(
+            make_node("Add", ["result", "predictions_in"], ["predictions_out"])
         )
-        onnx_model = make_model(graph)
+        X_out = make_tensor_value_info(
+            "X_out", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, n_features]
+        )
+        nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
+        graph = make_graph(
+            nodes,
+            "legateboost.model.Linear",
+            [X_in, predictions_in],
+            [X_out, predictions_out],
+            [betas, intercept],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[
+                make_opsetid("", 21),
+            ],
+        )
         check_model(onnx_model)
         return onnx_model
