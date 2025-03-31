@@ -126,3 +126,13 @@ class BaseModel(PickleCupynumericMixin, ABC):
 
     def __hash__(self) -> int:
         return hash(str(self))
+
+    def to_onnx(self) -> Any:
+        """Convert the model to an ONNX model.
+
+        Returns
+        -------
+        Any
+            The ONNX model.
+        """
+        raise NotImplementedError

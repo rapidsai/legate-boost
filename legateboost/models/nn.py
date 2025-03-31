@@ -181,3 +181,87 @@ class NN(BaseModel):
         new.coefficients_[-1] *= scalar
         new.biases_[-1] *= scalar
         return new
+
+    def to_onnx(self) -> Any:
+        from onnx import numpy_helper
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_tensor_value_info,
+            np_dtype_to_tensor_dtype,
+        )
+
+        # model constants
+        biases = [
+            numpy_helper.from_array(b[0].__array__(), name=f"bias{i}")
+            for i, b in enumerate(self.biases_)
+        ]
+        coefficients = [
+            numpy_helper.from_array(c.__array__(), name=f"coefficients{i}")
+            for i, c in enumerate(self.coefficients_)
+        ]
+
+        # pred inputs
+        X = make_tensor_value_info(
+            "X",
+            np_dtype_to_tensor_dtype(self.coefficients_[0].dtype),
+            [None, self.coefficients_[0].shape[0]],
+        )
+
+        nodes = []
+
+        make_tensor_value_info(
+            "activations0",
+            np_dtype_to_tensor_dtype(self.coefficients_[0].dtype),
+            [None, None],
+        )
+        nodes.append(make_node("MatMul", ["X", "coefficients0"], ["activations0"]))
+        activations_with_bias = make_tensor_value_info(
+            "activations0withbias",
+            np_dtype_to_tensor_dtype(self.coefficients_[0].dtype),
+            [None, None],
+        )
+        nodes.append(
+            make_node("Add", ["activations0", "bias0"], ["activations0withbias"])
+        )
+
+        for i in range(1, len(coefficients)):
+            make_tensor_value_info(
+                f"tanh{i}",
+                np_dtype_to_tensor_dtype(self.coefficients_[0].dtype),
+                [None, None],
+            )
+            nodes.append(make_node("Tanh", [f"activations{i-1}withbias"], [f"tanh{i}"]))
+            make_tensor_value_info(
+                f"activations{i}",
+                np_dtype_to_tensor_dtype(self.coefficients_[0].dtype),
+                [None, None],
+            )
+            nodes.append(
+                make_node(
+                    "MatMul", [f"tanh{i}", f"coefficients{i}"], [f"activations{i}"]
+                )
+            )
+            activations_with_bias = make_tensor_value_info(
+                f"activations{i}withbias",
+                np_dtype_to_tensor_dtype(self.coefficients_[0].dtype),
+                [None, None],
+            )
+            nodes.append(
+                make_node(
+                    "Add", [f"activations{i}", f"bias{i}"], [f"activations{i}withbias"]
+                )
+            )
+
+        graph = make_graph(
+            nodes,
+            "legateboost.model.NN",
+            [X],
+            [activations_with_bias],
+            biases + coefficients,
+        )
+        onnx_model = make_model(graph)
+        check_model(onnx_model)
+        return onnx_model
