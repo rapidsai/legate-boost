@@ -30,6 +30,7 @@ dependencies:
 - numpy
 - onnx>=1.10
 - onnxmltools>=1.10
+- onnxruntime>=1.21
 - openblas
 - pydata-sphinx-theme>=0.16
 - pytest>=7,<8
