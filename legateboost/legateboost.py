@@ -16,7 +16,7 @@ import cupynumeric as cn
 from .input_validation import _lb_check_X, _lb_check_X_y, check_sample_weight
 from .metrics import BaseMetric, metrics
 from .models import BaseModel, Tree
-from .objectives import BaseObjective, objectives
+from .objectives import OBJECTIVES_MAP, BaseObjective
 from .shapley import global_shapley_attributions, local_shapley_attributions
 from .utils import AddableMixin, AddMember, PickleCupynumericMixin
 
@@ -422,7 +422,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
 
         # setup objective
         if isinstance(self.objective, str):
-            self._objective_instance = objectives[self.objective]()
+            self._objective_instance = OBJECTIVES_MAP[self.objective]()
         elif isinstance(self.objective, BaseObjective):
             self._objective_instance = self.objective
         else:
@@ -528,6 +528,26 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             pred += Type.batch_predict(models, X)
         return pred
 
+    def predict_raw(self, X: cn.ndarray) -> cn.ndarray:
+        """Predict pre-transformed values for samples in X. E.g. before applying a
+        sigmoid function.
+
+        Parameters
+        ----------
+
+        X :
+            The input samples.
+
+        Returns
+        -------
+
+        y :
+            The predicted raw values for each sample in X.
+        """
+        X = _lb_check_X(X)
+        validate_data(self, X, reset=False, skip_check_array=True)
+        return self._predict(X)
+
     def dump_models(self) -> str:
         """Dumps the models in the current instance to a string.
 
@@ -573,7 +593,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         X_out = make_tensor_value_info(
             "X_out",
             np_dtype_to_tensor_dtype(X_dtype),
-            [None, self.model_init_.shape[0]],
+            [None, None],
         )
         nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
         graph = make_graph(
@@ -612,6 +632,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         Any
             The ONNX model.
         """
+        from onnx.checker import check_model
         from onnx.compose import merge_models
 
         model = self._make_onnx_init(X_dtype)
@@ -634,6 +655,11 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
                 prefix2="model_{}_".format(i),
             )
 
+        # remove the X_out output, we only need the predictions
+        # add a transform operator
+        model.graph.output.remove(model.graph.output[0])
+
+        check_model(model)
         return model
 
     def global_attributions(
@@ -1126,26 +1152,6 @@ class LBClassifier(ClassifierMixin, LBBase):
             eval_result=eval_result,
         )
         return self
-
-    def predict_raw(self, X: cn.ndarray) -> cn.ndarray:
-        """Predict pre-transformed values for samples in X. E.g. before applying a
-        sigmoid function.
-
-        Parameters
-        ----------
-
-        X :
-            The input samples.
-
-        Returns
-        -------
-
-        y :
-            The predicted raw values for each sample in X.
-        """
-        X = _lb_check_X(X)
-        validate_data(self, X, reset=False, skip_check_array=True)
-        return super()._predict(X)
 
     def predict_proba(self, X: cn.ndarray) -> cn.ndarray:
         """Predict class probabilities for samples in X.

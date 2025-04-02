@@ -361,6 +361,14 @@ class Tree(BaseModel):
         nodes_falseleafs = self.is_leaf(
             np.minimum(tree_max_nodes - 1, self.right_child(all_nodes_idx))
         ).astype(int)
+        if self.is_leaf(0):
+            # we have a decision stump
+            # according to the onnx operator we must set
+            # true/false at root to the leaf at 0
+            nodes_falsenodeids[0] = 0
+            nodes_truenodeids[0] = 0
+            nodes_trueleafs[0] = 0
+            nodes_falseleafs[0] = 0
         num_outputs = self.leaf_value.shape[1]
         for output_idx in range(0, num_outputs):
             leaf_targetids = np.full(self.feature.size, output_idx, dtype=np.int64)

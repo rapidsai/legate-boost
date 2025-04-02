@@ -1,4 +1,5 @@
 import numpy as np
+import onnxruntime as ort
 from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 from sklearn.preprocessing import StandardScaler
 
@@ -25,15 +26,15 @@ settings.load_profile("local")
 @st.composite
 def tree_strategy(draw):
     if get_legate_runtime().machine.count(TaskTarget.GPU) > 0:
-        max_depth = draw(st.integers(1, 8))
+        max_depth = draw(st.integers(0, 8))
     else:
-        max_depth = draw(st.integers(1, 6))
-    alpha = draw(st.floats(0.0, 1.0))
+        max_depth = draw(st.integers(0, 6))
+    l2_regularization = draw(st.floats(0.0, 1.0))
     split_samples = draw(st.integers(1, 500))
     feature_fraction = draw(st.sampled_from([0.5, 1.0]))
     return lb.models.Tree(
         max_depth=max_depth,
-        alpha=alpha,
+        l2_regularization=l2_regularization,
         split_samples=split_samples,
         feature_fraction=feature_fraction,
     )
@@ -41,20 +42,22 @@ def tree_strategy(draw):
 
 @st.composite
 def nn_strategy(draw):
-    alpha = draw(st.floats(0.0, 1.0))
+    l2_regularization = draw(st.floats(0.0, 1.0))
     hidden_layer_sizes = draw(st.sampled_from([(), (100,), (100, 100), (10, 10, 10)]))
     # max iter needs to be sufficiently large, otherwise the models can make the loss
     # worse (from a bad initialization)
     max_iter = 200
     return lb.models.NN(
-        alpha=alpha, hidden_layer_sizes=hidden_layer_sizes, max_iter=max_iter
+        l2_regularization=l2_regularization,
+        hidden_layer_sizes=hidden_layer_sizes,
+        max_iter=max_iter,
     )
 
 
 @st.composite
 def linear_strategy(draw):
-    alpha = draw(st.floats(0.0, 1.0))
-    return lb.models.Linear(alpha=alpha)
+    l2_regularization = draw(st.floats(0.0, 1.0))
+    return lb.models.Linear(l2_regularization=l2_regularization)
 
 
 @st.composite
@@ -63,9 +66,11 @@ def krr_strategy(draw):
         sigma = draw(st.floats(0.1, 1.0))
     else:
         sigma = None
-    alpha = draw(st.floats(0.0, 1.0))
+    l2_regularization = draw(st.floats(0.0, 1.0))
     components = draw(st.integers(2, 10))
-    return lb.models.KRR(n_components=components, alpha=alpha, sigma=sigma)
+    return lb.models.KRR(
+        n_components=components, l2_regularization=l2_regularization, sigma=sigma
+    )
 
 
 @st.composite
@@ -161,10 +166,19 @@ def test_regressor(model_params, regression_params, regression_dataset):
     model = lb.LBRegressor(**model_params, **regression_params, verbose=True).fit(
         X, y, sample_weight=w, eval_result=eval_result
     )
-    model.predict(X)
     loss = next(iter(eval_result["train"].values()))
     assert non_increasing(loss, tol=1e-1)
     sanity_check_models(model)
+
+    # check onnx
+    # for now reshape legate-boost predict to 2-D
+    # eventually onnx should match the output shape exactly
+    predict_raw = model.predict_raw(X)
+    onnx_predict_raw = pred_onnx(model.to_onnx(X.dtype), X)
+    onnx_predict_raw = onnx_predict_raw.reshape(predict_raw.shape)
+    assert np.allclose(
+        predict_raw, onnx_predict_raw, atol=1e-3 if X.dtype == np.float32 else 1e-6
+    ), np.linalg.norm(predict_raw - onnx_predict_raw)
 
 
 classification_param_strategy = st.fixed_dictionaries(
@@ -240,12 +254,18 @@ def classification_dataset_strategy(draw):
     return X, y, w, name
 
 
+def pred_onnx(onnx, X):
+    sess = ort.InferenceSession(onnx.SerializeToString())
+    return sess.run(None, {"X_in": X})[0]
+
+
 @given(
     general_model_param_strategy,
     classification_param_strategy,
     classification_dataset_strategy(),
 )
 @cn.errstate(divide="raise", invalid="raise")
+@settings(print_blob=True)
 def test_classifier(
     model_params: dict, classification_params: dict, classification_dataset: tuple
 ) -> None:
@@ -256,8 +276,15 @@ def test_classifier(
     )
     model.predict(X)
     model.predict_proba(X)
-    model.predict_raw(X)
+    predict_raw = model.predict_raw(X)
     loss = next(iter(eval_result["train"].values()))
     # multiclass models with higher learning rates don't always converge
     if len(model.classes_) == 2:
         assert non_increasing(loss, 1e-1)
+
+    # check onnx
+    onnx_predict_raw = pred_onnx(model.to_onnx(X.dtype), X)
+    onnx_predict_raw = onnx_predict_raw.reshape(predict_raw.shape)
+    assert np.allclose(
+        predict_raw, onnx_predict_raw, atol=1e-3 if X.dtype == np.float32 else 1e-6
+    ), np.linalg.norm(predict_raw - onnx_predict_raw)

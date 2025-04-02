@@ -628,7 +628,7 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         return self.one_step_newton(y, w, boost_from_average, init)
 
 
-objectives = {
+OBJECTIVES_MAP = {
     "squared_error": SquaredErrorObjective,
     "normal": NormalObjective,
     "log_loss": LogLossObjective,
@@ -638,3 +638,14 @@ objectives = {
     "gamma_deviance": GammaDevianceObjective,
     "gamma": GammaObjective,
 }
+
+REGRESSION_OBJECTIVES = ["squared_error", "normal", "gamma_deviance", "gamma"]
+
+CLASSIFICATION_OBJECTIVES = [
+    "log_loss",
+    "multi_label",
+    "exp",
+    "quantile",
+    "gamma_deviance",
+    "gamma",
+]

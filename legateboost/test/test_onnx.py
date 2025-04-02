@@ -6,39 +6,48 @@ import cupynumeric as cn
 import legateboost as lb
 
 
-def pred_onnx_estimator(onnx, X, n_outputs):
-    sess = ort.InferenceSession(onnx.SerializeToString())
-    feeds = {"X_in": X}
-    return sess.run(None, feeds)[1]
-
-
-def pred_onnx_model(onnx, X, n_outputs):
-    sess = ort.InferenceSession(onnx.SerializeToString())
+def compare_onnx_predictions(estimator, X):
+    sess = ort.InferenceSession(estimator.to_onnx(X.dtype).SerializeToString())
     feeds = {
         "X_in": X,
-        "predictions_in": np.zeros((X.shape[0], n_outputs), dtype=X.dtype),
     }
-    return sess.run(None, feeds)[1]
+    if isinstance(estimator, lb.models.BaseModel):
+        pred = estimator.predict(cn.array(X))
+        feeds["predictions_in"] = np.zeros((X.shape[0], pred.shape[1]), dtype=X.dtype)
+        onnx_pred = sess.run(None, feeds)[1]
+    else:
+        pred = estimator.predict_raw(cn.array(X))
+        onnx_pred = sess.run(None, feeds)[0]
+
+    onnx_pred = onnx_pred.squeeze()
+    pred = pred.squeeze()
+    assert pred.shape == onnx_pred.shape
+    assert np.allclose(
+        onnx_pred, pred, atol=1e-3 if X.dtype == np.float32 else 1e-6
+    ), np.linalg.norm(pred - onnx_pred)
 
 
-@pytest.mark.parametrize("Model", [M for M in lb.models.BaseModel.__subclasses__()])
-@pytest.mark.parametrize("n_outputs", [1, 5])
-@pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def test_models(Model, n_outputs, dtype):
+@pytest.fixture
+def model_dataset(dtype, n_outputs):
     rs = np.random.RandomState(0)
     X = rs.random((1000, 10)).astype(dtype)
     g = rs.normal(size=(X.shape[0], n_outputs))
     h = rs.random(g.shape) + 0.1
+    return X, g, h
+
+
+@pytest.mark.parametrize("Model", [M for M in lb.models.BaseModel.__subclasses__()])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("n_outputs", [1, 5])
+def test_models(Model, model_dataset):
+    X, g, h = model_dataset
     model = (
         Model()
         .set_random_state(np.random.RandomState(2))
         .fit(cn.array(X), cn.array(g), cn.array(h))
     )
 
-    onnx_pred = pred_onnx_model(model.to_onnx(X.dtype), X, n_outputs)
-    lb_pred = model.predict(cn.array(X))
-    assert onnx_pred.shape == lb_pred.shape
-    assert np.allclose(onnx_pred, lb_pred, atol=1e-3 if dtype == np.float32 else 1e-6)
+    compare_onnx_predictions(model, X)
 
 
 @pytest.mark.parametrize("n_outputs", [1, 5])
@@ -48,27 +57,58 @@ def test_init(n_outputs):
     y = np.full((3, n_outputs), 5.0, dtype=np.float32)
     estimator = lb.LBRegressor(n_estimators=0, random_state=0).fit(X, y)
     assert np.all(estimator.model_init_ == 5.0)
-    assert np.all(estimator.predict(X) == 5.0)
-    assert np.all(
-        pred_onnx_estimator(estimator.to_onnx(X.dtype), X.__array__(), 1) == 5.0
+    compare_onnx_predictions(estimator, X)
+
+
+@pytest.fixture
+def regression_dataset(dtype, n_outputs):
+    from sklearn.datasets import make_regression
+
+    X, y = make_regression(
+        n_samples=1000,
+        n_features=10,
+        n_informative=5,
+        n_targets=n_outputs,
+        random_state=0,
     )
+    # make labels strictly positive for certain objectives
+    return X.astype(dtype), np.abs(y.astype(dtype))
 
 
 @pytest.mark.parametrize("Model", [M for M in lb.models.BaseModel.__subclasses__()])
-@pytest.mark.parametrize("n_outputs", [1, 5])
+@pytest.mark.parametrize("objective", lb.objectives.REGRESSION_OBJECTIVES)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def test_estimator(Model, n_outputs, dtype):
-    rs = np.random.RandomState(0)
-    X = rs.random((1000, 10)).astype(dtype)
-    y = rs.random((1000, n_outputs)).astype(dtype)
+@pytest.mark.parametrize("n_outputs", [1, 5])
+def test_regressor(Model, objective, regression_dataset):
+    X, y = regression_dataset
+    if objective in [
+        "quantile",
+        "gamma_deviance",
+        "gamma",
+    ] and (y.ndim > 1 and y.shape[1] > 1):
+        pytest.skip("skipping quantile, gamma and gamma_deviance for multiple outputs")
     model = lb.LBRegressor(
-        n_estimators=10,
+        n_estimators=2,
+        objective=objective,
         base_models=(Model(),),
         random_state=0,
     ).fit(X, y)
 
-    assert np.allclose(
-        model.predict(X),
-        pred_onnx_estimator(model.to_onnx(X.dtype), X.__array__(), 1).squeeze(),
-        atol=1e-3,
-    )
+    compare_onnx_predictions(model, X)
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("n_outputs", [1, 5])
+@pytest.mark.parametrize("max_depth", list(range(0, 12, 3)))
+def test_tree(regression_dataset, max_depth):
+    # test tree depths more exhaustively
+    # some edge cases e.g. max_depth=0
+    X, y = regression_dataset
+    model = lb.LBRegressor(
+        init=None,
+        n_estimators=2,
+        base_models=(lb.models.Tree(max_depth=max_depth),),
+        random_state=0,
+    ).fit(X, y)
+
+    compare_onnx_predictions(model, X)
