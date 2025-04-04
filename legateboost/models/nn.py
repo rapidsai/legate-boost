@@ -183,7 +183,7 @@ class NN(BaseModel):
         return new
 
     def to_onnx(self, X_dtype) -> Any:
-        from onnx import numpy_helper
+        from onnx import TensorProto, numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
@@ -214,7 +214,7 @@ class NN(BaseModel):
         )
         predictions_in = make_tensor_value_info(
             "predictions_in",
-            np_dtype_to_tensor_dtype(self.coefficients_[0].dtype),
+            TensorProto.DOUBLE,
             [None, n_outputs],
         )
         nodes = []
@@ -246,14 +246,22 @@ class NN(BaseModel):
         nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
         predictions_out = make_tensor_value_info(
             "predictions_out",
-            np_dtype_to_tensor_dtype(self.coefficients_[0].dtype),
+            TensorProto.DOUBLE,
             [None, n_outputs],
+        )
+        nodes.append(
+            make_node(
+                "Cast",
+                ["activations{}withbias".format(len(self.coefficients_) - 1)],
+                ["casted"],
+                to=TensorProto.DOUBLE,
+            )
         )
         nodes.append(
             make_node(
                 "Add",
                 [
-                    "activations{}withbias".format(len(self.coefficients_) - 1),
+                    "casted",
                     "predictions_in",
                 ],
                 ["predictions_out"],

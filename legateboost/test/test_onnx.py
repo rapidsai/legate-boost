@@ -13,13 +13,14 @@ def compare_onnx_predictions(estimator, X):
     }
     if isinstance(estimator, lb.models.BaseModel):
         pred = estimator.predict(cn.array(X))
-        feeds["predictions_in"] = np.zeros((X.shape[0], pred.shape[1]), dtype=X.dtype)
+        feeds["predictions_in"] = np.zeros((X.shape[0], pred.shape[1]))
         onnx_pred = sess.run(None, feeds)[1]
     else:
         pred = estimator.predict_raw(cn.array(X))
         onnx_pred = sess.run(None, feeds)[0]
 
     onnx_pred = onnx_pred.squeeze()
+    assert onnx_pred.dtype == np.float64
     pred = pred.squeeze()
     assert pred.shape == onnx_pred.shape
     assert np.allclose(
@@ -101,6 +102,23 @@ def test_regressor(Model, objective, regression_dataset):
 @pytest.mark.parametrize("n_outputs", [1, 5])
 @pytest.mark.parametrize("max_depth", list(range(0, 12, 3)))
 def test_tree(regression_dataset, max_depth):
+    # test tree depths more exhaustively
+    # some edge cases e.g. max_depth=0
+    X, y = regression_dataset
+    model = lb.LBRegressor(
+        init=None,
+        n_estimators=2,
+        base_models=(lb.models.Tree(max_depth=max_depth),),
+        random_state=0,
+    ).fit(X, y)
+
+    compare_onnx_predictions(model, X)
+
+
+@pytest.mark.parametrize("dtype", [np.float32])
+@pytest.mark.parametrize("n_outputs", [1])
+def test_small_tree(regression_dataset, dtype, n_outputs):
+    max_depth = 0
     # test tree depths more exhaustively
     # some edge cases e.g. max_depth=0
     X, y = regression_dataset

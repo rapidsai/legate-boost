@@ -153,7 +153,7 @@ class Linear(BaseModel):
         return new
 
     def to_onnx(self, X_dtype) -> Any:
-        from onnx import numpy_helper
+        from onnx import TensorProto, numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
@@ -178,12 +178,12 @@ class Linear(BaseModel):
         )
         predictions_in = make_tensor_value_info(
             "predictions_in",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
+            TensorProto.DOUBLE,
             [None, n_outputs],
         )
         predictions_out = make_tensor_value_info(
             "predictions_out",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
+            TensorProto.DOUBLE,
             [None, n_outputs],
         )
 
@@ -191,7 +191,10 @@ class Linear(BaseModel):
         nodes.append(make_node("MatMul", ["X_in", "betas"], ["XBeta"]))
         nodes.append(make_node("Add", ["XBeta", "intercept"], ["result"]))
         nodes.append(
-            make_node("Add", ["result", "predictions_in"], ["predictions_out"])
+            make_node("Cast", ["result"], ["result_double"], to=TensorProto.DOUBLE)
+        )
+        nodes.append(
+            make_node("Add", ["result_double", "predictions_in"], ["predictions_out"])
         )
         X_out = make_tensor_value_info(
             "X_out", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, n_features]

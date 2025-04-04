@@ -562,7 +562,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
 
     def _make_onnx_init(self, X_dtype):
         # turn self.model_init_ into an ONNX model
-        from onnx import numpy_helper
+        from onnx import TensorProto, numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
@@ -582,11 +582,11 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         one = numpy_helper.from_array(np.array([1], dtype=np.int64), name="one")
         nodes.append(make_node("Concat", ["n_rows", "one"], ["tile_repeat"], axis=0))
         init = numpy_helper.from_array(
-            np.atleast_2d(self.model_init_.__array__().astype(X_dtype)), name="init"
+            np.atleast_2d(self.model_init_.__array__()), name="init"
         )
         prediction_out = make_tensor_value_info(
             "predictions_out",
-            np_dtype_to_tensor_dtype(X_dtype),
+            TensorProto.DOUBLE,
             [None, self.model_init_.shape[0]],
         )
         nodes.append(make_node("Tile", ["init", "tile_repeat"], ["predictions_out"]))

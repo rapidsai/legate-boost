@@ -318,113 +318,101 @@ class Tree(BaseModel):
 
     def to_onnx(self, X_dtype) -> Any:
         import onnx
-        from onnx import numpy_helper
+        from onnx import TensorProto, numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
             make_model,
             make_node,
-            make_tensor,
             make_tensor_value_info,
             np_dtype_to_tensor_dtype,
         )
 
         onnx_nodes = []
 
-        # We map the legate-boost tree representation to the TreeEnsemble ONNX operator
-        # the features array, splits array, and leaf weights can be passed unchanged
-        # ONNX then requires some extra arrays to represent the tree structure
-        # - nodes_truenodeidx is the index of the left child for a given node
-        # - nodes_falsenodeidx is the index of the right child for a given node
-        # - nodes_modes indicates that nodes use a <= comparison operator
-        # - nodes_trueleafs indicates that the left child is a leaf node
-        # - nodes_falseleafs indicates that the right child is a leaf node
-        # - leaf_targetids indicates which output the leaf node corresponds to
-        # ONNX does not support vector leaf so we will repeat the tree n_outputs
-        # times, each time with a different constant for leaf_targetids
-        # This is not ideal but I don't see a better way
-
+        num_outputs = self.leaf_value.shape[1]
         tree_max_nodes = self.feature.size
         all_nodes_idx = np.arange(tree_max_nodes)
         nodes_featureids = self.feature.__array__()
-        nodes_splits = numpy_helper.from_array(
-            self.split_value.__array__().astype(X_dtype)
-        )
         nodes_truenodeids = self.left_child(all_nodes_idx)
-        # get the left child of each node and check if it is a leaf
-        # if the node is already leaf then its child can go off the end of the array
-        # use np.minimum to avoid this
-        nodes_trueleafs = self.is_leaf(
-            np.minimum(tree_max_nodes - 1, self.left_child(all_nodes_idx))
-        ).astype(int)
         nodes_falsenodeids = self.right_child(all_nodes_idx)
-        nodes_falseleafs = self.is_leaf(
-            np.minimum(tree_max_nodes - 1, self.right_child(all_nodes_idx))
-        ).astype(int)
-        if self.is_leaf(0):
-            # we have a decision stump
-            # according to the onnx operator we must set
-            # true/false at root to the leaf at 0
-            nodes_falsenodeids[0] = 0
-            nodes_truenodeids[0] = 0
-            nodes_trueleafs[0] = 0
-            nodes_falseleafs[0] = 0
-        num_outputs = self.leaf_value.shape[1]
-        for output_idx in range(0, num_outputs):
-            leaf_targetids = np.full(self.feature.size, output_idx, dtype=np.int64)
-            leaf_weights = numpy_helper.from_array(
-                self.leaf_value[:, output_idx].__array__().astype(X_dtype)
+        node_modes = np.full(tree_max_nodes, "BRANCH_LEQ")
+        node_modes[self.is_leaf(all_nodes_idx)] = "LEAF"
+        leaf_targetids = np.full(tree_max_nodes, 0, dtype=np.int64)
+        # predict the leaf node index
+        # use it to later index into the 2d array of leaf weights
+        # as ONNX does not support 2d leaf weights
+        target_weights = all_nodes_idx.astype(np.float32)
+        kwargs = {}
+        # TreeEnsembleRegressor asks us to pass these as tensors when X_dtype is double
+        if X_dtype == np.float32:
+            kwargs["nodes_values"] = self.split_value.__array__()
+            kwargs["target_weights"] = target_weights
+        else:
+            kwargs["nodes_values_as_tensor"] = numpy_helper.from_array(
+                self.split_value.__array__(), name="nodes_values"
+            )
+            kwargs["target_weights_as_tensor"] = numpy_helper.from_array(
+                target_weights.astype(np.float64), name="target_weights"
             )
 
-            onnx_nodes.append(
-                make_node(
-                    "TreeEnsemble",
-                    ["X_in"],
-                    ["pred" + str(output_idx)],
-                    domain="ai.onnx.ml",
-                    n_targets=self.leaf_value.shape[1],
-                    membership_values=None,
-                    nodes_missing_value_tracks_true=None,
-                    nodes_hitrates=None,
-                    aggregate_function=1,
-                    post_transform=0,
-                    tree_roots=[0],
-                    nodes_modes=make_tensor(
-                        "nodes_modes",
-                        onnx.TensorProto.UINT8,
-                        self.feature.shape,
-                        np.zeros_like(self.feature, dtype=np.uint8),
-                    ),
-                    nodes_featureids=nodes_featureids,
-                    nodes_splits=nodes_splits,
-                    nodes_truenodeids=nodes_truenodeids,
-                    nodes_trueleafs=nodes_trueleafs,
-                    nodes_falsenodeids=nodes_falsenodeids,
-                    nodes_falseleafs=nodes_falseleafs,
-                    leaf_targetids=leaf_targetids,
-                    leaf_weights=leaf_weights,
-                )
+        # TreeEnsembleRegressor is deprecated, but its successor TreeEnsemble
+        # is at the time of writing not available from onnxruntime on conda-forge
+        # This can be updated at some point without too much trouble
+        onnx_nodes.append(
+            make_node(
+                "TreeEnsembleRegressor",
+                ["X_in"],
+                ["predicted_leaf_index"],
+                domain="ai.onnx.ml",
+                n_targets=1,
+                membership_values=None,
+                nodes_missing_value_tracks_true=None,
+                nodes_hitrates=None,
+                nodes_modes=node_modes,
+                nodes_featureids=nodes_featureids,
+                nodes_truenodeids=nodes_truenodeids,
+                nodes_falsenodeids=nodes_falsenodeids,
+                nodes_nodeids=all_nodes_idx,
+                nodes_treeids=np.zeros(tree_max_nodes, dtype=np.int64),
+                target_ids=leaf_targetids,
+                target_nodeids=all_nodes_idx,
+                target_treeids=np.zeros(tree_max_nodes, dtype=np.int64),
+                **kwargs,
             )
+        )
 
-            if output_idx == 0:
-                onnx_nodes.append(
-                    onnx.helper.make_node(
-                        "Identity",
-                        ["pred" + str(output_idx)],
-                        ["accumulated_pred0"],
-                    )
-                )
-            else:
-                onnx_nodes.append(
-                    onnx.helper.make_node(
-                        "Add",
-                        [
-                            "accumulated_pred" + str(output_idx - 1),
-                            "pred" + str(output_idx),
-                        ],
-                        ["accumulated_pred" + str(output_idx)],
-                    )
-                )
+        leaf_weights = numpy_helper.from_array(
+            self.leaf_value.__array__(), name="leaf_weights"
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out", TensorProto.DOUBLE, [None, num_outputs]
+        )
+        # make indices 1-d
+        onnx_nodes.append(
+            make_node(
+                "Squeeze", ["predicted_leaf_index"], ["predicted_leaf_index_squeezed"]
+            )
+        )
+        onnx_nodes.append(
+            make_node(
+                "Cast",
+                ["predicted_leaf_index_squeezed"],
+                ["predicted_leaf_index_int"],
+                to=TensorProto.INT32,
+            )
+        )
+        onnx_nodes.append(
+            make_node(
+                "Gather", ["leaf_weights", "predicted_leaf_index_int"], ["gathered"]
+            )
+        )
+        predictions_in = make_tensor_value_info(
+            "predictions_in", TensorProto.DOUBLE, [None, num_outputs]
+        )
+        onnx_nodes.append(
+            make_node("Add", ["predictions_in", "gathered"], ["predictions_out"])
+        )
 
         X_in = make_tensor_value_info(
             "X_in", np_dtype_to_tensor_dtype(X_dtype), [None, None]
@@ -432,30 +420,18 @@ class Tree(BaseModel):
         X_out = make_tensor_value_info(
             "X_out", np_dtype_to_tensor_dtype(X_dtype), [None, None]
         )
-        predictions_in = make_tensor_value_info(
-            "predictions_in", np_dtype_to_tensor_dtype(X_dtype), [None, num_outputs]
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out", np_dtype_to_tensor_dtype(X_dtype), [None, num_outputs]
-        )
         onnx_nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
-        onnx_nodes.append(
-            make_node(
-                "Add",
-                ["predictions_in", "accumulated_pred" + str(num_outputs - 1)],
-                ["predictions_out"],
-            )
-        )
         graph = make_graph(
             onnx_nodes,
             "legateboost.models.Tree",
             [X_in, predictions_in],
             [X_out, predictions_out],
+            [leaf_weights],
         )
         model = make_model(
             graph,
             opset_imports=[
-                onnx.helper.make_opsetid("ai.onnx.ml", 5),
+                onnx.helper.make_opsetid("ai.onnx.ml", 3),
                 onnx.helper.make_opsetid("", 21),
             ],
         )
