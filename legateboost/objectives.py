@@ -645,7 +645,4 @@ CLASSIFICATION_OBJECTIVES = [
     "log_loss",
     "multi_label",
     "exp",
-    "quantile",
-    "gamma_deviance",
-    "gamma",
 ]

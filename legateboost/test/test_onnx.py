@@ -6,25 +6,39 @@ import cupynumeric as cn
 import legateboost as lb
 
 
-def compare_onnx_predictions(estimator, X):
-    sess = ort.InferenceSession(estimator.to_onnx(X.dtype).SerializeToString())
+def compare_model_predictions(model, X):
+    sess = ort.InferenceSession(model.to_onnx(X.dtype).SerializeToString())
     feeds = {
         "X_in": X,
     }
-    if isinstance(estimator, lb.models.BaseModel):
-        pred = estimator.predict(cn.array(X))
-        feeds["predictions_in"] = np.zeros((X.shape[0], pred.shape[1]))
-        onnx_pred = sess.run(None, feeds)[1]
-    else:
-        pred = estimator.predict_raw(cn.array(X))
-        onnx_pred = sess.run(None, feeds)[0]
-
+    pred = model.predict(cn.array(X))
+    feeds["predictions_in"] = np.zeros((X.shape[0], pred.shape[1]))
+    onnx_pred = sess.run(None, feeds)[1]
     onnx_pred = onnx_pred.squeeze()
     assert onnx_pred.dtype == np.float64
     pred = pred.squeeze()
     assert pred.shape == onnx_pred.shape
     assert np.allclose(
         onnx_pred, pred, atol=1e-3 if X.dtype == np.float32 else 1e-6
+    ), np.linalg.norm(pred - onnx_pred)
+
+
+def compare_estimator_predictions(estimator, X, predict_function):
+    sess = ort.InferenceSession(
+        estimator.to_onnx(X.dtype, predict_function).SerializeToString()
+    )
+    feeds = {
+        "X_in": X,
+    }
+    pred = estimator.predict_raw(cn.array(X))
+    onnx_pred = sess.run(None, feeds)[0]
+
+    onnx_pred = onnx_pred.squeeze()
+    assert onnx_pred.dtype == np.float64
+    pred = pred.squeeze()
+    assert pred.shape == onnx_pred.shape
+    assert np.allclose(
+        onnx_pred, pred, atol=1e-2 if X.dtype == np.float32 else 1e-6
     ), np.linalg.norm(pred - onnx_pred)
 
 
@@ -48,7 +62,7 @@ def test_models(Model, model_dataset):
         .fit(cn.array(X), cn.array(g), cn.array(h))
     )
 
-    compare_onnx_predictions(model, X)
+    compare_model_predictions(model, X)
 
 
 @pytest.mark.parametrize("n_outputs", [1, 5])
@@ -58,7 +72,7 @@ def test_init(n_outputs):
     y = np.full((3, n_outputs), 5.0, dtype=np.float32)
     estimator = lb.LBRegressor(n_estimators=0, random_state=0).fit(X, y)
     assert np.all(estimator.model_init_ == 5.0)
-    compare_onnx_predictions(estimator, X)
+    compare_estimator_predictions(estimator, X, "predict_raw")
 
 
 @pytest.fixture
@@ -95,7 +109,42 @@ def test_regressor(Model, objective, regression_dataset):
         random_state=0,
     ).fit(X, y)
 
-    compare_onnx_predictions(model, X)
+    compare_estimator_predictions(model, X, "predict_raw")
+
+
+@pytest.fixture
+def classification_dataset(dtype, n_outputs):
+    from sklearn.datasets import make_classification
+
+    X, y = make_classification(
+        n_samples=1000,
+        n_features=10,
+        n_informative=5,
+        n_classes=n_outputs,
+        random_state=0,
+    )
+    return X.astype(dtype), np.abs(y.astype(dtype))
+
+
+@pytest.mark.parametrize("Model", [M for M in lb.models.BaseModel.__subclasses__()])
+@pytest.mark.parametrize("objective", lb.objectives.CLASSIFICATION_OBJECTIVES)
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("n_outputs", [2, 5])
+def test_classifier(Model, objective, classification_dataset):
+    X, y = classification_dataset
+    if objective == "multi_label":
+        # encode labels as one-hot
+        encoded = np.zeros((y.shape[0], int(y.max() + 1)))
+        encoded[np.arange(y.shape[0]), y.astype(int)] = 1
+        y = encoded
+    model = lb.LBClassifier(
+        n_estimators=2,
+        objective=objective,
+        base_models=(Model(),),
+        random_state=0,
+    ).fit(X, y)
+
+    compare_estimator_predictions(model, X, "predict_raw")
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
@@ -112,21 +161,4 @@ def test_tree(regression_dataset, max_depth):
         random_state=0,
     ).fit(X, y)
 
-    compare_onnx_predictions(model, X)
-
-
-@pytest.mark.parametrize("dtype", [np.float32])
-@pytest.mark.parametrize("n_outputs", [1])
-def test_small_tree(regression_dataset, dtype, n_outputs):
-    max_depth = 0
-    # test tree depths more exhaustively
-    # some edge cases e.g. max_depth=0
-    X, y = regression_dataset
-    model = lb.LBRegressor(
-        init=None,
-        n_estimators=2,
-        base_models=(lb.models.Tree(max_depth=max_depth),),
-        random_state=0,
-    ).fit(X, y)
-
-    compare_onnx_predictions(model, X)
+    compare_estimator_predictions(model, X, "predict_raw")

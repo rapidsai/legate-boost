@@ -614,7 +614,11 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         return onnx_model
 
     def to_onnx(self, X_dtype, predict_function="predict"):
-        """Converts the model to an ONNX model.
+        """Converts the estimator to an ONNX model which is expected to produce
+        equivalent predictions to `predict_function` up to reasonable floating
+        point tolerance. The ONNX model is hard coded to the X input data type,
+        separate models should be generated for float and double. The ONNX model
+        takes "X_in" as input and produces "predictions_out" as output.
 
         Parameters
         ----------
@@ -631,6 +635,19 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         -------
         Any
             The ONNX model.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import legateboost as lb
+        >>> X = np.random.random((1000, 10))
+        >>> y = np.random.random(X.shape[0])
+        >>> model = lb.LBRegressor(n_estimators=5).fit(X, y)
+        >>> import onnxruntime as ort
+        >>> sess = ort.InferenceSession(model.to_onnx(X.dtype).SerializeToString())
+        >>> onnx_pred = sess.run(None, {"X_in": X})[0]
+        >>> assert np.allclose(model.predict(X), onnx_pred, atol=1e-6)
+        >>>
         """
         from onnx.checker import check_model
         from onnx.compose import merge_models
@@ -823,10 +840,10 @@ class LBRegressor(RegressorMixin, LBBase):
     Examples
     --------
     >>> import cupynumeric as cn
-    >>> import legateboost as lbst
+    >>> import legateboost as lb
     >>> X = cn.random.random((1000, 10))
     >>> y = cn.random.random(X.shape[0])
-    >>> model = lbst.LBRegressor(n_estimators=5).fit(X, y)
+    >>> model = lb.LBRegressor(n_estimators=5).fit(X, y)
     >>>
     """
 

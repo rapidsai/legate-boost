@@ -127,8 +127,14 @@ class BaseModel(PickleCupynumericMixin, ABC):
     def __hash__(self) -> int:
         return hash(str(self))
 
-    def to_onnx(self) -> Any:
+    def to_onnx(self, X_dtype) -> Any:
         """Convert the model to an ONNX model.
+
+        The implemented ONNX model should accept the following two inputs:
+        - "X_in" : 2D tensor of shape (n_samples, n_features) and type `X_dtype`.
+        - "predictions in" : 2D tensor of shape (n_samples, n_outputs) and type double.
+        The model should output:
+        - "predictions out" : 2D tensor of shape (n_samples, n_outputs) and type double.
 
         Returns
         -------
