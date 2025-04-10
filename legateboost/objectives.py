@@ -44,6 +44,7 @@ class BaseObjective(ABC):
 
     # utility constant
     one = cn.ones(1, dtype=cn.float64)
+    half = cn.array(0.5, dtype=cn.float64)
 
     @abstractmethod
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
@@ -71,7 +72,7 @@ class BaseObjective(ABC):
         """
         return pred
 
-    def onnx_transform(self) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
         """Returns an ONNX model that accepts
         - "predictions_in" : 2D tensor of shape (n_samples, n_outputs) and type double.
         And outputs the transformed predictions.
@@ -292,7 +293,7 @@ class NormalObjective(BaseObjective, Forecast):
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
 
-    def onnx_transform(self) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
         from onnx import TensorProto, numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (
@@ -457,6 +458,45 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
         """Inverse log link."""
         return cn.exp(pred)
 
+    @override
+    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+        from onnx import TensorProto
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        nodes = []
+        # exp
+        nodes.append(make_node("Exp", ["predictions_in"], ["predictions_out"]))
+
+        graph = make_graph(
+            nodes,
+            "GammaDevianceObjective",
+            [predictions_in],
+            [predictions_out],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
+
     def initialise_prediction(
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
     ) -> cn.ndarray:
@@ -500,6 +540,53 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
         assert pred.ndim == 3
         return cn.exp(pred)
+
+    @override
+    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+        from onnx import TensorProto, numpy_helper
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.DOUBLE,
+            [None, None, 2],
+        )
+        nodes = []
+        # reshape
+        out_shape = numpy_helper.from_array(
+            np.array([0, -1, 2], dtype=np.int64), name="out_shape"
+        )
+        nodes.append(
+            make_node("Reshape", ["predictions_in", "out_shape"], ["reshaped"])
+        )
+        # exp
+        nodes.append(make_node("Exp", ["reshaped"], ["predictions_out"]))
+
+        graph = make_graph(
+            nodes,
+            "GammaObjective",
+            [predictions_in],
+            [predictions_out],
+            [out_shape],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
 
     @override
     def metric(self) -> GammaLLMetric:
@@ -647,6 +734,46 @@ class LogLossObjective(ClassificationObjective):
         div = cn.sum(e_x, axis=1)
         return e_x / div[:, cn.newaxis]
 
+    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+        from onnx import TensorProto
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        nodes = []
+        if pred.shape[1] == 1:
+            nodes.append(make_node("Sigmoid", ["predictions_in"], ["predictions_out"]))
+        else:
+            nodes.append(make_node("Softmax", ["predictions_in"], ["predictions_out"]))
+        graph = make_graph(
+            nodes,
+            "LogLossObjective",
+            [predictions_in],
+            [predictions_out],
+            [],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
+
     def metric(self) -> LogLossMetric:
         return LogLossMetric()
 
@@ -682,6 +809,43 @@ class MultiLabelObjective(ClassificationObjective):
 
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         return self.one / (self.one + cn.exp(-pred))
+
+    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+        from onnx import TensorProto
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        nodes = []
+        nodes.append(make_node("Sigmoid", ["predictions_in"], ["predictions_out"]))
+        graph = make_graph(
+            nodes,
+            "MultiLabelObjective",
+            [predictions_in],
+            [predictions_out],
+            [],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
 
     def output_class(self, pred: cn.ndarray) -> cn.ndarray:
         return cn.array(pred > 0.5, dtype=cn.int32).squeeze()
@@ -749,6 +913,56 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
             return logloss.transform(2 * pred)
         K = pred.shape[1]  # number of classes
         return logloss.transform((1 / (K - 1)) * pred)
+
+    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+        from onnx import TensorProto, numpy_helper
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+
+        nodes = []
+        initializers = []
+        if pred.shape[1] == 1:
+            two = numpy_helper.from_array(np.array(2, dtype=np.float64), name="two")
+            nodes.append(make_node("Mul", ["predictions_in", "two"], ["multiplied"]))
+            nodes.append(make_node("Sigmoid", ["multiplied"], ["predictions_out"]))
+            initializers.append(two)
+        else:
+            constant = numpy_helper.from_array(
+                np.array(1 / (pred.shape[1] - 1), dtype=np.float64), name="constant"
+            )
+            nodes.append(make_node("Mul", ["predictions_in", "constant"], ["scaled"]))
+            nodes.append(make_node("Softmax", ["scaled"], ["predictions_out"]))
+            initializers.append(constant)
+        graph = make_graph(
+            nodes,
+            "ExpObjective",
+            [predictions_in],
+            [predictions_out],
+            initializers,
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
 
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()

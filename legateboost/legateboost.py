@@ -692,7 +692,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         if predict_function == "predict":
             model = merge_models(
                 model,
-                self._objective_instance.onnx_transform(),
+                self._objective_instance.onnx_transform(self.predict_raw(X[0:1])),
                 io_map=[
                     (
                         "model_{}_predictions_out".format(len(self.models_) - 1),
