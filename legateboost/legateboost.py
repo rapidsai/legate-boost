@@ -613,7 +613,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
 
         return onnx_model
 
-    def to_onnx(self, X_dtype, predict_function="predict"):
+    def to_onnx(self, X: cn.ndarray, predict_function="predict"):
         """Converts the estimator to an ONNX model which is expected to produce
         equivalent predictions to `predict_function` up to reasonable floating
         point tolerance. The ONNX model is hard coded to the X input data type,
@@ -622,11 +622,9 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
 
         Parameters
         ----------
-        X_dtype : numpy.dtype
-            The expected data type of the input data. ONNX models hard
-            code the data type of the input data and will crash if this is
-            not set correctly.
-            Can be np.float32 or np.float64.
+        X:
+            Example input data. Use to infer input data characteristics.
+            A model produced for float32 will not accept float64 input and vice versa.
         predict_function : str
             The serialised ONNX model can produce output equivalent to 'predict',
             'predict_proba', or 'predict_raw'.
@@ -649,14 +647,28 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         >>> assert np.allclose(model.predict(X), onnx_pred, atol=1e-6)
         >>>
         """
+        if predict_function not in ["predict", "predict_proba", "predict_raw"]:
+            raise ValueError(
+                "predict_function should be one of "
+                "['predict', 'predict_proba', 'predict_raw']"
+            )
+
+        from onnx import TensorProto, numpy_helper
         from onnx.checker import check_model
         from onnx.compose import merge_models
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
 
-        model = self._make_onnx_init(X_dtype)
+        model = self._make_onnx_init(X.dtype)
         if self.models_ is not None and len(self.models_) > 0:
             model = merge_models(
                 model,
-                self.models_[0].to_onnx(X_dtype),
+                self.models_[0].to_onnx(X),
                 io_map=[("X_out", "X_in"), ("predictions_out", "predictions_in")],
                 prefix2="model_0_",
             )
@@ -664,7 +676,7 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         for i in range(1, len(self.models_)):
             model = merge_models(
                 model,
-                self.models_[i].to_onnx(X_dtype),
+                self.models_[i].to_onnx(X),
                 io_map=[
                     ("model_{}_X_out".format(i - 1), "X_in"),
                     ("model_{}_predictions_out".format(i - 1), "predictions_in"),
@@ -675,6 +687,57 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         # remove the X_out output, we only need the predictions
         # add a transform operator
         model.graph.output.remove(model.graph.output[0])
+
+        # add any transform from the objective
+        if predict_function == "predict":
+            model = merge_models(
+                model,
+                self._objective_instance.onnx_transform(),
+                io_map=[
+                    (
+                        "model_{}_predictions_out".format(len(self.models_) - 1),
+                        "predictions_in",
+                    )
+                ],
+                prefix2="transform_",
+            )
+            # coerce the output shape to be the same as the equivalent predict function
+            test_pred = getattr(self, predict_function)(X[0:1])
+
+            extra_out_shape = [] if test_pred.ndim == 1 else list(test_pred.shape[1:])
+            shape = numpy_helper.from_array(
+                np.array([-1] + extra_out_shape), name="shape"
+            )
+
+            reshape_predictions_in = make_tensor_value_info(
+                "reshape_predictions_in",
+                TensorProto.DOUBLE,
+                [None, None],
+            )
+            reshaped_predictions = make_tensor_value_info(
+                "reshaped_predictions",
+                TensorProto.DOUBLE,
+                shape=[None] + list(extra_out_shape),
+            )
+            nodes = [
+                make_node(
+                    "Reshape",
+                    ["reshape_predictions_in", "shape"],
+                    ["reshaped_predictions"],
+                )
+            ]
+            graph = make_graph(
+                nodes,
+                "legateboost estimator transform",
+                [reshape_predictions_in],
+                [reshaped_predictions],
+                [shape],
+            )
+            model = merge_models(
+                model,
+                make_model(graph, opset_imports=[make_opsetid("", 21)]),
+                io_map=[("transform_predictions_out", "reshape_predictions_in")],
+            )
 
         check_model(model)
         return model

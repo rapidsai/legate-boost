@@ -7,7 +7,7 @@ import legateboost as lb
 
 
 def compare_model_predictions(model, X):
-    sess = ort.InferenceSession(model.to_onnx(X.dtype).SerializeToString())
+    sess = ort.InferenceSession(model.to_onnx(X).SerializeToString())
     feeds = {
         "X_in": X,
     }
@@ -25,17 +25,16 @@ def compare_model_predictions(model, X):
 
 def compare_estimator_predictions(estimator, X, predict_function):
     sess = ort.InferenceSession(
-        estimator.to_onnx(X.dtype, predict_function).SerializeToString()
+        estimator.to_onnx(X, predict_function).SerializeToString()
     )
     feeds = {
         "X_in": X,
     }
-    pred = estimator.predict_raw(cn.array(X))
+    pred_method = getattr(estimator, predict_function)
+    pred = pred_method(cn.array(X))
     onnx_pred = sess.run(None, feeds)[0]
 
-    onnx_pred = onnx_pred.squeeze()
     assert onnx_pred.dtype == np.float64
-    pred = pred.squeeze()
     assert pred.shape == onnx_pred.shape
     assert np.allclose(
         onnx_pred, pred, atol=1e-2 if X.dtype == np.float32 else 1e-6
@@ -110,6 +109,7 @@ def test_regressor(Model, objective, regression_dataset):
     ).fit(X, y)
 
     compare_estimator_predictions(model, X, "predict_raw")
+    compare_estimator_predictions(model, X, "predict")
 
 
 @pytest.fixture

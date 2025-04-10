@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
+import numpy as np
 from scipy.stats import norm
 from typing_extensions import TypeAlias, override
 
@@ -69,6 +70,54 @@ class BaseObjective(ABC):
             n-d array. For classification problems outputs a probability.
         """
         return pred
+
+    def onnx_transform(self) -> cn.ndarray:
+        """Returns an ONNX model that accepts
+        - "predictions_in" : 2D tensor of shape (n_samples, n_outputs) and type double.
+        And outputs the transformed predictions.
+        - "predictions_out" : arbitrary tensor depending on the objective.
+
+        Is by default the identity transform.
+
+        The ONNX transform should produce the same output as the transform
+        method for each objective.
+
+        Returns:
+            Onnx model that transforms the predictions.
+        """
+        from onnx import TensorProto
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        nodes = [make_node("Identity", ["predictions_in"], ["predictions_out"])]
+        graph = make_graph(
+            nodes,
+            "BaseModel",
+            [predictions_in],
+            [predictions_out],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
 
     @abstractmethod
     def metric(self) -> BaseMetric:
@@ -242,6 +291,93 @@ class NormalObjective(BaseObjective, Forecast):
         # don't let the sd go to zero
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
+
+    def onnx_transform(self) -> cn.ndarray:
+        from onnx import TensorProto, numpy_helper
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.DOUBLE,
+            [None, None, 2],
+        )
+        nodes = []
+        # clip
+        mininmum = numpy_helper.from_array(
+            np.array(-5, dtype=np.float64), name="minimum"
+        )
+        maximum = numpy_helper.from_array(np.array(5, dtype=np.float64), name="maximum")
+        # reshape
+        out_shape = numpy_helper.from_array(
+            np.array([0, -1, 2], dtype=np.int64), name="out_shape"
+        )
+        nodes.append(
+            make_node("Reshape", ["predictions_in", "out_shape"], ["reshaped"])
+        )
+
+        nodes.append(make_node("Shape", ["reshaped"], ["new_shape"]))
+
+        var_starts = numpy_helper.from_array(
+            np.array([0, 0, 1], dtype=np.int64), name="var_starts"
+        )
+        mean_starts = numpy_helper.from_array(
+            np.array([0, 0, 0], dtype=np.int64), name="mean_starts"
+        )
+
+        # extract mean and variance parts
+        axis = numpy_helper.from_array(np.array([0, 1, 2], dtype=np.int64), name="axis")
+        steps = numpy_helper.from_array(
+            np.array([1, 1, 2], dtype=np.int64), name="steps"
+        )
+        nodes.append(
+            make_node(
+                "Slice",
+                ["reshaped", "var_starts", "new_shape", "axis", "steps"],
+                ["variance"],
+            )
+        )
+        nodes.append(
+            make_node(
+                "Slice",
+                ["reshaped", "mean_starts", "new_shape", "axis", "steps"],
+                ["mean"],
+            )
+        )
+        nodes.append(
+            make_node("Clip", ["variance", "minimum", "maximum"], ["clipped_variance"])
+        )
+
+        # combine them again
+        nodes.append(
+            make_node(
+                "Concat", ["mean", "clipped_variance"], ["predictions_out"], axis=2
+            )
+        )
+        graph = make_graph(
+            nodes,
+            "NormalObjective",
+            [predictions_in],
+            [predictions_out],
+            [out_shape, var_starts, mean_starts, axis, steps, mininmum, maximum],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
 
     @override
     def mean(self, param: cn.ndarray) -> cn.ndarray:
@@ -421,7 +557,7 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
 class QuantileObjective(BaseObjective):
     """Minimises the quantile loss, otherwise known as check loss or pinball loss.
 
-    :math:`L(y_i, p_i) = \\frac{1}{k}\\sum_{j=1}^{k} (q_j - \\mathbb{1})(y_i - p_{i, j})`
+    :math:`L(y_i, p_i) = \\frac{}{k}\\sum_{j=1}^{k} (q_j - \\mathbb{1})(y_i - p_{i, j})`
 
     where
 

@@ -243,7 +243,7 @@ class KRR(BaseModel):
         self.betas_ *= scalar
         return new
 
-    def to_onnx(self, X_dtype) -> Any:
+    def to_onnx(self, X) -> Any:
         from onnx import TensorProto, numpy_helper
         from onnx.checker import check_model
         from onnx.helper import (

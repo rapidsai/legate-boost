@@ -316,7 +316,7 @@ class Tree(BaseModel):
         new.leaf_value *= scalar
         return new
 
-    def to_onnx(self, X_dtype) -> Any:
+    def to_onnx(self, X) -> Any:
         import onnx
         from onnx import TensorProto, numpy_helper
         from onnx.checker import check_model
@@ -344,8 +344,8 @@ class Tree(BaseModel):
         # as ONNX does not support 2d leaf weights
         target_weights = all_nodes_idx.astype(np.float32)
         kwargs = {}
-        # TreeEnsembleRegressor asks us to pass these as tensors when X_dtype is double
-        if X_dtype == np.float32:
+        # TreeEnsembleRegressor asks us to pass these as tensors when X.dtype is double
+        if X.dtype == np.float32:
             kwargs["nodes_values"] = self.split_value.__array__()
             kwargs["target_weights"] = target_weights
         else:
@@ -415,10 +415,10 @@ class Tree(BaseModel):
         )
 
         X_in = make_tensor_value_info(
-            "X_in", np_dtype_to_tensor_dtype(X_dtype), [None, None]
+            "X_in", np_dtype_to_tensor_dtype(X.dtype), [None, None]
         )
         X_out = make_tensor_value_info(
-            "X_out", np_dtype_to_tensor_dtype(X_dtype), [None, None]
+            "X_out", np_dtype_to_tensor_dtype(X.dtype), [None, None]
         )
         onnx_nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
         graph = make_graph(
