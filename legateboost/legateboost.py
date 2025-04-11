@@ -560,6 +560,50 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             text += str(m)
         return text
 
+    def _make_onnx_reshape_predictions(self, pred: cn.ndarray) -> cn.ndarray:
+        from onnx import TensorProto, numpy_helper
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+            np_dtype_to_tensor_dtype,
+        )
+
+        # make an onnx model that shapes the predictions equivalently to pred
+        extra_out_shape = [] if pred.ndim == 1 else list(pred.shape[1:])
+        shape = numpy_helper.from_array(np.array([-1] + extra_out_shape), name="shape")
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            np_dtype_to_tensor_dtype(pred.dtype),
+            shape=[None] + list(extra_out_shape),
+        )
+        nodes = [
+            make_node(
+                "Reshape",
+                ["predictions_in", "shape"],
+                ["predictions_out"],
+            )
+        ]
+        graph = make_graph(
+            nodes,
+            "reshape output",
+            [predictions_in],
+            [predictions_out],
+            [shape],
+        )
+        model = make_model(graph, opset_imports=[make_opsetid("", 21)])
+        check_model(model)
+        return model
+
     def _make_onnx_init(self, X_dtype):
         # turn self.model_init_ into an ONNX model
         from onnx import TensorProto, numpy_helper
@@ -613,56 +657,9 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
 
         return onnx_model
 
-    def to_onnx(self, X: cn.ndarray, predict_function="predict"):
-        """Converts the estimator to an ONNX model which is expected to produce
-        equivalent predictions to `predict_function` up to reasonable floating
-        point tolerance. The ONNX model is hard coded to the X input data type,
-        separate models should be generated for float and double. The ONNX model
-        takes "X_in" as input and produces "predictions_out" as output.
-
-        Parameters
-        ----------
-        X:
-            Example input data. Use to infer input data characteristics.
-            A model produced for float32 will not accept float64 input and vice versa.
-        predict_function : str
-            The serialised ONNX model can produce output equivalent to 'predict',
-            'predict_proba', or 'predict_raw'.
-            The default is "predict".
-        Returns
-        -------
-        Any
-            The ONNX model.
-
-        Examples
-        --------
-        >>> import numpy as np
-        >>> import legateboost as lb
-        >>> X = np.random.random((1000, 10))
-        >>> y = np.random.random(X.shape[0])
-        >>> model = lb.LBRegressor(n_estimators=5).fit(X, y)
-        >>> import onnxruntime as ort
-        >>> sess = ort.InferenceSession(model.to_onnx(X.dtype).SerializeToString())
-        >>> onnx_pred = sess.run(None, {"X_in": X})[0]
-        >>> assert np.allclose(model.predict(X), onnx_pred, atol=1e-6)
-        >>>
-        """
-        if predict_function not in ["predict", "predict_proba", "predict_raw"]:
-            raise ValueError(
-                "predict_function should be one of "
-                "['predict', 'predict_proba', 'predict_raw']"
-            )
-
-        from onnx import TensorProto, numpy_helper
+    def _to_onnx_predict_raw(self, X: cn.ndarray):
         from onnx.checker import check_model
         from onnx.compose import merge_models
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
 
         model = self._make_onnx_init(X.dtype)
         if self.models_ is not None and len(self.models_) > 0:
@@ -685,60 +682,26 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
             )
 
         # remove the X_out output, we only need the predictions
-        # add a transform operator
         model.graph.output.remove(model.graph.output[0])
 
-        # add any transform from the objective
-        if predict_function == "predict":
-            model = merge_models(
-                model,
-                self._objective_instance.onnx_transform(self.predict_raw(X[0:1])),
-                io_map=[
-                    (
-                        "model_{}_predictions_out".format(len(self.models_) - 1),
-                        "predictions_in",
-                    )
-                ],
-                prefix2="transform_",
-            )
-            # coerce the output shape to be the same as the equivalent predict function
-            test_pred = getattr(self, predict_function)(X[0:1])
+        check_model(model)
+        return model
 
-            extra_out_shape = [] if test_pred.ndim == 1 else list(test_pred.shape[1:])
-            shape = numpy_helper.from_array(
-                np.array([-1] + extra_out_shape), name="shape"
-            )
+    def _to_onnx_predict_transformed(self, X: cn.ndarray):
+        from onnx.checker import check_model
+        from onnx.compose import merge_models
 
-            reshape_predictions_in = make_tensor_value_info(
-                "reshape_predictions_in",
-                TensorProto.DOUBLE,
-                [None, None],
-            )
-            reshaped_predictions = make_tensor_value_info(
-                "reshaped_predictions",
-                TensorProto.DOUBLE,
-                shape=[None] + list(extra_out_shape),
-            )
-            nodes = [
-                make_node(
-                    "Reshape",
-                    ["reshape_predictions_in", "shape"],
-                    ["reshaped_predictions"],
+        model = merge_models(
+            self._to_onnx_predict_raw(X),
+            self._objective_instance.onnx_transform(self.predict_raw(X[0:1])),
+            io_map=[
+                (
+                    "model_{}_predictions_out".format(len(self.models_) - 1),
+                    "predictions_in",
                 )
-            ]
-            graph = make_graph(
-                nodes,
-                "legateboost estimator transform",
-                [reshape_predictions_in],
-                [reshaped_predictions],
-                [shape],
-            )
-            model = merge_models(
-                model,
-                make_model(graph, opset_imports=[make_opsetid("", 21)]),
-                io_map=[("transform_predictions_out", "reshape_predictions_in")],
-            )
-
+            ],
+            prefix2="transform_",
+        )
         check_model(model)
         return model
 
@@ -1029,6 +992,63 @@ class LBRegressor(RegressorMixin, LBBase):
             pred = pred.squeeze(axis=1)
         return pred
 
+    def to_onnx(self, X: cn.ndarray, predict_function: str = "predict"):
+        """Converts the estimator to an ONNX model which is expected to produce
+        equivalent predictions to `predict_function` up to reasonable floating
+        point tolerance. The ONNX model is hard coded to the X input data type,
+        separate models should be generated for float and double. The ONNX model
+        takes "X_in" as input and produces "predictions_out" as output.
+
+        Parameters
+        ----------
+        X:
+            Example input data. Use to infer input data characteristics.
+            A model produced for float32 will not accept float64 input and vice versa.
+        predict_function : str
+            The serialised ONNX model can produce output equivalent to 'predict' or
+            'predict_raw'.
+            The default is "predict".
+        Returns
+        -------
+        Any
+            The ONNX model.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import legateboost as lb
+        >>> X = np.random.random((1000, 10))
+        >>> y = np.random.random(X.shape[0])
+        >>> model = lb.LBRegressor(n_estimators=5).fit(X, y)
+        >>> import onnxruntime as ort
+        >>> sess = ort.InferenceSession(model.to_onnx(X.dtype).SerializeToString())
+        >>> onnx_pred = sess.run(None, {"X_in": X})[0]
+        >>> assert np.allclose(model.predict(X), onnx_pred, atol=1e-6)
+        >>>
+        """
+        from onnx.checker import check_model
+        from onnx.compose import merge_models
+
+        if predict_function not in ["predict", "predict_raw"]:
+            raise ValueError(
+                "predict_function should be one of ['predict', 'predict_raw']"
+            )
+        if predict_function == "predict":
+            model = self._to_onnx_predict_transformed(X)
+        else:
+            model = self._to_onnx_predict_raw(X)
+
+        # coerce the output shape to be the same as the equivalent predict function
+        test_pred = getattr(self, predict_function)(X[0:1])
+        model = merge_models(
+            model,
+            self._make_onnx_reshape_predictions(test_pred),
+            io_map=[(model.graph.output[0].name, "predictions_in")],
+            prefix2="reshape_",
+        )
+        check_model(model)
+        return model
+
 
 class LBClassifier(ClassifierMixin, LBBase):
     """Implements a gradient boosting algorithm for classification problems.
@@ -1274,3 +1294,138 @@ class LBClassifier(ClassifierMixin, LBBase):
         """
         check_is_fitted(self)
         return self._objective_instance.output_class(self.predict_proba(X))
+
+    def _mirror_predict_proba_output(self, model) -> cn.ndarray:
+        assert len(self.classes_) == 2
+        from onnx import TensorProto, numpy_helper
+        from onnx.checker import check_model
+        from onnx.compose import merge_models
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        nodes = []
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.DOUBLE,
+            [None, 2],
+        )
+        one = numpy_helper.from_array(np.array([1.0], dtype=np.float64), name="one")
+        nodes.append(make_node("Sub", ["one", "predictions_in"], ["false_probability"]))
+        nodes.append(
+            make_node(
+                "Concat",
+                ["false_probability", "predictions_in"],
+                ["predictions_out"],
+                axis=1,
+            )
+        )
+
+        graph = make_graph(
+            nodes,
+            "mirror predict proba",
+            [predictions_in],
+            [predictions_out],
+            [one],
+        )
+        new_model = make_model(
+            graph,
+            opset_imports=[
+                make_opsetid("", 21),
+            ],
+        )
+        new_model = merge_models(
+            model,
+            new_model,
+            io_map=[
+                (model.graph.output[0].name, "predictions_in"),
+            ],
+            prefix2="mirror_",
+        )
+        check_model(new_model)
+        return new_model
+
+    def to_onnx(self, X: cn.ndarray, predict_function: str = "predict"):
+        """Converts the estimator to an ONNX model which is expected to produce
+        equivalent predictions to `predict_function` up to reasonable floating
+        point tolerance. The ONNX model is hard coded to the X input data type,
+        separate models should be generated for float and double. The ONNX model
+        takes "X_in" as input and produces "predictions_out" as output.
+
+        Parameters
+        ----------
+        X:
+            Example input data. Use to infer input data characteristics.
+            A model produced for float32 will not accept float64 input and vice versa.
+        predict_function : str
+            The serialised ONNX model can produce output equivalent to 'predict',
+            'predict_proba', or 'predict_raw'.
+            The default is "predict".
+        Returns
+        -------
+        Any
+            The ONNX model.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import legateboost as lb
+        >>> X = np.random.random((1000, 10))
+        >>> y = np.random.randint(0, 2, X.shape[0])
+        >>> model = lb.LBClassifier(n_estimators=5).fit(X, y)
+        >>> import onnxruntime as ort
+        >>> sess = ort.InferenceSession(model.to_onnx(X.dtype,
+        ...     predict_function="predict_proba").SerializeToString())
+        >>> onnx_pred = sess.run(None, {"X_in": X})[0]
+        >>> assert np.allclose(model.predict_proba(X), onnx_pred, atol=1e-6)
+        >>>
+        """
+        from onnx.checker import check_model
+        from onnx.compose import merge_models
+
+        if predict_function not in ["predict", "predict_proba", "predict_raw"]:
+            raise ValueError(
+                "predict_function should be one of ['predict',"
+                " 'predict_proba', 'predict_raw']"
+            )
+        if predict_function in ["predict_proba", "predict"]:
+            model = self._to_onnx_predict_transformed(X)
+            # need to mirror the output when we only output one target
+            if self.predict_raw(X[0:1]).shape[1] == 1:
+                model = self._mirror_predict_proba_output(model)
+        if predict_function == "predict":
+            # argmax the predict_proba output
+            argmax = self._objective_instance.onnx_output_class(
+                self.predict_proba(X[0:1])
+            )
+            model = merge_models(
+                model,
+                argmax,
+                io_map=[
+                    (model.graph.output[0].name, "predictions_in"),
+                ],
+                prefix2="classifier_predict_",
+            )
+
+        elif predict_function == "predict_raw":
+            model = self._to_onnx_predict_raw(X)
+
+        # coerce the output shape to be the same as the equivalent predict function
+        test_pred = getattr(self, predict_function)(X[0:1])
+        model = merge_models(
+            model,
+            self._make_onnx_reshape_predictions(test_pred),
+            io_map=[(model.graph.output[0].name, "predictions_in")],
+            prefix2="reshape_",
+        )
+        check_model(model)
+        return model

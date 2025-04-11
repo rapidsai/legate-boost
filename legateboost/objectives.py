@@ -165,6 +165,54 @@ class ClassificationObjective(BaseObjective):
         """
         return cn.argmax(pred, axis=-1)
 
+    def onnx_output_class(self, pred: cn.ndarray):
+        """Returns an ONNX model that accepts
+        - "predictions_in" : 2D tensor of shape (n_samples, n_outputs) and type double.
+        And outputs the predicted class labels.
+        - "predictions_out" : 1D tensor of shape (n_samples,) and type int32.
+
+        Returns:
+            Onnx model that converts probabilities into class labels.
+        """
+        from onnx import TensorProto
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.INT64,
+            [None],
+        )
+        nodes = []
+        nodes.append(
+            make_node(
+                "ArgMax", ["predictions_in"], ["predictions_out"], axis=-1, keepdims=0
+            )
+        )
+        graph = make_graph(
+            nodes,
+            "OutputClass",
+            [predictions_in],
+            [predictions_out],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
+
 
 class SquaredErrorObjective(BaseObjective):
     """The Squared Error objective function for regression problems.
@@ -848,7 +896,60 @@ class MultiLabelObjective(ClassificationObjective):
         return onnx_model
 
     def output_class(self, pred: cn.ndarray) -> cn.ndarray:
-        return cn.array(pred > 0.5, dtype=cn.int32).squeeze()
+        return cn.array(pred > 0.5, dtype=cn.int64)
+
+    def onnx_output_class(self, pred: cn.ndarray):
+        """Returns an ONNX model that accepts
+        - "predictions_in" : 2D tensor of shape (n_samples, n_outputs) and type double.
+        And outputs the predicted class labels.
+        - "predictions_out" : 1D tensor of shape (n_samples,) and type int32.
+
+        Returns:
+            Onnx model that converts probabilities into class labels.
+        """
+        from onnx import TensorProto, numpy_helper
+        from onnx.checker import check_model
+        from onnx.helper import (
+            make_graph,
+            make_model,
+            make_node,
+            make_opsetid,
+            make_tensor_value_info,
+        )
+
+        predictions_in = make_tensor_value_info(
+            "predictions_in",
+            TensorProto.DOUBLE,
+            [None, None],
+        )
+        predictions_out = make_tensor_value_info(
+            "predictions_out",
+            TensorProto.INT64,
+            [None],
+        )
+        nodes = []
+        half = numpy_helper.from_array(np.array(0.5, dtype=np.float64), name="half")
+        nodes.append(
+            make_node("Greater", ["predictions_in", "half"], ["comparison_result"])
+        )
+        nodes.append(
+            make_node(
+                "Cast", ["comparison_result"], ["predictions_out"], to=TensorProto.INT64
+            )
+        )
+        graph = make_graph(
+            nodes,
+            "OutputClass",
+            [predictions_in],
+            [predictions_out],
+            [half],
+        )
+        onnx_model = make_model(
+            graph,
+            opset_imports=[make_opsetid("", 21)],
+        )
+        check_model(onnx_model)
+        return onnx_model
 
     def metric(self) -> MultiLabelMetric:
         return MultiLabelMetric()

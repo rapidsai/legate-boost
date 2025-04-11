@@ -34,7 +34,7 @@ def compare_estimator_predictions(estimator, X, predict_function):
     pred = pred_method(cn.array(X))
     onnx_pred = sess.run(None, feeds)[0]
 
-    assert onnx_pred.dtype == np.float64
+    assert onnx_pred.dtype == pred.dtype
     assert pred.shape == onnx_pred.shape
     assert np.allclose(
         onnx_pred, pred, atol=1e-2 if X.dtype == np.float32 else 1e-6
@@ -145,6 +145,8 @@ def test_classifier(Model, objective, classification_dataset):
     ).fit(X, y)
 
     compare_estimator_predictions(model, X, "predict_raw")
+    compare_estimator_predictions(model, X, "predict_proba")
+    compare_estimator_predictions(model, X, "predict")
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
