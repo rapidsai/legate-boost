@@ -86,39 +86,19 @@ class BaseObjective(ABC):
         Returns:
             Onnx model that transforms the predictions.
         """
-        from onnx import TensorProto
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        nodes = [make_node("Identity", ["predictions_in"], ["predictions_out"])]
-        graph = make_graph(
-            nodes,
-            "BaseModel",
-            [predictions_in],
-            [predictions_out],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        onnx_text = """
+        <
+            ir_version: 9,
+            opset_import: ["" : 10]
+        >
+        BaseObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = Identity(predictions_in)
+        }
+        """
+        return onnx.parser.parse_model(onnx_text)
 
     @abstractmethod
     def metric(self) -> BaseMetric:
@@ -342,91 +322,31 @@ class NormalObjective(BaseObjective, Forecast):
         return pred
 
     def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
-        from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, None, 2],
-        )
-        nodes = []
-        # clip
-        mininmum = numpy_helper.from_array(
-            np.array(-5, dtype=np.float64), name="minimum"
-        )
-        maximum = numpy_helper.from_array(np.array(5, dtype=np.float64), name="maximum")
-        # reshape
-        out_shape = numpy_helper.from_array(
-            np.array([0, -1, 2], dtype=np.int64), name="out_shape"
-        )
-        nodes.append(
-            make_node("Reshape", ["predictions_in", "out_shape"], ["reshaped"])
-        )
-
-        nodes.append(make_node("Shape", ["reshaped"], ["new_shape"]))
-
-        var_starts = numpy_helper.from_array(
-            np.array([0, 0, 1], dtype=np.int64), name="var_starts"
-        )
-        mean_starts = numpy_helper.from_array(
-            np.array([0, 0, 0], dtype=np.int64), name="mean_starts"
-        )
-
-        # extract mean and variance parts
-        axis = numpy_helper.from_array(np.array([0, 1, 2], dtype=np.int64), name="axis")
-        steps = numpy_helper.from_array(
-            np.array([1, 1, 2], dtype=np.int64), name="steps"
-        )
-        nodes.append(
-            make_node(
-                "Slice",
-                ["reshaped", "var_starts", "new_shape", "axis", "steps"],
-                ["variance"],
-            )
-        )
-        nodes.append(
-            make_node(
-                "Slice",
-                ["reshaped", "mean_starts", "new_shape", "axis", "steps"],
-                ["mean"],
-            )
-        )
-        nodes.append(
-            make_node("Clip", ["variance", "minimum", "maximum"], ["clipped_variance"])
-        )
-
-        # combine them again
-        nodes.append(
-            make_node(
-                "Concat", ["mean", "clipped_variance"], ["predictions_out"], axis=2
-            )
-        )
-        graph = make_graph(
-            nodes,
-            "NormalObjective",
-            [predictions_in],
-            [predictions_out],
-            [out_shape, var_starts, mean_starts, axis, steps, mininmum, maximum],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        onnx_text = """
+        <
+            ir_version: 9,
+            opset_import: ["" : 21]
+        >
+        NormalObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            out_shape = Constant<value_ints = [0,-1,2]>()
+            var_starts = Constant<value_ints = [0,0,1]>()
+            mean_starts = Constant<value_ints = [0,0,0]>()
+            axis = Constant<value_ints = [0,1,2]>()
+            steps = Constant<value_ints = [1,1,2]>()
+            min = Constant<value = double {-5.0}>()
+            max = Constant<value = double {5.0}>()
+            reshaped = Reshape(predictions_in, out_shape)
+            new_shape = Shape(reshaped)
+            variance = Slice(reshaped, var_starts, new_shape, axis, steps)
+            mean = Slice(reshaped, mean_starts, new_shape, axis, steps)
+            clipped_variance = Clip(variance, min, max)
+            predictions_out = Concat<axis=2>(mean, clipped_variance)
+        }
+        """
+        return onnx.parser.parse_model(onnx_text)
 
     @override
     def mean(self, param: cn.ndarray) -> cn.ndarray:
@@ -783,44 +703,21 @@ class LogLossObjective(ClassificationObjective):
         return e_x / div[:, cn.newaxis]
 
     def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
-        from onnx import TensorProto
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        nodes = []
-        if pred.shape[1] == 1:
-            nodes.append(make_node("Sigmoid", ["predictions_in"], ["predictions_out"]))
-        else:
-            nodes.append(make_node("Softmax", ["predictions_in"], ["predictions_out"]))
-        graph = make_graph(
-            nodes,
-            "LogLossObjective",
-            [predictions_in],
-            [predictions_out],
-            [],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        operator_to_use = "Sigmoid" if pred.shape[1] == 1 else "Softmax"
+        onnx_text = f"""
+        <
+            ir_version: 9,
+            opset_import: ["" : 10]
+        >
+        LogLossObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {{
+            predictions_out = {operator_to_use}(predictions_in)
+        }}
+        """
+        print(onnx_text)
+        return onnx.parser.parse_model(onnx_text)
 
     def metric(self) -> LogLossMetric:
         return LogLossMetric()
@@ -859,41 +756,19 @@ class MultiLabelObjective(ClassificationObjective):
         return self.one / (self.one + cn.exp(-pred))
 
     def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
-        from onnx import TensorProto
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        nodes = []
-        nodes.append(make_node("Sigmoid", ["predictions_in"], ["predictions_out"]))
-        graph = make_graph(
-            nodes,
-            "MultiLabelObjective",
-            [predictions_in],
-            [predictions_out],
-            [],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        onnx_text = """
+        <
+            ir_version: 9,
+            opset_import: ["" : 10]
+        >
+        MultiLabelObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = Sigmoid(predictions_in)
+        }
+        """  # noqa: E501
+        return onnx.parser.parse_model(onnx_text)
 
     def output_class(self, pred: cn.ndarray) -> cn.ndarray:
         return cn.array(pred > 0.5, dtype=cn.int64)
@@ -1016,54 +891,37 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         return logloss.transform((1 / (K - 1)) * pred)
 
     def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
-        from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-
-        nodes = []
-        initializers = []
         if pred.shape[1] == 1:
-            two = numpy_helper.from_array(np.array(2, dtype=np.float64), name="two")
-            nodes.append(make_node("Mul", ["predictions_in", "two"], ["multiplied"]))
-            nodes.append(make_node("Sigmoid", ["multiplied"], ["predictions_out"]))
-            initializers.append(two)
-        else:
-            constant = numpy_helper.from_array(
-                np.array(1 / (pred.shape[1] - 1), dtype=np.float64), name="constant"
-            )
-            nodes.append(make_node("Mul", ["predictions_in", "constant"], ["scaled"]))
-            nodes.append(make_node("Softmax", ["scaled"], ["predictions_out"]))
-            initializers.append(constant)
-        graph = make_graph(
-            nodes,
-            "ExpObjective",
-            [predictions_in],
-            [predictions_out],
-            initializers,
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+            onnx_text = """
+            <
+                ir_version: 9,
+                opset_import: ["" : 10]
+            >
+            LogLossObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+            {
+                constant = Constant<value = double {2.0}>()
+                a = Mul(predictions_in, constant)
+                predictions_out = Sigmoid(a)
+            }
+            """  # noqa: E501
+            return onnx.parser.parse_model(onnx_text)
+
+        constant = 1 / (pred.shape[1] - 1)
+        onnx_text_multiclass = f"""
+        <
+            ir_version: 9,
+            opset_import: ["" : 10]
+        >
+        LogLossObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {{
+            constant = Constant<value = double {{{constant}}}>()
+            a = Mul(predictions_in, constant)
+            predictions_out = Softmax(a)
+        }}
+        """
+        return onnx.parser.parse_model(onnx_text_multiclass)
 
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()
