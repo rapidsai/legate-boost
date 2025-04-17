@@ -561,101 +561,50 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         return text
 
     def _make_onnx_reshape_predictions(self, pred: cn.ndarray) -> cn.ndarray:
-        from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-            np_dtype_to_tensor_dtype,
-        )
-
         # make an onnx model that shapes the predictions equivalently to pred
-        extra_out_shape = [] if pred.ndim == 1 else list(pred.shape[1:])
-        shape = numpy_helper.from_array(np.array([-1] + extra_out_shape), name="shape")
+        shape = list(pred.shape)
+        shape[0] = -1
+        out_type = "int64" if pred.dtype == cn.int64 else "double"
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            np_dtype_to_tensor_dtype(pred.dtype),
-            shape=[None] + list(extra_out_shape),
-        )
-        nodes = [
-            make_node(
-                "Reshape",
-                ["predictions_in", "shape"],
-                ["predictions_out"],
-            )
-        ]
-        graph = make_graph(
-            nodes,
-            "reshape output",
-            [predictions_in],
-            [predictions_out],
-            [shape],
-        )
-        model = make_model(graph, opset_imports=[make_opsetid("", 21)])
-        check_model(model)
-        return model
+        onnx_text = f"""
+        <
+            ir_version: 10,
+            opset_import: ["" : 21]
+        >
+        ReshapePredictions ({out_type}[N, M] predictions_in) => ({out_type}{shape} predictions_out)
+        {{
+            shape = Constant<value_ints={shape}>()
+            predictions_out = Reshape(predictions_in, shape)
+        }}
+        """  # noqa: E501
+        return onnx.parser.parse_model(onnx_text)
 
     def _make_onnx_init(self, X_dtype):
-        # turn self.model_init_ into an ONNX model
-        from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-            np_dtype_to_tensor_dtype,
-        )
+        import onnx
 
-        # model constants
-        X_in = make_tensor_value_info(
-            "X_in", np_dtype_to_tensor_dtype(X_dtype), [None, self.n_features_in_]
+        X_type_text = "double" if X_dtype == cn.float64 else "float"
+        onnx_text = f"""
+        <
+            ir_version: 10,
+            opset_import: ["" : 21]
+        >
+        ReshapePredictions ({X_type_text}[N, M] X_in) => ({X_type_text}[N, M] X_out, double[N, K] predictions_out)
+        {{
+            X_out = Identity(X_in)
+            n_rows = Shape<end=1>(X_in)
+            one = Constant<value_ints=[1]>()
+            tile_repeat = Concat<axis=0>(n_rows, one)
+            predictions_out = Tile(init, tile_repeat)
+        }}
+        """  # noqa: E501
+        init_model = onnx.parser.parse_model(onnx_text)
+        init_model.graph.initializer.append(
+            onnx.numpy_helper.from_array(
+                np.atleast_2d(self.model_init_.__array__()), name="init"
+            )
         )
-        nodes = []
-        nodes.append(make_node("Shape", ["X_in"], ["n_rows"], end=1))
-        one = numpy_helper.from_array(np.array([1], dtype=np.int64), name="one")
-        nodes.append(make_node("Concat", ["n_rows", "one"], ["tile_repeat"], axis=0))
-        init = numpy_helper.from_array(
-            np.atleast_2d(self.model_init_.__array__()), name="init"
-        )
-        prediction_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, self.model_init_.shape[0]],
-        )
-        nodes.append(make_node("Tile", ["init", "tile_repeat"], ["predictions_out"]))
-        X_out = make_tensor_value_info(
-            "X_out",
-            np_dtype_to_tensor_dtype(X_dtype),
-            [None, None],
-        )
-        nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
-        graph = make_graph(
-            nodes,
-            "legateboost estimator init",
-            [X_in],
-            [X_out, prediction_out],
-            [init, one],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[
-                make_opsetid("", 21),
-            ],
-        )
-        check_model(onnx_model)
-
-        return onnx_model
+        return init_model
 
     def _to_onnx_predict_raw(self, X: cn.ndarray):
         from onnx.checker import check_model

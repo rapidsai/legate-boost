@@ -37,9 +37,12 @@ def compare_estimator_predictions(estimator, X, predict_function, allowed_wrong=
     assert onnx_pred.dtype == pred.dtype
     assert pred.shape == onnx_pred.shape
     number_wrong = np.sum(
-        np.abs(pred - onnx_pred) > 1e-2 if X.dtype == np.float32 else 1e-6
+        np.abs(pred - onnx_pred) > (1e-2 if X.dtype == np.float32 else 1e-5)
     )
-    assert number_wrong <= allowed_wrong
+    assert number_wrong <= allowed_wrong, (
+        np.linalg.norm(pred - onnx_pred),
+        number_wrong,
+    )
 
 
 @pytest.fixture

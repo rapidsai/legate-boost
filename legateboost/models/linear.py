@@ -153,65 +153,30 @@ class Linear(BaseModel):
         return new
 
     def to_onnx(self, X) -> Any:
-        from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-            np_dtype_to_tensor_dtype,
-        )
+        import onnx
 
-        # model constants
-        betas = numpy_helper.from_array(self.betas_[1:].__array__(), name="betas")
-        intercept = numpy_helper.from_array(
-            self.betas_[0].__array__(), name="intercept"
+        X_type_text = "double" if X.dtype == cn.float64 else "float"
+        onnx_text = f"""
+        <
+            ir_version: 10,
+            opset_import: ["" : 21]
+        >
+        LinearModel ({X_type_text}[N, M] X_in, double[N, K] predictions_in) => ({X_type_text}[N, M] X_out, double[N, K] predictions_out)
+        {{
+            X_out = Identity(X_in)
+            mult = MatMul(X_in, betas)
+            result = Add(mult, intercept)
+            result_double = Cast<to=11>(result)
+            predictions_out = Add(result_double, predictions_in)
+        }}
+        """  # noqa: E501
+        model = onnx.parser.parse_model(onnx_text)
+        model.graph.initializer.extend(
+            [
+                onnx.numpy_helper.from_array(self.betas_[1:].__array__(), name="betas"),
+                onnx.numpy_helper.from_array(
+                    self.betas_[0].__array__(), name="intercept"
+                ),
+            ]
         )
-
-        # pred inputs
-        n_features = self.betas_.shape[0] - 1
-        n_outputs = self.betas_.shape[1]
-        X_in = make_tensor_value_info(
-            "X_in", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, n_features]
-        )
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, n_outputs],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, n_outputs],
-        )
-
-        nodes = []
-        nodes.append(make_node("MatMul", ["X_in", "betas"], ["XBeta"]))
-        nodes.append(make_node("Add", ["XBeta", "intercept"], ["result"]))
-        nodes.append(
-            make_node("Cast", ["result"], ["result_double"], to=TensorProto.DOUBLE)
-        )
-        nodes.append(
-            make_node("Add", ["result_double", "predictions_in"], ["predictions_out"])
-        )
-        X_out = make_tensor_value_info(
-            "X_out", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, n_features]
-        )
-        nodes.append(make_node("Identity", ["X_in"], ["X_out"]))
-        graph = make_graph(
-            nodes,
-            "legateboost.model.Linear",
-            [X_in, predictions_in],
-            [X_out, predictions_out],
-            [betas, intercept],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[
-                make_opsetid("", 21),
-            ],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        return model

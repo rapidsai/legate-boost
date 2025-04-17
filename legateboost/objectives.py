@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
-import numpy as np
 from scipy.stats import norm
 from typing_extensions import TypeAlias, override
 
@@ -90,8 +89,8 @@ class BaseObjective(ABC):
 
         onnx_text = """
         <
-            ir_version: 9,
-            opset_import: ["" : 10]
+            ir_version: 10,
+            opset_import: ["" : 21]
         >
         BaseObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
         {
@@ -154,44 +153,19 @@ class ClassificationObjective(BaseObjective):
         Returns:
             Onnx model that converts probabilities into class labels.
         """
-        from onnx import TensorProto
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.INT64,
-            [None],
-        )
-        nodes = []
-        nodes.append(
-            make_node(
-                "ArgMax", ["predictions_in"], ["predictions_out"], axis=-1, keepdims=0
-            )
-        )
-        graph = make_graph(
-            nodes,
-            "OutputClass",
-            [predictions_in],
-            [predictions_out],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        onnx_text = """
+        <
+            ir_version: 10,
+            opset_import: ["" : 21]
+        >
+        BaseModelOutputClass (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = ArgMax<axis = -1>(predictions_in)
+        }
+        """  # noqa: E501
+        return onnx.parser.parse_model(onnx_text)
 
 
 class SquaredErrorObjective(BaseObjective):
@@ -326,7 +300,7 @@ class NormalObjective(BaseObjective, Forecast):
 
         onnx_text = """
         <
-            ir_version: 9,
+            ir_version: 10,
             opset_import: ["" : 21]
         >
         NormalObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
@@ -428,42 +402,19 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
 
     @override
     def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
-        from onnx import TensorProto
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        nodes = []
-        # exp
-        nodes.append(make_node("Exp", ["predictions_in"], ["predictions_out"]))
-
-        graph = make_graph(
-            nodes,
-            "GammaDevianceObjective",
-            [predictions_in],
-            [predictions_out],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        onnx_text = """
+        <
+            ir_version: 10,
+            opset_import: ["" : 21]
+        >
+        GammaDevianceTransform (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = Exp(predictions_in)
+        }
+        """  # noqa: E501
+        return onnx.parser.parse_model(onnx_text)
 
     def initialise_prediction(
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
@@ -511,50 +462,19 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
 
     @override
     def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
-        from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
+        import onnx
 
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.DOUBLE,
-            [None, None, 2],
-        )
-        nodes = []
-        # reshape
-        out_shape = numpy_helper.from_array(
-            np.array([0, -1, 2], dtype=np.int64), name="out_shape"
-        )
-        nodes.append(
-            make_node("Reshape", ["predictions_in", "out_shape"], ["reshaped"])
-        )
-        # exp
-        nodes.append(make_node("Exp", ["reshaped"], ["predictions_out"]))
-
-        graph = make_graph(
-            nodes,
-            "GammaObjective",
-            [predictions_in],
-            [predictions_out],
-            [out_shape],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        onnx_text = """
+        <
+            ir_version: 10,
+            opset_import: ["" : 21]
+        >
+        GammaTransform (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = Exp(predictions_in)
+        }
+        """
+        return onnx.parser.parse_model(onnx_text)
 
     @override
     def metric(self) -> GammaLLMetric:
@@ -708,15 +628,14 @@ class LogLossObjective(ClassificationObjective):
         operator_to_use = "Sigmoid" if pred.shape[1] == 1 else "Softmax"
         onnx_text = f"""
         <
-            ir_version: 9,
-            opset_import: ["" : 10]
+            ir_version: 10,
+            opset_import: ["" : 21]
         >
         LogLossObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
         {{
             predictions_out = {operator_to_use}(predictions_in)
         }}
         """
-        print(onnx_text)
         return onnx.parser.parse_model(onnx_text)
 
     def metric(self) -> LogLossMetric:
@@ -760,8 +679,8 @@ class MultiLabelObjective(ClassificationObjective):
 
         onnx_text = """
         <
-            ir_version: 9,
-            opset_import: ["" : 10]
+            ir_version: 10,
+            opset_import: ["" : 21]
         >
         MultiLabelObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
         {
@@ -774,57 +693,21 @@ class MultiLabelObjective(ClassificationObjective):
         return cn.array(pred > 0.5, dtype=cn.int64)
 
     def onnx_output_class(self, pred: cn.ndarray):
-        """Returns an ONNX model that accepts
-        - "predictions_in" : 2D tensor of shape (n_samples, n_outputs) and type double.
-        And outputs the predicted class labels.
-        - "predictions_out" : 1D tensor of shape (n_samples,) and type int32.
+        import onnx
 
-        Returns:
-            Onnx model that converts probabilities into class labels.
-        """
-        from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_opsetid,
-            make_tensor_value_info,
-        )
-
-        predictions_in = make_tensor_value_info(
-            "predictions_in",
-            TensorProto.DOUBLE,
-            [None, None],
-        )
-        predictions_out = make_tensor_value_info(
-            "predictions_out",
-            TensorProto.INT64,
-            [None],
-        )
-        nodes = []
-        half = numpy_helper.from_array(np.array(0.5, dtype=np.float64), name="half")
-        nodes.append(
-            make_node("Greater", ["predictions_in", "half"], ["comparison_result"])
-        )
-        nodes.append(
-            make_node(
-                "Cast", ["comparison_result"], ["predictions_out"], to=TensorProto.INT64
-            )
-        )
-        graph = make_graph(
-            nodes,
-            "OutputClass",
-            [predictions_in],
-            [predictions_out],
-            [half],
-        )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[make_opsetid("", 21)],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        onnx_text = """
+        <
+            ir_version: 10,
+            opset_import: ["" : 21]
+        >
+        MultiLabelOutputClass (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            half = Constant<value = double {0.5}>()
+            greater = Greater(predictions_in, half)
+            predictions_out = Cast<to = 7>(greater)
+        }
+        """  # noqa: E501
+        return onnx.parser.parse_model(onnx_text)
 
     def metric(self) -> MultiLabelMetric:
         return MultiLabelMetric()
@@ -896,8 +779,8 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         if pred.shape[1] == 1:
             onnx_text = """
             <
-                ir_version: 9,
-                opset_import: ["" : 10]
+                ir_version: 10,
+                opset_import: ["" : 21]
             >
             LogLossObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
             {
@@ -911,8 +794,8 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         constant = 1 / (pred.shape[1] - 1)
         onnx_text_multiclass = f"""
         <
-            ir_version: 9,
-            opset_import: ["" : 10]
+            ir_version: 10,
+            opset_import: ["" : 21]
         >
         LogLossObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
         {{
