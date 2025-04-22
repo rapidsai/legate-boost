@@ -316,13 +316,10 @@ class Tree(BaseModel):
         new.leaf_value *= scalar
         return new
 
-    def to_onnx(self, X) -> Any:
-        import onnx
+    def to_onnx(self, X: cn.array) -> Any:
         from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
-            make_model,
             make_node,
             make_tensor_value_info,
             np_dtype_to_tensor_dtype,
@@ -427,13 +424,6 @@ class Tree(BaseModel):
             [X_in, predictions_in],
             [X_out, predictions_out],
             [leaf_weights],
+            # opset_imports=[make_opsetid("ai.onnx.ml", 3), make_opsetid("", 21)],
         )
-        model = make_model(
-            graph,
-            opset_imports=[
-                onnx.helper.make_opsetid("ai.onnx.ml", 3),
-                onnx.helper.make_opsetid("", 21),
-            ],
-        )
-        check_model(model)
-        return model
+        return graph

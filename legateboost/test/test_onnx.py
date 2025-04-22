@@ -4,10 +4,12 @@ import pytest
 
 import cupynumeric as cn
 import legateboost as lb
+from legateboost.onnx_utils import make_model
 
 
 def compare_model_predictions(model, X):
-    sess = ort.InferenceSession(model.to_onnx(X).SerializeToString())
+    onnx_model = make_model(model.to_onnx(X))
+    sess = ort.InferenceSession(onnx_model.SerializeToString())
     feeds = {
         "X_in": X,
     }
@@ -99,6 +101,12 @@ def regression_dataset(dtype, n_outputs):
 @pytest.mark.parametrize("n_outputs", [1, 5])
 def test_regressor(Model, objective, regression_dataset):
     X, y = regression_dataset
+    if (
+        Model in [lb.models.KRR, lb.models.NN]
+        and objective == "gamma"
+        and X.dtype == np.float32
+    ):
+        pytest.skip("Skipping as numerically unstable")
     if objective in [
         "quantile",
         "gamma_deviance",

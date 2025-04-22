@@ -243,16 +243,13 @@ class KRR(BaseModel):
         self.betas_ *= scalar
         return new
 
-    def to_onnx(self, X) -> Any:
+    def to_onnx(self, X: cn.array) -> Any:
         import onnx
 
         X_type_text = "double" if X.dtype == cn.float64 else "float"
+        assert self.sigma is not None, "Has model been trained?"
         denominator = -2.0 * self.sigma**2
         onnx_text = f"""
-        <
-            ir_version: 10,
-            opset_import: ["" : 21]
-        >
         KRRModel ({X_type_text}[N, M] X_in, double[N, K] predictions_in) => ({X_type_text}[N, M] X_out, double[N, K] predictions_out)
         {{
             X_out = Identity(X_in)
@@ -274,11 +271,11 @@ class KRR(BaseModel):
             predictions_out = Add(dot_double, predictions_in)
         }}
         """  # noqa: E501
-        model = onnx.parser.parse_model(onnx_text)
-        model.graph.initializer.extend(
+        graph = onnx.parser.parse_graph(onnx_text)
+        graph.initializer.extend(
             [
                 onnx.numpy_helper.from_array(self.betas_.__array__(), name="betas"),
                 onnx.numpy_helper.from_array(self.X_train.__array__(), name="X_train"),
             ]
         )
-        return model
+        return graph

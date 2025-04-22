@@ -182,14 +182,11 @@ class NN(BaseModel):
         new.biases_[-1] *= scalar
         return new
 
-    def to_onnx(self, X) -> Any:
+    def to_onnx(self, X: cn.array) -> Any:
         from onnx import TensorProto, numpy_helper
-        from onnx.checker import check_model
         from onnx.helper import (
             make_graph,
-            make_model,
             make_node,
-            make_opsetid,
             make_tensor_value_info,
             np_dtype_to_tensor_dtype,
         )
@@ -275,11 +272,4 @@ class NN(BaseModel):
             [X_out, predictions_out],
             biases + coefficients,
         )
-        onnx_model = make_model(
-            graph,
-            opset_imports=[
-                make_opsetid("", 21),
-            ],
-        )
-        check_model(onnx_model)
-        return onnx_model
+        return graph
