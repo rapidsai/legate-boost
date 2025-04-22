@@ -11,7 +11,7 @@ except ImportError:
     pass
 
 
-def make_model(graph: onnx.GraphProto) -> onnx.ModelProto:
+def make_model(graph: Any) -> Any:
     # make model with appropriate opset imports for legate-boost
     LEGATEBOOST_ONNX_OPSET_IMPORTS = [
         onnx.helper.make_opsetid("ai.onnx.ml", 3),
@@ -20,7 +20,7 @@ def make_model(graph: onnx.GraphProto) -> onnx.ModelProto:
     return onnx.helper.make_model(graph, opset_imports=LEGATEBOOST_ONNX_OPSET_IMPORTS)
 
 
-def reshape_predictions(graph: onnx.GraphProto, pred: cn.ndarray) -> onnx.GraphProto:
+def reshape_predictions(graph: Any, pred: cn.ndarray) -> Any:
     # àppend an onnx graph that shapes the predictions equivalently to pred
     shape = list(pred.shape)
     shape[0] = -1
@@ -44,7 +44,7 @@ def reshape_predictions(graph: onnx.GraphProto, pred: cn.ndarray) -> onnx.GraphP
     return graph
 
 
-def mirror_predict_proba_output(graph: onnx.GraphProto) -> onnx.GraphProto:
+def mirror_predict_proba_output(graph: Any) -> Any:
     # where model outputs only true probability we need to add the false probability
     onnx_text = """
     MirrorPredict (double[N, M] predictions_in) => (double[N, 2] predictions_out)
@@ -66,7 +66,7 @@ def mirror_predict_proba_output(graph: onnx.GraphProto) -> onnx.GraphProto:
     return new_graph
 
 
-def init_predictions(model_init: cn.array, X_dtype: Any) -> onnx.GraphProto:
+def init_predictions(model_init: cn.array, X_dtype: Any) -> Any:
     # form a graph that takes X_in and model_init as input and outputs
     # model_init repeated n_rows times
 
@@ -88,7 +88,7 @@ def init_predictions(model_init: cn.array, X_dtype: Any) -> onnx.GraphProto:
     return graph
 
 
-def merge_model_graphs(graphs: List[onnx.GraphProto]) -> onnx.GraphProto:
+def merge_model_graphs(graphs: List[Any]) -> Any:
     # merge a list of graphs into a single graph
     combined = graphs[0]
     for i, g in enumerate(graphs[1:]):
