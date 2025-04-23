@@ -18,8 +18,6 @@
 #include "../../cpp_utils/cpp_utils.cuh"
 
 namespace legateboost {
-/*static*/ void RbfTask::gpu_variant(legate::TaskContext context)
-{
-  UnaryOp<RbfOp>::gpu_variant(context);
-}
+// Explicit instantiation
+template void RbfTask::gpu_variant(legate::TaskContext context);
 };  // namespace legateboost

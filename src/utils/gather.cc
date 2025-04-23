@@ -75,8 +75,5 @@ struct gather_fn {
 
 namespace  // unnamed
 {
-const auto reg_id_ = []() -> char {
-  legateboost::GatherTask::register_variants();
-  return 0;
-}();
+void __attribute__((constructor)) register_tasks() { legateboost::GatherTask::register_variants(); }
 }  // namespace

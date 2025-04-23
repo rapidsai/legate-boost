@@ -162,8 +162,8 @@ class ThrustAllocator : public legate::ScopedAllocator {
   void deallocate(char* ptr, size_t /*n*/) { ScopedAllocator::deallocate(ptr); }
 };
 
-template <typename F>
-void UnaryOp<F>::gpu_variant(legate::TaskContext context)
+template <typename F, int OpCode>
+void UnaryOpTask<F, OpCode>::gpu_variant(legate::TaskContext context)
 {
   auto const& in          = context.input(0);
   auto* stream            = context.get_task_stream();
