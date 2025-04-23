@@ -906,7 +906,7 @@ class LBRegressor(RegressorMixin, LBBase):
         >>> y = np.random.random(X.shape[0])
         >>> model = lb.LBRegressor(n_estimators=5).fit(X, y)
         >>> import onnxruntime as ort
-        >>> sess = ort.InferenceSession(model.to_onnx(X.dtype).SerializeToString())
+        >>> sess = ort.InferenceSession(model.to_onnx(X).SerializeToString())
         >>> onnx_pred = sess.run(None, {"X_in": X})[0]
         >>> assert np.allclose(model.predict(X), onnx_pred, atol=1e-6)
         >>>
@@ -1204,7 +1204,7 @@ class LBClassifier(ClassifierMixin, LBBase):
         >>> y = np.random.randint(0, 2, X.shape[0])
         >>> model = lb.LBClassifier(n_estimators=5).fit(X, y)
         >>> import onnxruntime as ort
-        >>> sess = ort.InferenceSession(model.to_onnx(X.dtype,
+        >>> sess = ort.InferenceSession(model.to_onnx(X,
         ...     predict_function="predict_proba").SerializeToString())
         >>> onnx_pred = sess.run(None, {"X_in": X})[0]
         >>> assert np.allclose(model.predict_proba(X), onnx_pred, atol=1e-6)
