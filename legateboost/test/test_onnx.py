@@ -16,9 +16,7 @@ def compare_model_predictions(model, X):
     pred = model.predict(cn.array(X))
     feeds["predictions_in"] = np.zeros((X.shape[0], pred.shape[1]))
     onnx_pred = sess.run(None, feeds)[1]
-    onnx_pred = onnx_pred.squeeze()
     assert onnx_pred.dtype == np.float64
-    pred = pred.squeeze()
     assert pred.shape == onnx_pred.shape
     assert np.allclose(
         onnx_pred, pred, atol=1e-2 if X.dtype == np.float32 else 1e-6

@@ -247,7 +247,8 @@ class KRR(BaseModel):
         import onnx
 
         X_type_text = "double" if X.dtype == cn.float64 else "float"
-        assert self.sigma is not None, "Has model been trained?"
+        if self.sigma is None:
+            raise ValueError("Model has not been trained. Cannot export to ONNX.")
         denominator = -2.0 * self.sigma**2
         onnx_text = f"""
         KRRModel ({X_type_text}[N, M] X_in, double[N, K] predictions_in) => ({X_type_text}[N, M] X_out, double[N, K] predictions_out)

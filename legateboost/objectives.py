@@ -71,7 +71,7 @@ class BaseObjective(ABC):
         """
         return pred
 
-    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
         """Returns an ONNX graph that accepts
         - "predictions_in" : 2D tensor of shape (n_samples, n_outputs) and type double.
         And outputs the transformed predictions.
@@ -152,7 +152,7 @@ class ClassificationObjective(BaseObjective):
         import onnx
 
         onnx_text = """
-        BaseModelOutputClass (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        BaseModelOutputClass (double[N, M] predictions_in) => (int64[N, M] predictions_out)
         {
             predictions_out = ArgMax<axis = -1>(predictions_in)
         }
@@ -287,7 +287,7 @@ class NormalObjective(BaseObjective, Forecast):
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
 
-    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
         import onnx
 
         onnx_text = """
@@ -389,7 +389,7 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
         return cn.exp(pred)
 
     @override
-    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
         import onnx
 
         onnx_text = """
@@ -445,7 +445,7 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
         return cn.exp(pred)
 
     @override
-    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
         import onnx
 
         onnx_text = """
@@ -602,7 +602,7 @@ class LogLossObjective(ClassificationObjective):
         div = cn.sum(e_x, axis=1)
         return e_x / div[:, cn.newaxis]
 
-    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
         import onnx
 
         operator_to_use = "Sigmoid" if pred.shape[1] == 1 else "Softmax"
@@ -650,7 +650,7 @@ class MultiLabelObjective(ClassificationObjective):
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         return self.one / (self.one + cn.exp(-pred))
 
-    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
         import onnx
 
         onnx_text = """
@@ -668,7 +668,7 @@ class MultiLabelObjective(ClassificationObjective):
         import onnx
 
         onnx_text = """
-        MultiLabelOutputClass (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        MultiLabelOutputClass (double[N, M] predictions_in) => (int64[N, M] predictions_out)
         {
             half = Constant<value = double {0.5}>()
             greater = Greater(predictions_in, half)
@@ -741,7 +741,7 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         K = pred.shape[1]  # number of classes
         return logloss.transform((1 / (K - 1)) * pred)
 
-    def onnx_transform(self, pred: cn.ndarray) -> cn.ndarray:
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
         import onnx
 
         onnx_text = """
