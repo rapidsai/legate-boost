@@ -1,9 +1,11 @@
 import copy
 import warnings
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Callable, List, Sequence, Union, cast
 
 import numpy as np
+import numpy.typing as npt
 
 import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
@@ -316,6 +318,54 @@ class Tree(BaseModel):
         new.leaf_value *= scalar
         return new
 
+    # copy the tree structure to numpy arrays
+    # cupynumeric element access is very slow
+    @dataclass
+    class TreeAsNumpy:
+        leaf_value: npt.NDArray[np.float64]
+        feature: npt.NDArray[np.int32]
+        split_value: npt.NDArray[np.float64]
+        gain: npt.NDArray[np.float64]
+        hessian: npt.NDArray[np.float64]
+        is_leaf: npt.NDArray[np.bool_]
+
+    # structure of arrays for tree structure expected by onnx
+    # this container is a convenience to not have 7 function arguments
+    class OnnxSoa:
+        def __init__(self, size: int, n_outputs: int) -> None:
+            self.nodes_modes = np.full(size, "BRANCH_LEQ")
+            self.nodes_featureids = np.full(size, -1, dtype=np.int32)
+            self.nodes_truenodeids = np.full(size, -1, dtype=np.int32)
+            self.nodes_falsenodeids = np.full(size, -1, dtype=np.int32)
+            self.nodes_nodeids = np.arange(size, dtype=np.int32)
+            self.nodes_values = np.full(size, -1.0, dtype=np.float64)
+            self.leaf_weights = np.full((size, n_outputs), -1.0, dtype=np.float64)
+
+    def recurse_tree(
+        self, tree: TreeAsNumpy, soa: OnnxSoa, old_node_idx: int, new_node_idx: int
+    ) -> int:
+        # new_node_idx is sparse
+        if tree.is_leaf[old_node_idx]:
+            soa.nodes_modes[new_node_idx] = "LEAF"
+            soa.leaf_weights[new_node_idx] = tree.leaf_value[old_node_idx]
+            return new_node_idx
+        else:
+            soa.nodes_modes[new_node_idx] = "BRANCH_LEQ"
+            soa.nodes_featureids[new_node_idx] = tree.feature[old_node_idx]
+            soa.nodes_values[new_node_idx] = tree.split_value[old_node_idx]
+            left_child_idx = new_node_idx + 1
+            soa.nodes_truenodeids[new_node_idx] = left_child_idx
+            node_idx_counter = self.recurse_tree(
+                tree, soa, self.left_child(old_node_idx), left_child_idx
+            )
+            right_child_idx = node_idx_counter + 1
+            soa.nodes_falsenodeids[new_node_idx] = right_child_idx
+            node_idx_counter = self.recurse_tree(
+                tree, soa, self.right_child(old_node_idx), right_child_idx
+            )
+
+        return node_idx_counter
+
     def to_onnx(self, X: cn.array) -> Any:
         from onnx import TensorProto, numpy_helper
         from onnx.helper import (
@@ -325,32 +375,39 @@ class Tree(BaseModel):
             np_dtype_to_tensor_dtype,
         )
 
+        num_sparse_nodes = (self.hessian[:, 0] > 0.0).sum()
+        num_outputs = self.leaf_value.shape[1]
+        # copy the tree as numpy because single element
+        # access with cupynumeric is very slow
+        tree = Tree.TreeAsNumpy(
+            self.leaf_value.__array__(),
+            self.feature.__array__(),
+            self.split_value.__array__(),
+            self.gain.__array__(),
+            self.hessian.__array__(),
+            self.feature.__array__() == -1,
+        )
+        soa = Tree.OnnxSoa(num_sparse_nodes, num_outputs)
+        # This recursive function could become a bottleneck for large trees
+        # In this case consider implmenting a C++ legate task for this conversion
+        # Cython could also work
+        self.recurse_tree(tree, soa, 0, 0)
+
         onnx_nodes = []
 
-        num_outputs = self.leaf_value.shape[1]
-        tree_max_nodes = self.feature.size
-        all_nodes_idx = np.arange(tree_max_nodes)
-        nodes_featureids = self.feature.__array__()
-        nodes_truenodeids = self.left_child(all_nodes_idx)
-        nodes_falsenodeids = self.right_child(all_nodes_idx)
-        node_modes = np.full(tree_max_nodes, "BRANCH_LEQ")
-        node_modes[self.is_leaf(all_nodes_idx)] = "LEAF"
-        leaf_targetids = np.full(tree_max_nodes, 0, dtype=np.int64)
-        # predict the leaf node index
-        # use it to later index into the 2d array of leaf weights
-        # as ONNX does not support 2d leaf weights
-        target_weights = all_nodes_idx.astype(np.float32)
         kwargs = {}
         # TreeEnsembleRegressor asks us to pass these as tensors when X.dtype is double
+        # we simply pass a set of indices as leaf weights and then add a node later to
+        # look up the (vector valued) leaf weights
         if X.dtype == np.float32:
-            kwargs["nodes_values"] = self.split_value.__array__()
-            kwargs["target_weights"] = target_weights
+            kwargs["nodes_values"] = soa.nodes_values.astype(np.float32)
+            kwargs["target_weights"] = soa.nodes_nodeids.astype(np.float32)
         else:
             kwargs["nodes_values_as_tensor"] = numpy_helper.from_array(
-                self.split_value.__array__(), name="nodes_values"
+                soa.nodes_values, name="nodes_values"
             )
             kwargs["target_weights_as_tensor"] = numpy_helper.from_array(
-                target_weights.astype(np.float64), name="target_weights"
+                soa.nodes_nodeids.astype(np.float64), name="target_weights"
             )
 
         # TreeEnsembleRegressor is deprecated, but its successor TreeEnsemble
@@ -366,22 +423,20 @@ class Tree(BaseModel):
                 membership_values=None,
                 nodes_missing_value_tracks_true=None,
                 nodes_hitrates=None,
-                nodes_modes=node_modes,
-                nodes_featureids=nodes_featureids,
-                nodes_truenodeids=nodes_truenodeids,
-                nodes_falsenodeids=nodes_falsenodeids,
-                nodes_nodeids=all_nodes_idx,
-                nodes_treeids=np.zeros(tree_max_nodes, dtype=np.int64),
-                target_ids=leaf_targetids,
-                target_nodeids=all_nodes_idx,
-                target_treeids=np.zeros(tree_max_nodes, dtype=np.int64),
+                nodes_modes=soa.nodes_modes,
+                nodes_featureids=soa.nodes_featureids,
+                nodes_truenodeids=soa.nodes_truenodeids,
+                nodes_falsenodeids=soa.nodes_falsenodeids,
+                nodes_nodeids=soa.nodes_nodeids,
+                nodes_treeids=np.zeros_like(soa.nodes_nodeids, dtype=np.int64),
+                target_ids=np.zeros_like(soa.nodes_nodeids, dtype=np.int64),
+                target_nodeids=soa.nodes_nodeids,
+                target_treeids=np.zeros_like(soa.nodes_nodeids, dtype=np.int64),
                 **kwargs,
             )
         )
 
-        leaf_weights = numpy_helper.from_array(
-            self.leaf_value.__array__(), name="leaf_weights"
-        )
+        leaf_weights = numpy_helper.from_array(soa.leaf_weights, name="leaf_weights")
         predictions_out = make_tensor_value_info(
             "predictions_out", TensorProto.DOUBLE, [None, num_outputs]
         )
@@ -424,6 +479,5 @@ class Tree(BaseModel):
             [X_in, predictions_in],
             [X_out, predictions_out],
             [leaf_weights],
-            # opset_imports=[make_opsetid("ai.onnx.ml", 3), make_opsetid("", 21)],
         )
         return graph
