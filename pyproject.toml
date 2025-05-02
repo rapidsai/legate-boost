@@ -51,6 +51,7 @@ test = [
     "notebook>=7",
     "onnx>=1.10",
     "onnxmltools>=1.10",
+    "onnxruntime",
     "pytest>=7,<8",
     "seaborn>=0.13",
     "xgboost>=2.0",
