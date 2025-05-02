@@ -2,7 +2,7 @@ import copy
 import warnings
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Callable, List, Sequence, Union, cast
+from typing import Any, Callable, Dict, List, Sequence, Union, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -333,13 +333,23 @@ class Tree(BaseModel):
     # this container is a convenience to not have 7 function arguments
     class OnnxSoa:
         def __init__(self, size: int, n_outputs: int) -> None:
-            self.nodes_modes = np.full(size, "BRANCH_LEQ")
-            self.nodes_featureids = np.full(size, -1, dtype=np.int32)
-            self.nodes_truenodeids = np.full(size, -1, dtype=np.int32)
-            self.nodes_falsenodeids = np.full(size, -1, dtype=np.int32)
-            self.nodes_nodeids = np.arange(size, dtype=np.int32)
-            self.nodes_values = np.full(size, -1.0, dtype=np.float64)
-            self.leaf_weights = np.full((size, n_outputs), -1.0, dtype=np.float64)
+            self.nodes_modes: npt.NDArray[str] = np.full(size, "BRANCH_LEQ")
+            self.nodes_featureids: npt.NDArray[np.int32] = np.full(
+                size, -1, dtype=np.int32
+            )
+            self.nodes_truenodeids: npt.NDArray[np.int32] = np.full(
+                size, -1, dtype=np.int32
+            )
+            self.nodes_falsenodeids: npt.NDArray[np.int32] = np.full(
+                size, -1, dtype=np.int32
+            )
+            self.nodes_nodeids: npt.NDArray[np.int32] = np.arange(size, dtype=np.int32)
+            self.nodes_values: npt.NDArray[np.float64] = np.full(
+                size, -1.0, dtype=np.float64
+            )
+            self.leaf_weights: npt.NDArray[np.float64] = np.full(
+                (size, n_outputs), -1.0, dtype=np.float64
+            )
 
     def recurse_tree(
         self, tree: TreeAsNumpy, soa: OnnxSoa, old_node_idx: int, new_node_idx: int
@@ -395,7 +405,7 @@ class Tree(BaseModel):
 
         onnx_nodes = []
 
-        kwargs = {}
+        kwargs: Dict[str, Any] = {}
         # TreeEnsembleRegressor asks us to pass these as tensors when X.dtype is double
         # we simply pass a set of indices as leaf weights and then add a node later to
         # look up the (vector valued) leaf weights
