@@ -55,7 +55,7 @@ jobs:
         include:
           - ARCH: "amd64"
             CUDA_VER: "12.5.1"
-            PY_VER: "3.11"
+            PY_VER: "3.12"
     runs-on: linux-${{ matrix.ARCH }}-cpu16
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
@@ -90,7 +90,7 @@ jobs:
         include:
           - ARCH: "amd64"
             CUDA_VER: "12.5.1"
-            PY_VER: "3.11"
+            PY_VER: "3.12"
     runs-on: linux-${{ matrix.ARCH }}-cpu4
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
@@ -114,14 +114,14 @@ jobs:
       #
       #  * architectures: amd64 only
       #  * CUDA: >=12.2
-      #  * Python: 3.10, 3.11, 3.12
+      #  * Python: 3.11, 3.12, 3.13
       #
       # Valid set of RAPIDS ci-conda image tags: https://hub.docker.com/r/rapidsai/ci-conda/tags
       matrix:
         include:
           - ARCH: "amd64"
             CUDA_VER: "12.5.1"
-            PY_VER: "3.10"
+            PY_VER: "3.11"
     runs-on: linux-${{ matrix.ARCH }}-gpu-v100-latest-1
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
