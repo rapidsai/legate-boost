@@ -69,6 +69,11 @@ target_compile_options(legateboost
               "$<$<COMPILE_LANGUAGE:CUDA>:${LB_CUDA_FLAGS}>"
 )
 
+# Need to add this define, as is done in legate CMakeLists.txt as well for __half support.  If
+# __half support fails elsewhere it may be needed there. This may be a CCCL 2.7.0 issue and become
+# unnecessary in the future.
+target_compile_definitions(legateboost PRIVATE _LIBCUDACXX_HAS_NVFP16=1)
+
 if (Legion_USE_CUDA)
   target_compile_definitions(legateboost PRIVATE LEGATEBOOST_USE_CUDA)
 endif()
