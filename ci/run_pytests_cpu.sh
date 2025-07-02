@@ -23,7 +23,6 @@ legate \
     --gpus 0 \
     --omps 0 \
     --module pytest \
-    . \
     -sv \
     --durations=0 \
     "${@}"

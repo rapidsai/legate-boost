@@ -25,8 +25,7 @@ legate \
     --fbmem 28000 \
     --sysmem 28000 \
     --module pytest \
-    . \
     -sv \
-    --durations=0 \
     -k 'not sklearn' \
+    --durations=0 \
     "${@}"
