@@ -145,11 +145,7 @@ dependencies:
           - matrix:
               py: "3.12"
             packages:
-              - python=3.12
-          - matrix:
-              py: "3.13"
-            packages:
-              - &latest_python python=3.13
+              - &latest_python python=3.12
           - matrix:
             packages:
               - *latest_python

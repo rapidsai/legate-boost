@@ -31,7 +31,9 @@ jobs:
         include:
           - ARCH: amd64
             CUDA_VER: "12.5.1"
-            PY_VER: "3.13"
+            # Not using 3.13 due to cupynumeric issue forcing numpy<2:
+            # https://github.com/nv-legate/cupynumeric.internal/issues/840
+            PY_VER: "3.12"
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
     steps:

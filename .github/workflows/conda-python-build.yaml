@@ -47,7 +47,9 @@ jobs:
         PY_VER:
           - "3.11"
           - "3.12"
-          - "3.13"
+          # Can't do 3.13 due to NumPy<2 which is needed due to cupynumeric issue:
+          # https://github.com/nv-legate/cupynumeric.internal/issues/840
+          # - "3.13"
     runs-on: linux-${{ matrix.ARCH }}-cpu4
     container:
       image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
