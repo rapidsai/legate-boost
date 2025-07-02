@@ -115,9 +115,9 @@ requirements:
     # released, a new legate-boost would be required.
     - legate
     - numpy
-    # < 1.7 hopefully only due to:
+    # < 1.6.1 hopefully only due to:
     # https://github.com/nv-legate/cupynumeric.internal/issues/840
-    - scikit-learn>=1.6,<1.7
+    - scikit-learn>=1.6,<1.6.1
     - typing-extensions>=4.0
 
 test:
