@@ -114,8 +114,10 @@ requirements:
     # that if legate-boost builds against, say, legate=24.06.0 and then a legate=24.06.1 is
     # released, a new legate-boost would be required.
     - legate
-    - numpy
-    - scikit-learn
+    # <2 due to bad interaction of cupynumeric and sklearn via NumPy:
+    # https://github.com/nv-legate/cupynumeric.internal/issues/840
+    - numpy<2
+    - scikit-learn>=1.6,<1.6.1
     - typing-extensions>=4.0
 
 test:

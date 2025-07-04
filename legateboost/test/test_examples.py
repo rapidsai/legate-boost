@@ -65,15 +65,15 @@ def test_benchmark(benchmark_dir):
     env = os.environ.copy()
     del env["LEGATE_CONFIG"]
 
-    subprocess.run(
-        "legate --cpus=2 --gpus=0"
-        + " legateboost_scaling.py --nrows 100 --ncols 5 --niter 2"
-        + " --model_types tree,linear,krr,nn",
-        shell=True,
-        check=True,
-        cwd=benchmark_dir,
-        env=env,
+    cmd = (
+        "legate --cpus=2 --gpus=0 --omps=0"
+        " legateboost_scaling.py --nrows 100 --ncols 5 --niter 2"
+        " --model_types tree,linear,krr,nn"
     )
+    res = subprocess.run(
+        cmd, shell=True, capture_output=True, cwd=benchmark_dir, env=env
+    )
+    assert res.returncode == 0, res.stderr.decode("utf-8")
 
 
 def assert_docstrings_run(files):

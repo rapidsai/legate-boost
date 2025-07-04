@@ -12,7 +12,7 @@
 # the License.
 
 # Use this variable to update RAPIDS versions
-set(RAPIDS_VERSION "24.06")
+set(RAPIDS_VERSION "25.04")
 
 if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/LEGATEBOOST-RAPIDS-${RAPIDS_VERSION}.cmake)
     file(DOWNLOAD https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-${RAPIDS_VERSION}/RAPIDS.cmake

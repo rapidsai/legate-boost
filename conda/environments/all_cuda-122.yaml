@@ -15,9 +15,9 @@ dependencies:
 - cuda-nvcc
 - cuda-toolkit
 - cuda-version>=12.2
-- cupynumeric==25.05.*,>=0.0.0.dev0
+- cupynumeric==25.07.*,>=0.0.0.dev0
 - hypothesis>=6
-- legate==25.05.*,>=0.0.0.dev0
+- legate==25.07.*,>=0.0.0.dev0
 - libcublas-dev
 - llvm-openmp
 - make
@@ -27,7 +27,7 @@ dependencies:
 - nbconvert>=7.16
 - ninja>=1.11.1.1
 - notebook>=7
-- numpy
+- numpy<2
 - onnx>=1.10
 - onnxmltools>=1.10
 - openblas
