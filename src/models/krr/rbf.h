@@ -31,12 +31,5 @@ struct RbfOp {
   }
 };
 
-class RbfTask : public Task<RbfTask, RBF> {
- public:
-  static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{RBF}};
-  static void cpu_variant(legate::TaskContext context);
-#ifdef LEGATEBOOST_USE_CUDA
-  static void gpu_variant(legate::TaskContext context);
-#endif
-};
+using RbfTask = UnaryOpTask<RbfOp, RBF>;
 }  // namespace legateboost

@@ -219,15 +219,12 @@ struct target_encoder_encode_fn {
   type_dispatch_float(X.code(), target_encoder_encode_fn(), context);
 }
 }  // namespace legateboost
-
 namespace  // unnamed
 {
-
-const auto reg_id_ = []() -> char {
+void __attribute__((constructor)) register_tasks()
+{
   legateboost::TargetEncoderMeanTask::register_variants();
   legateboost::TargetEncoderEncodeTask::register_variants();
   legateboost::TargetEncoderVarianceTask::register_variants();
-  return 0;
-}();
-
+}
 }  // namespace

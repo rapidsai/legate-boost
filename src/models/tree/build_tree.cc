@@ -582,8 +582,8 @@ struct build_tree_fn {
 
 namespace  // unnamed
 {
-const auto reg_id_ = []() -> char {
+void __attribute__((constructor)) register_tasks()
+{
   legateboost::BuildTreeTask::register_variants();
-  return 0;
-}();
+}
 }  // namespace
