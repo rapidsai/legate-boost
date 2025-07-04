@@ -17,7 +17,7 @@ macro(legateboost_get_rapids_cmake)
 
   if(NOT rapids-cmake-version)
     # default
-    set(rapids-cmake-version 24.10)
+    set(rapids-cmake-version 25.04)
   endif()
 
   if(NOT EXISTS ${CMAKE_BINARY_DIR}/RAPIDS.cmake)

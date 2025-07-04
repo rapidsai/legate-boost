@@ -28,6 +28,14 @@ endif()
 
 set(BUILD_SHARED_LIBS ON)
 
+# add third party dependencies using CPM
+rapids_cpm_init()
+
+# Ensure we find the same CCCL as legate (uses RAPIDS).
+# As of 25.07 this was required (2.5 worked but was found).
+include("${rapids-cmake-dir}/cpm/cccl.cmake")
+rapids_cpm_cccl()
+
 # Look for an existing C++ editable build
 # Not required. We will build it if not found.
 find_package(legateboost QUIET)
