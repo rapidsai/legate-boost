@@ -20,11 +20,11 @@
 #ifdef __CUDACC__
 #include <thrust/binary_search.h>
 #endif
+#include <cuda/std/span>
 #include <cstddef>
 #include <utility>
 #include <tuple>
 #include <algorithm>
-#include <tcb/span.hpp>
 
 namespace legateboost {
 
@@ -155,10 +155,11 @@ __host__ __device__ inline auto CalculateLeafValue(double G,
 template <typename T>
 class SparseSplitProposals {
  public:
-  tcb::span<T> split_proposals;
-  tcb::span<int32_t> row_pointers;
+  cuda::std::span<T> split_proposals;
+  cuda::std::span<int32_t> row_pointers;
   // The rightmost split proposal for each feature must be +inf
-  SparseSplitProposals(const tcb::span<T>& split_proposals, const tcb::span<int32_t> row_pointers)
+  SparseSplitProposals(const cuda::std::span<T>& split_proposals,
+                       const cuda::std::span<int32_t> row_pointers)
     : split_proposals(split_proposals), row_pointers(row_pointers)
   {
   }
@@ -174,11 +175,11 @@ class SparseSplitProposals {
 // Returns the bin index for a given feature and value
 // If the value is not in the split proposals, -1 is returned
 #ifdef __CUDACC__
-  __device__ auto FindBin(T x, int feature) const -> int
+  [[nodiscard]] __device__ auto FindBin(T x, int feature) const -> int
   {
-    const auto begin   = split_proposals.begin() + row_pointers[feature];
-    const auto end     = split_proposals.begin() + row_pointers[feature + 1];
-    const auto* result = thrust::lower_bound(thrust::seq, begin, end, x);
+    const auto begin  = split_proposals.begin() + row_pointers[feature];
+    const auto end    = split_proposals.begin() + row_pointers[feature + 1];
+    const auto result = thrust::lower_bound(thrust::seq, begin, end, x);
     EXPECT_DEVICE(result != end, "Value not found in split proposals");
     return result - split_proposals.begin();
   }
@@ -189,7 +190,9 @@ class SparseSplitProposals {
   // This could potentially be specialised for the 256 items case
   // https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
   template <class ForwardIt>
-  constexpr ForwardIt branchless_lower_bound(ForwardIt first, ForwardIt last, const T& value) const
+  [[nodiscard]] constexpr ForwardIt branchless_lower_bound(ForwardIt first,
+                                                           ForwardIt last,
+                                                           const T& value) const
   {
     int n          = last - first;
     ForwardIt base = first;
@@ -203,9 +206,9 @@ class SparseSplitProposals {
 
   [[nodiscard]] auto FindBin(T x, int feature) const -> int
   {
-    const auto begin   = split_proposals.begin() + row_pointers[feature];
-    const auto end     = split_proposals.begin() + row_pointers[feature + 1];
-    const auto* result = branchless_lower_bound(begin, end, x);
+    const auto begin  = split_proposals.begin() + row_pointers[feature];
+    const auto end    = split_proposals.begin() + row_pointers[feature + 1];
+    const auto result = branchless_lower_bound(begin, end, x);
     return result - split_proposals.begin();
   }
 #endif
@@ -267,7 +270,7 @@ class Histogram {
     static_assert(sizeof(GPairT) == 2 * sizeof(typename GPairT::value_type),
                   "Unexpected size of GPairT");
 
-    tcb::span<GPairT> span(buffer_.ptr(legate::Point<3>::ZEROES()), size_);
+    cuda::std::span<GPairT> span(buffer_.ptr(legate::Point<3>::ZEROES()), size_);
     for (auto& g : span) { g = GPairT{0.0, 0.0}; }
   }
 #endif

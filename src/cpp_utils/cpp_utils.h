@@ -18,6 +18,7 @@
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/execution_policy.h>
+#include <cuda/std/span>
 #include <assert.h>
 #include <cstdio>
 #include <string>
@@ -28,7 +29,6 @@
 #include <tuple>
 #include "legate_library.h"
 #include "legate/comm/coll.h"
-#include <tcb/span.hpp>
 
 namespace legateboost {
 
@@ -182,7 +182,7 @@ constexpr auto type_dispatch_float(legate::Type::Code code, Functor&& f, Fnargs&
 }
 
 template <typename T, typename OpT>
-void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
+void AllReduce(legate::TaskContext context, cuda::std::span<T> x, OpT op)
 {
   const auto& domain     = context.get_launch_domain();
   const size_t num_ranks = domain.get_volume();
@@ -222,7 +222,7 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, OpT op)
 }
 
 template <typename T>
-void SumAllReduce(legate::TaskContext context, tcb::span<T> x)
+void SumAllReduce(legate::TaskContext context, cuda::std::span<T> x)
 {
   AllReduce(context, x, std::plus<T>());
 }

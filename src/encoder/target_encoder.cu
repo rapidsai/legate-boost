@@ -15,23 +15,23 @@
  */
 #include "target_encoder.h"
 #include <thrust/find.h>
+#include <cuda/std/span>
 #include <vector>
 #include <unordered_map>
 #include <random>
-#include <tcb/span.hpp>
 #include "../cpp_utils/cpp_utils.cuh"
 
 namespace legateboost {
 
 template <typename T>
 struct CategoriesMap {
-  tcb::span<const T> categories;
-  tcb::span<const int64_t> row_pointers;
+  cuda::std::span<const T> categories;
+  cuda::std::span<const int64_t> row_pointers;
   __device__ int64_t GetIndex(T x, int64_t feature_idx) const
   {
-    const auto* begin  = categories.begin() + row_pointers[feature_idx];
-    const auto* end    = categories.begin() + row_pointers[feature_idx + 1];
-    const auto* result = thrust::find(thrust::seq, begin, end, x);
+    const auto begin  = categories.begin() + row_pointers[feature_idx];
+    const auto end    = categories.begin() + row_pointers[feature_idx + 1];
+    const auto result = thrust::find(thrust::seq, begin, end, x);
     if (result == end) { return -1; }
     return result - categories.begin();
   }

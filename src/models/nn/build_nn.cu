@@ -309,7 +309,7 @@ auto eval_cost(NNContext* context,
                          result.ptr(0),
                          cost_array.size(),
                          context->stream);
-  SumAllReduce(context->legate_context, tcb::span<T>(result.ptr(0), 1), context->stream);
+  SumAllReduce(context->legate_context, cuda::std::span<T>(result.ptr(0), 1), context->stream);
 
   T cost;
   cudaMemcpyAsync(&cost, result.ptr(0), sizeof(T), cudaMemcpyDeviceToHost, context->stream);
@@ -401,7 +401,7 @@ auto backward(NNContext* nn_context,
 
   // Scale and allreduce gradients
   SumAllReduce(nn_context->legate_context, grads.data, nn_context->stream);
-  // Cannot use tcb::span in kernel
+  // TODO(seberg): Could previously not use span in kernel
   LaunchN(grads.size(), nn_context->stream, [=] __device__(int64_t idx) {
     grads.data[idx] /= total_rows;
   });

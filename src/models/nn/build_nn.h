@@ -14,10 +14,10 @@
  *
  */
 #pragma once
+#include <cuda/std/span>
 #include <algorithm>
 #include <memory>
 #include <limits>
-#include <tcb/span.hpp>
 #include "../../cpp_utils/cpp_utils.h"
 #include "legate_library.h"
 #include "legateboost.h"
@@ -27,10 +27,10 @@ namespace legateboost {
 template <typename T>
 struct Matrix {
   std::array<int64_t, 2> extent{};
-  tcb::span<T> data;
+  cuda::std::span<T> data;
   std::shared_ptr<legate::Buffer<T, 2>> buffer;
 
-  Matrix(tcb::span<T> data, std::array<int64_t, 2> extent)
+  Matrix(cuda::std::span<T> data, std::array<int64_t, 2> extent)
     : extent({std::max(extent[0], 0L), std::max(extent[1], 0L)}), data(data)
   {
     if (extent[0] * extent[1] != data.size()) {
@@ -58,20 +58,22 @@ struct Matrix {
   static auto From1dOutputStore(const legate::PhysicalStore& store) -> Matrix<T>
   {
     auto shape = store.shape<1>();
-    tcb::span<T> const data(store.read_write_accessor<T, 1, true>().ptr(shape.lo), shape.volume());
+    cuda::std::span<T> const data(store.read_write_accessor<T, 1, true>().ptr(shape.lo),
+                                  shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, 1});
   }
 
   static auto From2dStore(legate::PhysicalStore store) -> Matrix<T>
   {
     auto shape = store.shape<2>();
-    tcb::span<T> data(store.read_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
+    cuda::std::span<T> data(store.read_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
   static auto From2dOutputStore(const legate::PhysicalStore& store) -> Matrix<T>
   {
     auto shape = store.shape<2>();
-    tcb::span<T> const data(store.read_write_accessor<T, 2, true>().ptr(shape.lo), shape.volume());
+    cuda::std::span<T> const data(store.read_write_accessor<T, 2, true>().ptr(shape.lo),
+                                  shape.volume());
     return Matrix<T>(data, {shape.hi[0] - shape.lo[0] + 1, shape.hi[1] - shape.lo[1] + 1});
   }
 

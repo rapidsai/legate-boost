@@ -40,7 +40,7 @@ namespace {
 struct NodeBatch {
   int32_t node_idx_begin{};
   int32_t node_idx_end{};
-  tcb::span<cuda::std::tuple<int32_t, int32_t>> instances;
+  cuda::std::span<cuda::std::tuple<int32_t, int32_t>> instances;
   __host__ __device__ auto InstancesInBatch() const -> std::size_t { return instances.size(); }
   __host__ __device__ auto NodesInBatch() const -> std::size_t
   {
@@ -88,7 +88,7 @@ class GradientQuantiser {
     // Take the max of the local sums
     AllReduce(context,
               // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-              tcb::span<double>{reinterpret_cast<double*>(local_abs_sum_device.ptr(0)), 2},
+              cuda::std::span<double>{reinterpret_cast<double*>(local_abs_sum_device.ptr(0)), 2},
               ncclMax,
               stream);
     CHECK_CUDA(cudaMemcpyAsync(
@@ -893,7 +893,7 @@ auto SelectSplitSamples(legate::TaskContext context,
 
   // Sum reduce over all workers
   SumAllReduce(
-    context, tcb::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples), stream);
+    context, cuda::std::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples), stream);
 
   CHECK_CUDA_STREAM(stream);
 
@@ -927,7 +927,7 @@ auto SelectSplitSamples(legate::TaskContext context,
   auto row_pointers = legate::create_buffer<int32_t, 1>(num_features + 1);
   CHECK_CUDA(cudaMemsetAsync(row_pointers.ptr(0), 0, (num_features + 1) * sizeof(int32_t), stream));
 
-  tcb::span<int32_t> const out_keys_span(out_keys.ptr(0), num_features * split_samples);
+  cuda::std::span<int32_t> const out_keys_span(out_keys.ptr(0), num_features * split_samples);
   auto unique_keys_span = out_keys_span.subspan(0, n_unique);
   thrust::reduce_by_key(policy,
                         unique_keys_span.begin(),
@@ -936,7 +936,7 @@ auto SelectSplitSamples(legate::TaskContext context,
                         thrust::make_discard_iterator(),
                         row_pointers.ptr(1));
   // Scan the counts to get the row pointers for a CSR matrix
-  tcb::span<int32_t> const row_pointers_span(row_pointers.ptr(0), num_features + 1);
+  cuda::std::span<int32_t> const row_pointers_span(row_pointers.ptr(0), num_features + 1);
   thrust::inclusive_scan(policy,
                          row_pointers_span.begin() + 1,
                          row_pointers_span.begin() + 1 + num_features,
@@ -1020,8 +1020,8 @@ struct TreeBuilder {
   template <typename TYPE>
   void UpdatePositions(Tree& tree, const legate::AccessorRO<TYPE, 3>& X, legate::Rect<3> X_shape)
   {
-    tcb::span<int32_t> const tree_feature_span(tree.feature.ptr(0), max_nodes);
-    tcb::span<double> const tree_split_value_span(tree.split_value.ptr(0), max_nodes);
+    cuda::std::span<int32_t> const tree_feature_span(tree.feature.ptr(0), max_nodes);
+    cuda::std::span<double> const tree_split_value_span(tree.split_value.ptr(0), max_nodes);
     auto max_nodes_ = this->max_nodes;
 
     LaunchN(num_rows,
@@ -1099,12 +1099,12 @@ struct TreeBuilder {
     CHECK_CUDA_STREAM(stream);
 
     using ReduceT = Histogram<IntegerGPair>::value_type::value_type;
-    SumAllReduce(
-      context,
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-      tcb::span<ReduceT>(reinterpret_cast<ReduceT*>(histogram.Ptr(batch.node_idx_begin)),
-                         batch.NodesInBatch() * num_outputs * split_proposals.HistogramSize() * 2),
-      stream);
+    SumAllReduce(context,
+                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                 cuda::std::span<ReduceT>(
+                   reinterpret_cast<ReduceT*>(histogram.Ptr(batch.node_idx_begin)),
+                   batch.NodesInBatch() * num_outputs * split_proposals.HistogramSize() * 2),
+                 stream);
 
     const int kScanBlockThreads  = 256;
     const size_t warps_needed    = num_features * batch.NodesInBatch();
@@ -1162,8 +1162,8 @@ struct TreeBuilder {
 
     SumAllReduce(context,
                  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-                 tcb::span<int64_t>(reinterpret_cast<int64_t*>(tree.node_sums.ptr({0, 0})),
-                                    static_cast<size_t>(num_outputs * 2)),
+                 cuda::std::span<int64_t>(reinterpret_cast<int64_t*>(tree.node_sums.ptr({0, 0})),
+                                          static_cast<size_t>(num_outputs * 2)),
                  stream);
     LaunchN(num_outputs,
             stream,
@@ -1199,7 +1199,7 @@ struct TreeBuilder {
 
   auto PrepareBatches(int depth) -> std::vector<NodeBatch>
   {
-    tcb::span<cuda::std::tuple<int32_t, int32_t>> const sorted_positions_span(
+    cuda::std::span<cuda::std::tuple<int32_t, int32_t>> const sorted_positions_span(
       sorted_positions.ptr(0), num_rows);
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
@@ -1212,7 +1212,7 @@ struct TreeBuilder {
     // search
     const int num_batches = (BinaryTree::NodesInLevel(depth) + max_batch_size - 1) / max_batch_size;
     auto batches          = legate::create_buffer<NodeBatch, 1>(num_batches);
-    auto batches_span     = tcb::span<NodeBatch>(batches.ptr(0), num_batches);
+    auto batches_span     = cuda::std::span<NodeBatch>(batches.ptr(0), num_batches);
     LaunchN(num_batches,
             stream,
             [                     =,
@@ -1236,7 +1236,7 @@ struct TreeBuilder {
                                                sorted_positions_span.end(),
                                                cuda::std::tuple(batch_end - 1, 0),
                                                comp);
-              tcb::span<cuda::std::tuple<int32_t, int32_t>> const span(lower, upper);
+              cuda::std::span<cuda::std::tuple<int32_t, int32_t>> const span(lower, upper);
               batches_span[batch_idx] = {batch_begin, batch_end, span};
             });
 

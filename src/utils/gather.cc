@@ -15,8 +15,8 @@
  *
  */
 #include <legate.h>
+#include <cuda/std/span>
 #include <cstdint>
-#include <tcb/span.hpp>
 #include "../cpp_utils/cpp_utils.h"
 #include "gather.h"
 
@@ -40,7 +40,7 @@ struct gather_fn {
     auto n_features = split_proposals_shape.hi[1] - split_proposals_shape.lo[1] + 1;
 
     // we can retrieve sample ids via argument(host) or legate store (host)
-    tcb::span<const int64_t> sample_rows{};
+    cuda::std::span<const int64_t> sample_rows{};
     if (!context.scalars().empty()) {
       auto legate_span = context.scalar(0).values<int64_t>();
       sample_rows      = {legate_span.ptr(), legate_span.size()};
@@ -58,8 +58,9 @@ struct gather_fn {
       }
     }
 
-    SumAllReduce(context,
-                 tcb::span(split_proposals_accessor.ptr({0, 0}), sample_rows.size() * n_features));
+    SumAllReduce(
+      context,
+      cuda::std::span(split_proposals_accessor.ptr({0, 0}), sample_rows.size() * n_features));
   }
 };
 
