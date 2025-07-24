@@ -42,8 +42,8 @@ struct gather_fn {
     auto* stream = context.get_task_stream();
 
     // we can retrieve sample ids via argument(host) or legate_store(device)
-    tcb::span<const int64_t> sample_rows{};
-    tcb::span<const int64_t> sample_rows_host{};
+    cuda::std::span<const int64_t> sample_rows{};
+    cuda::std::span<const int64_t> sample_rows_host{};
     bool const host_samples = !context.scalars().empty();
     if (host_samples) {
       auto sample_rows_span = context.scalar(0).values<int64_t>();
@@ -76,7 +76,7 @@ struct gather_fn {
     // use NCCL for reduction
     SumAllReduce(
       context,
-      tcb::span<T>(split_proposals_accessor.ptr({0, 0}), n_features * sample_rows.size()),
+      cuda::std::span<T>(split_proposals_accessor.ptr({0, 0}), n_features * sample_rows.size()),
       stream);
 
     CHECK_CUDA_STREAM(stream);
