@@ -175,7 +175,7 @@ class SparseSplitProposals {
 // Returns the bin index for a given feature and value
 // If the value is not in the split proposals, -1 is returned
 #ifdef __CUDACC__
-  __device__ auto FindBin(T x, int feature) const -> int
+  [[nodiscard]] __device__ auto FindBin(T x, int feature) const -> int
   {
     const auto begin  = split_proposals.begin() + row_pointers[feature];
     const auto end    = split_proposals.begin() + row_pointers[feature + 1];
@@ -190,7 +190,9 @@ class SparseSplitProposals {
   // This could potentially be specialised for the 256 items case
   // https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
   template <class ForwardIt>
-  constexpr ForwardIt branchless_lower_bound(ForwardIt first, ForwardIt last, const T& value) const
+  [[nodiscard]] constexpr ForwardIt branchless_lower_bound(ForwardIt first,
+                                                           ForwardIt last,
+                                                           const T& value) const
   {
     int n          = last - first;
     ForwardIt base = first;

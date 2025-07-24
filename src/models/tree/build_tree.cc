@@ -281,8 +281,8 @@ struct TreeBuilder {
 
     // NCCL cannot allreduce custom types, need to reinterpret as double
     SumAllReduce(context,
-                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                  cuda::std::span<double>(
+                   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                    reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
                    batch.NodesInBatch() * num_outputs * split_proposals.HistogramSize() * 2));
     this->Scan(histogram, batch, tree);
