@@ -82,7 +82,9 @@ def get_feature_distribution(model):
     histogram = cn.zeros(model.n_features_in_)
     for m in model:
         histogram += cn.histogram(
-            m.feature, bins=model.n_features_in_, range=(0, model.n_features_in_)
+            m.feature.astype(cn.int64),
+            bins=model.n_features_in_,
+            range=(0, model.n_features_in_),
         )[0]
     return histogram / histogram.sum()
 
