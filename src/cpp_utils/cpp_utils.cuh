@@ -16,17 +16,20 @@
 
 #pragma once
 
+#include "cpp_utils.h"
+
 #include <nccl.h>
 #include <thrust/execution_policy.h>
 #include <thrust/system_error.h>
-#include <cstddef>
+
+#include <cuda/std/span>
 #include <cstdio>
-#include <utility>
+#include <cstddef>
 #include <string>
-#include <tcb/span.hpp>
+#include <utility>
+
 #include "legate.h"
 #include "legate/cuda/cuda.h"
-#include "cpp_utils.h"
 
 namespace legateboost {
 
@@ -96,7 +99,10 @@ inline void LaunchN(size_t n, cudaStream_t stream, const L& lambda)
 }
 
 template <typename T>
-void AllReduce(legate::TaskContext context, tcb::span<T> x, ncclRedOp_t op, cudaStream_t stream)
+void AllReduce(legate::TaskContext context,
+               cuda::std::span<T> x,
+               ncclRedOp_t op,
+               cudaStream_t stream)
 {
   const auto& domain     = context.get_launch_domain();
   size_t const num_ranks = domain.get_volume();
@@ -123,7 +129,7 @@ void AllReduce(legate::TaskContext context, tcb::span<T> x, ncclRedOp_t op, cuda
 }
 
 template <typename T>
-void SumAllReduce(legate::TaskContext context, tcb::span<T> x, cudaStream_t stream)
+void SumAllReduce(legate::TaskContext context, cuda::std::span<T> x, cudaStream_t stream)
 {
   AllReduce(context, x, ncclSum, stream);
 }

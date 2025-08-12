@@ -231,7 +231,7 @@ auto eval_cost(NNContext* context,
 
   sum /= total_rows * pred.extent[1];
 
-  SumAllReduce(context->legate_context, tcb::span<double>(&sum, 1));
+  SumAllReduce(context->legate_context, cuda::std::span<double>(&sum, 1));
 
   if (alpha > 0.0) {
     T L2 = 0.0;

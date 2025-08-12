@@ -598,7 +598,7 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         f = cn.log(pred) * (K - 1)  # undo softmax
         y_k = cn.full((y.size, K), -self.one / (K - self.one))
         labels = y.astype(cn.int32).squeeze()
-        set_col_by_idx(y_k, labels, self.one)
+        y_k = set_col_by_idx(y_k, labels, self.one)
         # y_k[cn.arange(y.size), labels] = 1.0
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
 

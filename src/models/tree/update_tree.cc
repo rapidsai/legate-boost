@@ -14,8 +14,8 @@
  *
  */
 #include <legate.h>
+#include <cuda/std/span>
 #include <cstdint>
-#include <tcb/span.hpp>
 #include "legate_library.h"
 #include "legateboost.h"
 #include "build_tree.h"
@@ -97,8 +97,10 @@ struct update_tree_fn {
     }
 
     // Sync the new statistics
-    SumAllReduce(context, tcb::span<double>(new_gradient.ptr({0, 0}), num_nodes * num_outputs));
-    SumAllReduce(context, tcb::span<double>(new_hessian.ptr({0, 0}), num_nodes * num_outputs));
+    SumAllReduce(context,
+                 cuda::std::span<double>(new_gradient.ptr({0, 0}), num_nodes * num_outputs));
+    SumAllReduce(context,
+                 cuda::std::span<double>(new_hessian.ptr({0, 0}), num_nodes * num_outputs));
 
     // Update tree
     for (int i = 0; i < num_nodes; i++) {

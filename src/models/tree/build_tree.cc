@@ -72,7 +72,7 @@ class BinnedX {
 struct NodeBatch {
   int32_t node_idx_begin{};
   int32_t node_idx_end{};
-  tcb::span<std::tuple<int32_t, int32_t>> instances;
+  cuda::std::span<std::tuple<int32_t, int32_t>> instances;
   [[nodiscard]] auto begin() const { return instances.begin(); }
   [[nodiscard]] auto end() const { return instances.end(); }
   __host__ __device__ [[nodiscard]] auto InstancesInBatch() const -> std::size_t
@@ -193,7 +193,8 @@ auto SelectSplitSamples(legate::TaskContext context,
       draft_proposals[{j, i}] = has_data ? X[{row, j, 0}] : T(0);
     }
   }
-  SumAllReduce(context, tcb::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples));
+  SumAllReduce(context,
+               cuda::std::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples));
 
   // Sort samples
   std::vector<T> split_proposals_tmp;
@@ -202,7 +203,7 @@ auto SelectSplitSamples(legate::TaskContext context,
   row_pointers[0]   = 0;
   for (int j = 0; j < num_features; j++) {
     auto ptr = draft_proposals.ptr({j, 0});
-    tcb::span<T> const feature_proposals(draft_proposals.ptr({j, 0}), split_samples);
+    cuda::std::span<T> const feature_proposals(draft_proposals.ptr({j, 0}), split_samples);
     std::set<T> const unique(feature_proposals.begin(), feature_proposals.end());
     row_pointers[j + 1] = row_pointers[j] + unique.size();
     split_proposals_tmp.insert(split_proposals_tmp.end(), unique.begin(), unique.end());
@@ -279,11 +280,11 @@ struct TreeBuilder {
     }
 
     // NCCL cannot allreduce custom types, need to reinterpret as double
-    SumAllReduce(
-      context,
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-      tcb::span<double>(reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
-                        batch.NodesInBatch() * num_outputs * split_proposals.HistogramSize() * 2));
+    SumAllReduce(context,
+                 cuda::std::span<double>(
+                   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                   reinterpret_cast<double*>(histogram.Ptr(batch.node_idx_begin)),
+                   batch.NodesInBatch() * num_outputs * split_proposals.HistogramSize() * 2));
     this->Scan(histogram, batch, tree);
   }
 
@@ -429,8 +430,8 @@ struct TreeBuilder {
 
   auto PrepareBatches(int depth) -> std::vector<NodeBatch>
   {
-    tcb::span<std::tuple<int32_t, int32_t>> const sorted_positions_span(sorted_positions.ptr(0),
-                                                                        num_rows);
+    cuda::std::span<std::tuple<int32_t, int32_t>> const sorted_positions_span(
+      sorted_positions.ptr(0), num_rows);
     // Shortcut if we have 1 batch
     if (BinaryTree::NodesInLevel(depth) <= max_batch_size) {
       // All instances are in batch
@@ -483,8 +484,8 @@ struct TreeBuilder {
     // NCCL cannot allreduce custom types, need to reinterpret as double
     SumAllReduce(context,
                  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-                 tcb::span<double>(reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})),
-                                   static_cast<size_t>(num_outputs * 2)));
+                 cuda::std::span<double>(reinterpret_cast<double*>(tree.node_sums.ptr({0, 0})),
+                                         static_cast<size_t>(num_outputs * 2)));
     for (auto i = 0; i < num_outputs; ++i) {
       auto [G, H]             = tree.node_sums[{0, i}];
       tree.leaf_value[{0, i}] = CalculateLeafValue(G, H, l1_regularization, l2_regularization);

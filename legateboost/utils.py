@@ -105,7 +105,7 @@ def pick_col_by_idx(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
     return result.sum(axis=1)
 
 
-def set_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
+def set_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> cn.ndarray:
     """Alternative implementation for a[cn.arange(b.size), b] = delta."""
 
     assert a.ndim == 2
@@ -116,7 +116,7 @@ def set_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
     bools = b[:, cn.newaxis] == range[cn.newaxis, :]
     a -= a * bools
     a += delta * bools
-    return
+    return a
 
 
 def mod_col_by_idx(a: cn.ndarray, b: cn.ndarray, delta: float) -> None:
