@@ -343,8 +343,8 @@ class ExponentialMetric(BaseMetric):
         f = cn.log(pred) * (K - self.one)  # undo softmax
         y_k = cn.full((y.size, K), -self.one / (K - self.one))
 
-        set_col_by_idx(y_k, y.astype(cn.int32), self.one)
-        # y_k[cn.arange(y.size), y.astype(cn.int32)] = 1.0
+        # y_k[cn.arange(y.size), y.astype(cn.int32)] = self.one
+        y_k = set_col_by_idx(y_k, y.astype(cn.int32), self.one)
 
         exp = cn.exp(-1 / K * cn.sum(y_k * f, axis=1))
         return (exp * w).sum() / w.sum()
