@@ -61,8 +61,13 @@ def test_notebooks(path):
     except subprocess.CalledProcessError as e:
         print(e.stderr.decode())
         raise e
-    # import the script to run it in the existing python process
-    importlib.import_module(path.stem)
+
+    # temporary openml issue, this try/catch could be removed once fixed
+    # https://github.com/openml/OpenML/issues/1232
+    try:
+        importlib.import_module(path.stem)
+    except HTTPError as e:
+        print(f"HTTP error in {path}: {e}")
 
 
 def test_benchmark(benchmark_dir):
