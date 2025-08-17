@@ -1,3 +1,5 @@
+import numpy as np
+import onnxruntime as ort
 import pytest
 
 import cupynumeric as cn
@@ -5,11 +7,25 @@ import legateboost as lb
 from legateboost.testing.utils import non_increasing
 
 
+def compare_onnx_transform(obj, pred):
+    sess = ort.InferenceSession(obj.onnx_transform(pred).SerializeToString())
+    feeds = {
+        "predictions_in": pred,
+    }
+    onnx_transform = sess.run(None, feeds)[0]
+    assert onnx_transform.dtype == np.float64
+    transform = obj.transform(cn.array(pred))
+    assert transform.shape == onnx_transform.shape
+    assert np.allclose(onnx_transform, transform, atol=1e-6)
+
+
 def test_normal() -> None:
     obj = lb.NormalObjective()
     y = cn.array([[1.0], [2.0], [3.0]])
     init = obj.initialise_prediction(y, cn.array([1.0, 1.0, 1.0]), True)
     assert cn.allclose(init, cn.array([y.mean(), cn.log(y.std())]))
+
+    compare_onnx_transform(obj, np.arange(12).reshape(2, 6).astype(np.float64))
 
 
 def test_gamma_deviance() -> None:
@@ -35,6 +51,8 @@ def test_gamma_deviance() -> None:
     reg.fit(X, y1, eval_set=[(X, y1)], eval_result=eval_result)
     assert non_increasing(eval_result["train"]["deviance_gamma"])
 
+    compare_onnx_transform(obj, np.arange(12).reshape(2, 6).astype(np.float64))
+
 
 def test_gamma() -> None:
     import numpy as np
@@ -50,6 +68,8 @@ def test_gamma() -> None:
     reg = lb.LBRegressor(objective=obj, n_estimators=64, init="average")
     reg.fit(X, y, eval_set=[(X, y)], eval_result=eval_result)
     assert non_increasing(eval_result["train"]["gamma_neg_ll"])
+
+    compare_onnx_transform(obj, np.arange(12).reshape(2, 6).astype(np.float64))
 
 
 def test_log_loss() -> None:
@@ -95,6 +115,9 @@ def test_log_loss() -> None:
             False,
         )
 
+    compare_onnx_transform(obj, np.arange(12).reshape(2, 6).astype(np.float64))
+    compare_onnx_transform(obj, np.arange(4).reshape(4, 1).astype(np.float64))
+
 
 def test_exp():
     obj = lb.ExponentialObjective()
@@ -127,6 +150,9 @@ def test_exp():
             False,
         )
 
+    compare_onnx_transform(obj, np.arange(12).reshape(2, 6).astype(np.float64))
+    compare_onnx_transform(obj, np.arange(4).reshape(4, 1).astype(np.float64))
+
 
 def test_multi_label():
     obj = lb.MultiLabelObjective()
@@ -139,3 +165,5 @@ def test_multi_label():
 
     with pytest.raises(ValueError, match=r"Expected labels to be in \[0, 1\]"):
         obj.initialise_prediction(cn.array([[1], [2]]), cn.array([[1.0], [1.0]]), False)
+
+    compare_onnx_transform(obj, np.arange(12).reshape(2, 6).astype(np.float64))
