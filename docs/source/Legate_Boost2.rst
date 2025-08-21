@@ -1,3 +1,5 @@
+.. _legate-boost:
+
 This article assumes familiarity with the basic usage of gradient
 boosting libraries such as XGBoost or LightGBM, as well as cuPyNumeric
 for GPU-accelerated array computations.
