@@ -68,7 +68,7 @@ Quick installation and setup
 
 
 Usage
------
+=====
 
 Legate Boost offers two main estimator types:
 
@@ -210,7 +210,6 @@ each tree contributes to the final prediction, balancing speed and
 stability. The verbose=True flag enables logging during training,
 allowing to monitor progress and internal operations.
 
-
 Code module
 -----------
 
@@ -332,7 +331,6 @@ Each record represents an individual and includes features such as:
 
 The target variable is binary (0 = no distress, 1 = distress),
 indicating the likelihood of future financial trouble.
-
 
 About this implementation
 -------------------------
@@ -507,14 +505,13 @@ CPU execution
 
 To run with CPU, use the following command.
 
-
 .. code-block:: sh
 
    legate --cpus 1 --gpus 0 ./creditscore.py
 
 This produces the following output:
 
-::
+.. code-block:: text
 
    Accuracy: 0.9343
    The training time for credit score exp is : 45337.714000 ms
@@ -530,13 +527,13 @@ To run with GPU, use the following command.
 
 This produces the following output:
 
-::
+.. code-block:: text
 
    Accuracy: 0.9353
    The training time for credit score exp is : 2688.233000 ms
 
 Inference performance
--------------------------
+=====================
 
 Let’s explore how cuPyNumeric can be leveraged to measure inference
 performance statistics seamlessly across both CPU and GPU all without
