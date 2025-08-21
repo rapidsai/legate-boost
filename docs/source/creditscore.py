@@ -85,8 +85,8 @@ start = time()
 
 model = lb.LBClassifier(
     base_models=(
-        lb.models.Tree(max_depth=2),
-        lb.models.NN(max_iter=2, hidden_layer_sizes=(10,), verbose=True)
+        lb.models.Tree(max_depth=8),
+        lb.models.NN(max_iter=10, hidden_layer_sizes=(10,10), verbose=True)
     )
 ).fit(x_train, y_train)
 
