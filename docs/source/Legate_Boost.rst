@@ -57,8 +57,8 @@ Quick installation and setup
    conda install -c conda-forge cmake>=3.26.4
 
    # build wrappers
-   /global/homes/n/ngraddon/.conda/envs/legate-boost-new/mpi-wrapper/build-mpi-wrapper.sh
-   /global/homes/n/ngraddon/.conda/envs/legate-boost-new/gex-wrapper/build-gex-wrapper.sh
+   ~/.conda/envs/legate-boost-new/mpi-wrapper/build-mpi-wrapper.sh
+   ~/.conda/envs/legate-boost-new/gex-wrapper/build-gex-wrapper.sh
 
    # reactivate env
    conda activate legate-boost
