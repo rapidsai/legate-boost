@@ -1,4 +1,4 @@
-# [import-libraries]
+# [import libraries]
 import cudf
 import pandas
 import cupy as cp
@@ -15,20 +15,20 @@ from legate_dataframe.lib.core.column import LogicalColumn
 
 rt = lg.get_legate_runtime()
 
-# [import-data]
+# [import data]
 data = fetch_openml(data_id=46929, as_frame=True)
 xd = cudf if cp.cuda.runtime.getDeviceCount() > 0 else pandas
 df = xd.DataFrame(data.data, columns=data.feature_names)
 df['Target'] = data.target
 
-# [convert-to-LogicalTable]
+# [convert to LogicalTable]
 if cp.cuda.runtime.getDeviceCount() > 0:
     ldf = LogicalTable.from_cudf(df)
 else:
     df = pa.Table.from_pandas(df)
     ldf = LogicalTable.from_arrow(df)
     
-# [covert-to-LogicalTable-end]
+# [covert to LogicalTable end]
 
 # [Replace nulls]
 median_salary = df["MonthlyIncome"].median()
@@ -41,7 +41,7 @@ mnd = LogicalColumn(
     replace_nulls(LogicalColumn(ldf["NumberOfDependents"]), median_dependents)
 )
 
-# [Create-new-LogicalTable-with-updated-columns]
+# [Create new LogicalTable with updated columns]
 
 features = ldf.get_column_names()
 nldf = LogicalTable(
@@ -52,13 +52,13 @@ nldf = LogicalTable(
     features
 )
 
-# [Convert-to-cupynumeric-array]
+# [Convert to cupynumeric array]
 
 data_arr = nldf.to_array()
 
-# [convert-to-cupynumeric-array-end]
+# [convert to cupynumeric array end]
 
-# [preparing-data-for-training-and-testing]
+# [preparing data for training and testing]
 x = data_arr[:, :-1]   # all columns except last
 y = data_arr[:, -1]
 
@@ -85,7 +85,7 @@ model = lb.LBClassifier(
 
 rt.issue_execution_fence()
 end = time()
-# [training-end]
+# [training end]
 
 # [Prediction]
 predictions = model.predict(x_test)
