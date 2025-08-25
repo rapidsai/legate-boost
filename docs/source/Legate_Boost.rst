@@ -5,9 +5,10 @@
 Legate Boost
 =============
 
-This article assumes familiarity with the basic usage of gradient
-boosting libraries such as XGBoost or LightGBM, as well as cuPyNumeric
-for GPU-accelerated array computations.
+This article assumes familiarity with the basic usage of gradient boosting
+libraries such as XGBoost or LightGBM, as well as cuPyNumeric for GPU-accelerated
+array computations. In this tutorial, these libraries are used for efficient model
+training, large-scale data handling, and accelerating computations across CPUs and GPUs.
 
 What is legate boost?
 =====================
