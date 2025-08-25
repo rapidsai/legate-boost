@@ -46,17 +46,3 @@ mse = mean_squared_error(y_test, y_pred)
 print(f"Test MSE: {mse:.4f}")
 print(f"\nThe training time for housing exp is: {(end - start)/1000:.6f} ms")
 print(f"\nThe inference time for housing exp is {(iend - istart)/1000:.6f} ms")
-
-# ---------------------------
-# Save model
-# ---------------------------
-dump(model, "legate_boost_housing.joblib")
-
-# ----------------------------
-# Save test data
-# ----------------------------
-x_test_cpu = X_test.get() if hasattr(X_test, "get") else np.array(X_test)
-y_test_cpu = y_test.get() if hasattr(y_test, "get") else np.array(y_test)
-
-pd.DataFrame(x_test_cpu).to_csv("x_test_housing.csv", index=False)
-pd.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test_housing.csv", index=False)
