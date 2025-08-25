@@ -6,7 +6,7 @@ Legate Boost
 =============
 
 This article assumes familiarity with the basic usage of gradient boosting
-libraries such as XGBoost or LightGBM, as well as cuPyNumeric for GPU-accelerated
+libraries such as ``XGBoost`` or ``LightGBM``, as well as ``cupynumeric`` for GPU-accelerated
 array computations. In this tutorial, these libraries are used for efficient model
 training, large-scale data handling, and accelerating computations across CPUs and GPUs.
 
@@ -14,29 +14,29 @@ What is legate boost?
 =====================
 
 In scenarios where high-performance training is needed across large
-datasets or distributed hardware, Legate Boost offers a scalable
-alternative. Legate Boost is an advanced gradient boosting library built
-on the Legate and Legion parallel programming frameworks. Unlike
-traditional boosting libraries such as XGBoost or LightGBM, Legate Boost
-provides a unified infrastructure that seamlessly scales across CPUs and
-GPUs, supporting both single-node and distributed training while
-integrating naturally with cuPyNumeric workflows for efficient
+datasets or distributed hardware, ``Legate Boost`` offers a scalable
+alternative. ``Legate Boost`` is an advanced gradient boosting library built
+on the ``Legate`` and Legion parallel programming frameworks. Unlike
+traditional boosting libraries such as ``XGBoost`` or ``LightGBM``, ``Legate Boost``
+provides a unified infrastructure that seamlessly scales across ``CPU's`` and
+``GPU's``, supporting both single-node and distributed training while
+integrating naturally with ``cupynumeric`` workflows for efficient
 end-to-end data processing. It enables users to define not only
 conventional boosted decision trees but also hybrid ensembles combining
 trees, kernel ridge regression, linear models, or neural networks, all
 written in Python with minimal code changes.
 
 These models are automatically parallelized and executed efficiently
-without manual data movement or partitioning. Legate Boost emphasizes
+without manual data movement or partitioning. ``Legate Boost`` emphasizes
 architectural simplicity, extensibility, and performance, delivering
 state-of-the-art results on tabular data while leveraging the full
 computational power of modern heterogeneous hardware.
 
-Please refer to `Distributed Computing with cuPyNumeric`_
+Please refer to `Distributed Computing with cupynumeric`_
 and `Legate boost`_ for more
 information and detailed instructions on installation.
 
-.. _Distributed Computing with cuPyNumeric: https://github.com/NVIDIA/accelerated-computing-hub/blob/main/Accelerated_Python_User_Guide/notebooks/Chapter_11_Distributed_Computing_cuPyNumeric.ipynb
+.. _Distributed Computing with cupynumeric: https://github.com/NVIDIA/accelerated-computing-hub/blob/main/Accelerated_Python_User_Guide/notebooks/Chapter_11_Distributed_Computing_cupynumeric.ipynb
 
 .. _Legate boost: https://github.com/rapidsai/legate-boost/tree/main
 
@@ -71,21 +71,21 @@ Quick installation and setup
 Usage
 =====
 
-Legate Boost offers two main estimator types:
+``Legate Boost`` offers two main estimator types:
 
-- LBRegressor for regression tasks
-- LBClassifier for classification tasks
+- ``LBRegressor`` for regression tasks
+- ``LBClassifier`` for classification tasks
 
-These estimators follow a similar interface to those in XGboost,
+These estimators follow a similar interface to those in ``XGboost``,
 making them easy to integrate into existing machine learning pipelines.
 
 Regression with LBRegressor
 ---------------------------
 
-The LBRegressor estimator is used to predict continuous values such as
+The ``LBRegressor`` estimator is used to predict continuous values such as
 house prices, temperature, or sales forecasting. The following code
-demonstrates how to create an instance of the LBRegressor model, use the
-fit() function to train it on a dataset, and then apply the predict()
+demonstrates how to create an instance of the ``LBRegressor`` model, use the
+``fit()`` function to train it on a dataset, and then apply the ``predict()``
 function to generate predictions on new data. Here’s how to set it up:
 
 .. code-block:: python
@@ -112,14 +112,14 @@ function to generate predictions on new data. Here’s how to set it up:
 In this example:
 ~~~~~~~~~~~~~~~~
 
-- LBRegressor is initialized with 100 boosting estimators.
-- The fit() method trains the model using the input features (X_train)
+- ``LBRegressor`` is initialized with 100 boosting estimators.
+- The ``fit()`` method trains the model using the input features (X_train)
   and target values (y_train).
-- After training, the predict() method is used to make predictions on
+- After training, the ``predict()`` method is used to make predictions on
   the test set (X_test).
 
 This represents a typical workflow for applying a regression model using
-Legate Boost. The LBRegressor estimator offers several configurable
+``Legate Boost``. The ``LBRegressor`` estimator offers several configurable
 options, such as base_model and learning_rate, to help optimize model
 performance. For a comprehensive list of features and parameters, refer
 to the `official documentation`_.
@@ -129,13 +129,13 @@ to the `official documentation`_.
 Classification with LBClassifier
 ---------------------------------
 
-The LBClassifier is designed for predicting categorical outcomes and
+The ``LBClassifier`` is designed for predicting categorical outcomes and
 supports both binary and multi-class classification tasks. It is ideal
 for a wide range of applications, including spam detection, image
 classification, and sentiment analysis.
 
 The example below demonstrates how to implement a classification model
-using the LBClassifier estimator from Legate Boost:
+using the ``LBClassifier`` estimator from ``Legate Boost``:
 
 .. code-block:: python
 
@@ -158,14 +158,14 @@ using the LBClassifier estimator from Legate Boost:
 In this example:
 ~~~~~~~~~~~~~~~~
 
-- LBClassifier(n_estimators=50) sets up a classifier with 50 boosting
+- ``LBClassifier`` (n_estimators=50) sets up a classifier with 50 boosting
   rounds.
 
-- fit(X_train, y_train) learns the patterns from your training dataset.
+- ``fit(X_train, y_train)`` learns the patterns from your training dataset.
 
-- predict(X_test) outputs predicted class labels for the test dataset.
+- ``predict(X_test)`` outputs predicted class labels for the test dataset.
 
-Just like the regressor, the LBClassifier follows a clean and intuitive
+Just like the regressor, the ``LBClassifier`` follows a clean and intuitive
 workflow. It provides additional options and advanced configurations to
 optimize model performance. For more detailed information, refer to the
 Legate Boost `estimators`_ documentation.
@@ -175,7 +175,7 @@ Legate Boost `estimators`_ documentation.
 Example 1
 =========
 
-Here is an example of using Legate Boost to build a regression model on
+Here is an example of using ``Legate Boost`` to build a regression model on
 the California housing dataset. It showcases key features like scalable training across GPUs/nodes,
 customizable base models, and adjustable learning rates.
 
@@ -193,19 +193,19 @@ predictors such as:
 - Population and household count
 - Latitude and longitude
 
-The target variable is the **median house value** in that block group.
+The target variable is the median house value in that block group.
 This dataset is often used to illustrate regression techniques and
 assess predictive performance on real-world tabular data.
 
 About this implementation
 -------------------------
 
-The following code creates a Legate Boost regression model using
-LBRegressor, which trains a gradient boosting model optimized for
+The following code creates a ``Legate Boost`` regression model using
+``LBRegressor``, which trains a gradient boosting model optimized for
 multi-GPU and multi-node environments. The model is configured to use
 100 boosting rounds (n_estimators=100), with each round adding a
 decision tree (lb.models.Tree) limited to a maximum depth of 5. The loss
-function is set to "squared_error", suitable for regression tasks as it
+function is set to squared_error, suitable for regression tasks as it
 minimizes mean squared error. A learning_rate of 0.1 controls how much
 each tree contributes to the final prediction, balancing speed and
 stability. The verbose=True flag enables logging during training,
@@ -246,22 +246,22 @@ Code module
 
 
 This simple example demonstrates how to train a regression model on the
-California Housing dataset using Legate Boost. Although the code looks
-similar to standard XGBoost, Legate Boost automatically enables
-multi-GPU and multi-node computation. Legate Boost achieves multi-GPU
+california housing dataset using ``Legate Boost``. Although the code looks
+similar to standard ``XGBoost``, Legate Boost automatically enables
+multi-GPU and multi-node computation. ``Legate Boost`` achieves multi-GPU
 and multi-node scaling through its integration with cupynumeric and the
 Legion runtime. Unlike traditional GPU libraries that allocate data to a
-single device, cupynumeric creates Logical Arrays and abstract
-representations of the data that are not bound to one GPU. The Legate
-automatically partitions these logical arrays into physical chunks and
+single device, ``cupynumeric`` creates ``logical arrays`` and abstract
+representations of the data that are not bound to one GPU. The ``Legate``
+automatically partitions these ``logical arrays`` into physical chunks and
 maps them across all available GPUs and nodes.
 
 During training, operations such as histogram building, gradient
 computation, and tree construction are expressed as parallel tasks.
-Legate schedules these tasks close to where the data resides, minimizing
+``Legate`` schedules these tasks close to where the data resides, minimizing
 communication overhead. When synchronization is needed (e.g., to combine
-histograms from multiple GPUs), it is handled by legate-mpi-wrapper and
-realm-gex-wrapper, so we never have to write MPI or manage explicit GPU
+histograms from multiple GPUs), it is handled by ``legate-mpi-wrapper`` and
+``realm-gex-wrapper``, so we never have to write MPI or manage explicit GPU
 memory transfers.
 
 Running on CPU and GPU
@@ -298,23 +298,22 @@ This produces the following output:
 
    The training time for housing exp is: 846.949000 milliseconds
 
-**To Do: Multi Node and Multi GPU**
 
 Example 2
 =========
 
-This example demonstrates how Legate Boost can be applied to the *“Give
-Me Some Credit”* dataset (OpenML data_id: 46929) to build a
+This example demonstrates how Legate Boost can be applied to the ``Give
+Me Some Credit`` dataset (OpenML data_id: 46929) to build a
 classification model using ensemble learning by combining different
-model types. It also highlights the integration of Legate DataFrame with
-Legate Boost to enable distributed training across multi-GPU and
+model types. It also highlights the integration of ``Legate Dataframe`` with
+``Legate Boost`` to enable distributed training across multi-GPU and
 multi-node environments, showcasing scalable machine learning on the
-Credit Score dataset.
+credit score dataset.
 
 About the dataset
 -----------------
 
-The Give Me Some Credit dataset is a financial risk prediction dataset
+The ``Give Me Some Credit`` dataset is a financial risk prediction dataset
 originally introduced in a Kaggle competition. It includes anonymized
 credit and demographic data for individuals, with the goal of predicting
 whether a person is likely to experience serious financial distress
@@ -336,7 +335,7 @@ indicating the likelihood of future financial trouble.
 About this implementation
 -------------------------
 
-This implementation will focus on demonstrating Legate Boost’s flexible
+This implementation will focus on demonstrating ``Legate Boost’s`` flexible
 model ensembling capabilities, specifically:
 
 - Tree-based gradient boosting models, ideal for structured/tabular
@@ -344,7 +343,7 @@ model ensembling capabilities, specifically:
 - Neural network-based classifiers, allowing hybrid or deep learning
   approaches.
 
-By leveraging Legate Boost, we can ensemble these two models and
+By leveraging ``Legate Boost``, we can ensemble these two models and
 efficiently train and evaluate both model types on GPUs or CPUs,
 showcasing scalable performance for large tabular datasets in financial
 risk prediction.
@@ -353,8 +352,8 @@ The pipeline begins with importing required libraries and its functions
 and also loading the dataset using fetch_openml. Depending on hardware
 availability, the data is initially handled either with cuDF (for GPU
 execution) or pandas (for CPU execution). The dataset is then wrapped
-into a LogicalTable, the distributed data representation used by Legate
-DataFrame. LogicalTables internally break data into logical columns,
+into a ``LogicalTable``, the distributed data representation used by ``Legate
+Dataframe``. ``LogicalTables`` internally break data into ``logical columns``,
 enabling Legate’s runtime to partition, distribute, and schedule
 computations across multiple GPUs and nodes.
 
@@ -389,13 +388,13 @@ computations across multiple GPUs and nodes.
        ldf = LogicalTable.from_arrow(df)
 
 Let’s see how data preprocessing is performed directly on the
-LogicalTable. Missing values in key columns (MonthlyIncome and
+``LogicalTable``. Missing values in key columns (MonthlyIncome and
 NumberOfDependents) are filled using median imputation through the
 replace_nulls operation. These operations are executed in parallel
-across distributed partitions of the LogicalTable, avoiding centralized
-bottlenecks. Because LogicalTables are immutable, a new LogicalTable
+across distributed partitions of the ``LogicalTable``, avoiding centralized
+bottlenecks. Because ``LogicalTable's`` are immutable, a new ``LogicalTable``
 with updated LogicalColumn’s is created after preprocessing. The cleaned
-data is then converted into a cuPyNumeric array, Legate’s
+data is then converted into a cupynumeric array, Legate’s
 GPU-accelerated array type that leverages logical partitioning for
 distributed computation. This enables the subsequent machine learning
 tasks to execute efficiently across multiple GPUs or nodes.
@@ -419,13 +418,13 @@ tasks to execute efficiently across multiple GPUs or nodes.
        [ldf[0], ldf[1], ldf[2], ldf[3], mni, ldf[5], ldf[6], ldf[7], ldf[8], mnd, ldf[10]],
        features )
 
-   # convert to cuPyNumeric
+   # convert to cupynumeric
    data_arr = nldf.to_array()
 
-As we have a data_arr backed by cuPyNumeric, we first split the dataset
-into training and testing subsets, which are then passed to Legate Boost
+As we have a data_arr backed by ``cupynumeric``, we first split the dataset
+into training and testing subsets, which are then passed to ``Legate Boost``
 for efficient training across available hardware resources. The model is
-built using Legate Boost’s ensemble framework (LBClassifier), which
+built using ``Legate Boost’s`` ensemble framework (LBClassifier), which
 allows combining multiple types of base learners into a single unified
 model.
 
@@ -435,7 +434,7 @@ non-linear decision boundaries by splitting the feature space
 hierarchically up to 8 levels deep, and a Neural Network (lb.models.NN)
 with two hidden layers of 10 neurons each (hidden_layer_sizes=(10,10)),
 trained for max_iter=10 epochs with verbose=True to monitor progress. By
-combining a tree-based model with a neural network, Legate Boost
+combining a tree-based model with a neural network, ``Legate Boost``
 leverages the interpretability and rule-based decision-making of trees
 together with the ability of neural networks to model intricate,
 high-dimensional relationships. This ensemble design results in a more
@@ -466,7 +465,7 @@ individually.
    end = time()
 
 The trained ensemble model is used to generate predictions on the test
-set, and its accuracy is evaluated using accuracy_score. Finally, the
+set, and its accuracy is evaluated using ``accuracy_score``. Finally, the
 model is saved with Joblib for future inference without retraining.
 
 .. code-block:: python
@@ -492,9 +491,9 @@ model is saved with Joblib for future inference without retraining.
    pd.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
    pd.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
 
-This workflow illustrates how Legate DataFrame provides a scalable
-preprocessing layer, cupynumeric arrays enable distributed GPU
-computation, and Legate Boost delivers a flexible ensemble learning
+This workflow illustrates how ``Legate Dataframe`` provides a scalable
+preprocessing layer, ``cupynumeric`` arrays enable distributed GPU
+computation, and ``Legate Boost`` delivers a flexible ensemble learning
 framework capable of leveraging multi-node, multi-GPU infrastructure
 efficiently.
 
@@ -536,13 +535,13 @@ This produces the following output:
 Inference performance
 =====================
 
-Let’s explore how cuPyNumeric can be leveraged to measure inference
+Let’s explore how ``cupynumeric`` can be leveraged to measure inference
 performance statistics seamlessly across both CPU and GPU all without
 modifying the code. In this example, we evaluate a pre-trained machine
 learning model by calculating key metrics such as mean, median, minimum,
 maximum, variance, and standard deviation of inference times. The model
 is loaded using joblib, and predictions are executed multiple times on
-the test dataset. By utilizing cuPyNumeric arrays, the timing results
+the test dataset. By utilizing ``cupynumeric`` arrays, the timing results
 are efficiently processed while ensuring compatibility with both CPU and
 GPU environments. This approach provides a simple yet powerful way to
 compare inference performance across hardware, offering clear insights
@@ -634,14 +633,12 @@ This produces the following output:
    Standard deviation: 1.34 ms
 
 These results clearly show the performance benefits of running inference
-on a GPU compared to a CPU using cuPyNumeric arrays. On the CPU, the
-model achieved a mean inference time of approximately **265.66 ms**,
-with relatively low variability (standard deviation ~\ **10.83 ms**). In
+on a GPU compared to a CPU using ``cupynumeric`` arrays. On the CPU, the
+model achieved a mean inference time of approximately 265.66 ms,
+with relatively low variability (standard deviation ~\ 10.83 ms). In
 contrast, the GPU significantly reduced the mean inference time to
-around **122.35 ms**, representing more than a **2x speedup**, with even
-lower variability (standard deviation ~\ **1.34 ms**). This highlights
-how cuPyNumeric enables the same code to seamlessly scale across CPU and
+around 122.35 ms, representing more than a 2x speedup, with even
+lower variability (standard deviation ~\ 1.34 ms). This highlights
+how ``cupynumeric`` enables the same code to seamlessly scale across CPU and
 GPU, allowing both accurate performance benchmarking and efficient model
 deployment across heterogeneous hardware.
-
-**To Do: Multi Node and Multi GPU**
