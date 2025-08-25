@@ -245,6 +245,9 @@ Code module
    print(f"Training time: {(end - start)/1000:.6f} ms")
 
 
+.. literalinclude:: housing.py
+   :language: python
+
 This simple example demonstrates how to train a regression model on the
 california housing dataset using ``Legate Boost``. Although the code looks
 similar to standard ``XGBoost``, Legate Boost automatically enables
@@ -386,6 +389,9 @@ computations across multiple GPUs and nodes.
    else:
        df = pa.Table.from_pandas(df)
        ldf = LogicalTable.from_arrow(df)
+
+.. literalinclude:: creditscore.py
+   :language: python
 
 Let’s see how data preprocessing is performed directly on the
 ``LogicalTable``. Missing values in key columns (MonthlyIncome and
