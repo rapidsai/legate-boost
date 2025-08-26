@@ -394,8 +394,8 @@ computations across multiple GPUs and nodes.
 
 .. literalinclude:: creditscore.py
    :language: python
-   :start-after: [import-libraries]
-   :end-before: [covert-to-LogicalTable-end]
+   :start-after: [import libraries]
+   :end-before: [covert to LogicalTable end]
 
 Let’s see how data preprocessing is performed directly on the
 ``LogicalTable``. Missing values in key columns (MonthlyIncome and
@@ -439,7 +439,7 @@ tasks to execute efficiently across multiple GPUs or nodes.
 .. literalinclude:: creditscore.py
    :language: python
    :start-after: [Replace nulls]
-   :end-before: [convert-to-cupynumeric-array-end]
+   :end-before: [convert to cupynumeric array end]
 
 As we have a data_arr backed by ``cupynumeric``, we first split the dataset
 into training and testing subsets, which are then passed to ``Legate Boost``
@@ -493,8 +493,8 @@ individually.
 
 .. literalinclude:: creditscore.py
    :language: python
-   :start-after: # [preparing-data-for-training-and-testing]
-   :end-before: # [training-end]
+   :start-after: # [preparing data for training and testing]
+   :end-before: # [training end]
 
 The trained ensemble model is used to generate predictions on the test
 set, and its accuracy is evaluated using ``accuracy_score``. Finally, the
