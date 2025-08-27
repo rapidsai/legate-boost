@@ -20,6 +20,7 @@ for _ in range(10):
 
 timings = timings[1:]
 timings_gpu = cp.array(timings)
+
 mean_time = cp.mean(timings_gpu)
 median_time = cp.median(timings_gpu)
 min_time = cp.min(timings_gpu)
