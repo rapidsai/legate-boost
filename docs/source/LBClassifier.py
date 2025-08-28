@@ -11,6 +11,9 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 # classification model with 50 estimators
 classification_model = lb.LBClassifier(n_estimators=50)
 
+# train the model
 classification_model.fit(X_train, y_train)
+
+# predictions
 y_pred = classification_model.predict(X_test)
 print(y_pred)
