@@ -100,6 +100,9 @@ function to generate predictions on new data. Here’s how to set it up:
    # predict
    y_pred = regression_model.predict(X_test)
 
+.. literalinclude:: LBRegressor.py
+   :language: python
+
 In this example:
 ~~~~~~~~~~~~~~~~
 
@@ -145,6 +148,9 @@ using the ``LBClassifier`` estimator from ``Legate Boost``:
 
    classification_model.fit(X_train, y_train)
    y_pred = classification_model.predict(X_test)
+
+.. literalinclude:: LBClassifier.py
+   :language: python
 
 In this example:
 ~~~~~~~~~~~~~~~~
@@ -484,8 +490,8 @@ individually.
 
 .. literalinclude:: creditscore.py
    :language: python
-   :start-after: # [preparing data for training and testing]
-   :end-before: # [training end]
+   :start-after: [preparing data for training and testing]
+   :end-before: [training end]
 
 The trained ensemble model is used to generate predictions on the test
 set, and its accuracy is evaluated using ``accuracy_score``. Finally, the
@@ -514,7 +520,7 @@ model is saved with Joblib for future inference without retraining.
 
 .. literalinclude:: creditscore.py
    :language: python
-   :start-after: # [Prediction]
+   :start-after: [Prediction]
 
 This workflow illustrates how ``Legate Dataframe`` provides a scalable
 preprocessing layer, ``cupynumeric`` arrays enable distributed GPU
@@ -612,6 +618,10 @@ into the speedup and variability achieved with GPU acceleration.
    print(f"Max: {float(max_time)/1000:.2f} ms")
    print(f"Variance: {float(var_time)/1000:.2f} ms")
    print(f"Standard deviation: {float(std)/1000:.2f} ms")
+
+.. literalinclude:: inference.py
+   :language: python
+
 
 Running on CPU and GPU
 ----------------------
