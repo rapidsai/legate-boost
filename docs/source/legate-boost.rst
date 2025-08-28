@@ -33,12 +33,12 @@ state-of-the-art results on tabular data while leveraging the full
 computational power of modern heterogeneous hardware.
 
 Please refer to `Distributed Computing with cupynumeric`_
-and `legate-boost`_ for more
+and `legate boost`_ for more
 information and detailed instructions on installation.
 
 .. _Distributed Computing with cupynumeric: https://github.com/NVIDIA/accelerated-computing-hub/blob/main/Accelerated_Python_User_Guide/notebooks/Chapter_11_Distributed_Computing_cupynumeric.ipynb
 
-.. _legate-boost: https://github.com/rapidsai/legate-boost/tree/main
+.. _legate boost: https://github.com/rapidsai/legate-boost/tree/main
 
 Quick installation and setup
 ----------------------------
