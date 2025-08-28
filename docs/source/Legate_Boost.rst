@@ -51,22 +51,13 @@ Quick installation and setup
    # activate env
    conda activate legate-boost
 
-   # install wrappers
-   conda install -c legate/label/gex-experimental realm-gex-wrapper legate-mpi-wrapper
-
-   # install cmake
-   conda install -c conda-forge cmake>=3.26.4
-
-   # build wrappers
-   ~/.conda/envs/legate-boost/mpi-wrapper/build-mpi-wrapper.sh
-   ~/.conda/envs/legate-boost/gex-wrapper/build-gex-wrapper.sh
-
-   # reactivate env
-   conda activate legate-boost
-
    # install legate-dataframe
    conda install -c legate -c rapidsai -c conda-forge legate-dataframe
 
+
+for multi-node setup plese refer to `GASnet-based installation`_
+
+.. _GASnet-based installation: https://docs.nvidia.com/legate/latest/gasnet.html
 
 Usage
 =====
