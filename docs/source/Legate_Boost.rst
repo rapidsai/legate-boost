@@ -219,7 +219,7 @@ Code module
 
    model = lb.LBRegressor(
        n_estimators=100,
-       base_models=(lb.models.Tree(max_depth=5),),
+       base_models=(lb.models.Tree(max_depth=8),),
        objective="squared_error",
        learning_rate=0.1,
        verbose=True
