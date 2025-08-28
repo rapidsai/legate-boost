@@ -6,7 +6,7 @@ Legate Boost
 =============
 
 This article assumes familiarity with the basic usage of gradient boosting
-libraries such as ``XGBoost`` or ``LightGBM``, as well as ``cupynumeric`` for GPU-accelerated
+libraries such as XGBoost or LightGBM, as well as ``cupynumeric`` for GPU-accelerated
 array computations. In this tutorial, these libraries are used for efficient model
 training, large-scale data handling, and accelerating computations across CPUs and GPUs.
 
@@ -17,9 +17,9 @@ In scenarios where high-performance training is needed across large
 datasets or distributed hardware, ``Legate Boost`` offers a scalable
 alternative. ``Legate Boost`` is an advanced gradient boosting library built
 on the ``Legate`` and Legion parallel programming frameworks. Unlike
-traditional boosting libraries such as ``XGBoost`` or ``LightGBM``, ``Legate Boost``
-provides a unified infrastructure that seamlessly scales across ``CPU's`` and
-``GPU's``, supporting both single-node and distributed training while
+traditional boosting libraries such as XGBoost or LightGBM, ``Legate Boost``
+provides a unified infrastructure that seamlessly scales across CPU's and
+GPU's, supporting both single-node and distributed training while
 integrating naturally with ``cupynumeric`` workflows for efficient
 end-to-end data processing. It enables users to define not only
 conventional boosted decision trees but also hybrid ensembles combining
@@ -67,7 +67,7 @@ Usage
 - ``LBRegressor`` for regression tasks
 - ``LBClassifier`` for classification tasks
 
-These estimators follow a similar interface to those in ``XGboost``,
+These estimators follow a similar interface to those in XGboost,
 making them easy to integrate into existing machine learning pipelines.
 
 Regression with LBRegressor
@@ -247,7 +247,7 @@ Code module
 
 This simple example demonstrates how to train a regression model on the
 california housing dataset using ``Legate Boost``. Although the code looks
-similar to standard ``XGBoost``, Legate Boost automatically enables
+similar to standard XGBoost, Legate Boost automatically enables
 multi-GPU and multi-node computation. ``Legate Boost`` achieves multi-GPU
 and multi-node scaling through its integration with cupynumeric and the
 Legion runtime. Unlike traditional GPU libraries that allocate data to a
@@ -446,9 +446,9 @@ allows combining multiple types of base learners into a single unified
 model.
 
 In this example, the ensemble consists of a Decision Tree
-(lb.models.Tree) with max_depth=8, enabling the capture of complex
+(lb.models.Tree) with max_depth=5, enabling the capture of complex
 non-linear decision boundaries by splitting the feature space
-hierarchically up to 8 levels deep, and a Neural Network (lb.models.NN)
+hierarchically up to 5 levels deep, and a Neural Network (lb.models.NN)
 with two hidden layers of 10 neurons each (hidden_layer_sizes=(10,10)),
 trained for max_iter=10 epochs with verbose=True to monitor progress. By
 combining a tree-based model with a neural network, ``Legate Boost``
@@ -494,7 +494,7 @@ individually.
    :end-before: [training end]
 
 The trained ensemble model is used to generate predictions on the test
-set, and its accuracy is evaluated using ``accuracy_score``. Finally, the
+set, and its accuracy is evaluated using ``accuracy_score()``. Finally, the
 model is saved with Joblib for future inference without retraining.
 
 .. code-block:: python
