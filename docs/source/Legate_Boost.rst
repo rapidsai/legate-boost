@@ -274,7 +274,7 @@ This produces the following output:
 
 .. code-block:: text
 
-   The training time for housing exp is: 7846.303000 milliseconds
+   The training time for housing exp is: 1742.303000 milliseconds
 
 
 GPU execution
@@ -290,7 +290,7 @@ This produces the following output:
 
 .. code-block:: text
 
-   The training time for housing exp is: 846.949000 milliseconds
+   The training time for housing exp is: 831.949000 milliseconds
 
 
 Example 2
