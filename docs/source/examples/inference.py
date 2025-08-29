@@ -1,5 +1,5 @@
 import cupynumeric as cp
-from joblib import dump, load
+from joblib import load
 from legate.timing import time
 import pandas as pd
 import legate.core as lg
