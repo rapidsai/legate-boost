@@ -34,28 +34,12 @@ computational power of modern heterogeneous hardware.
 
 Please refer to `Distributed Computing with cupynumeric`_
 and `legate boost`_ for more
-information and detailed instructions on installation.
+information and detailed instructions on installation. 
+for multi-node setup plese refer to `GASnet-based installation`_
 
 .. _Distributed Computing with cupynumeric: https://github.com/NVIDIA/accelerated-computing-hub/blob/main/Accelerated_Python_User_Guide/notebooks/Chapter_11_Distributed_Computing_cupynumeric.ipynb
 
 .. _legate boost: https://github.com/rapidsai/legate-boost/tree/main
-
-Quick installation and setup
-----------------------------
-
-.. code-block:: sh
-
-   # create a new env and install legate-boost and dependencies
-   conda create -n legate-boost -c legate -c conda-forge -c nvidia legate-boost
-
-   # activate env
-   conda activate legate-boost
-
-   # install legate-dataframe
-   conda install -c legate -c rapidsai -c conda-forge legate-dataframe
-
-
-for multi-node setup plese refer to `GASnet-based installation`_
 
 .. _GASnet-based installation: https://docs.nvidia.com/legate/latest/gasnet.html
 
