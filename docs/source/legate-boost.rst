@@ -182,7 +182,7 @@ The following code creates a ``legate-boost`` regression model using
 ``LBRegressor``, which trains a gradient boosting model optimized for
 multi-GPU and multi-node environments. The model is configured to use
 100 boosting rounds (n_estimators=100), with each round adding a
-decision tree (lb.models.Tree) limited to a maximum depth of 5. The loss
+decision tree (lb.models.Tree) limited to a maximum depth of 8. The loss
 function is set to squared_error, suitable for regression tasks as it
 minimizes mean squared error. A learning_rate of 0.1 controls how much
 each tree contributes to the final prediction, balancing speed and
@@ -461,7 +461,7 @@ individually.
 
       model = lb.LBClassifier(
           base_models=(
-              lb.models.Tree(max_depth=8),
+              lb.models.Tree(max_depth=5),
               lb.models.NN(max_iter=10, hidden_layer_sizes=(10,10), verbose=True)
           )
       ).fit(x_train, y_train)
