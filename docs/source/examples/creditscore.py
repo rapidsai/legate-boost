@@ -2,10 +2,11 @@
 import cudf
 import pandas
 import cupy as cp
+import numpy as np
+import legate as lg
 import pyarrow as pa
-import legate_dataframe
+from joblib import dump
 import legateboost as lb
-import cupynumeric as cpn
 from legate.timing import time
 from sklearn.datasets import fetch_openml
 from sklearn.metrics import accuracy_score
@@ -103,5 +104,5 @@ dump(model, "legate_boost_model.joblib")
 x_test_cpu = x_test.get() if hasattr(x_test, "get") else np.array(x_test)
 y_test_cpu = y_test.get() if hasattr(y_test, "get") else np.array(y_test)
 
-pd.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
-pd.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
+pandas.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
+pandas.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
