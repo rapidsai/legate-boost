@@ -34,14 +34,11 @@ computational power of modern heterogeneous hardware.
 
 Please refer to `Distributed Computing with cupynumeric`_
 and `legate boost`_ for more
-information and detailed instructions on installation. 
-for multi-node setup plese refer to `GASnet-based installation`_
+information and detailed instructions on installation and setup.
 
-.. _Distributed Computing with cupynumeric: https://github.com/NVIDIA/accelerated-computing-hub/blob/main/Accelerated_Python_User_Guide/notebooks/Chapter_11_Distributed_Computing_cupynumeric.ipynb
+.. _Distributed Computing with cupynumeric: https://github.com/NVIDIA/accelerated-computing-hub/blob/main/Accelerated_Python_User_Guide/notebooks/Chapter_11_Distributed_Computing_cuPyNumeric.ipynb
 
 .. _legate boost: https://github.com/rapidsai/legate-boost/tree/main
-
-.. _GASnet-based installation: https://docs.nvidia.com/legate/latest/gasnet.html
 
 Usage
 =====
