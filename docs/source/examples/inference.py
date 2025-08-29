@@ -1,13 +1,14 @@
-import cupynumeric as cp
-from joblib import load
-from legate.timing import time
 import pandas as pd
+from joblib import load
+
+import cupynumeric as cpn
 import legate.core as lg
+from legate.timing import time
 
 rt = lg.get_legate_runtime()
 
 timings = []
-model =  load("legate_boost_housing.joblib")
+model = load("legate_boost_housing.joblib")
 X = pd.read_csv("x_test_housing.csv")
 
 for _ in range(10):
@@ -19,14 +20,14 @@ for _ in range(10):
     timings.append(end - start)
 
 timings = timings[1:]
-timings_gpu = cp.array(timings)
+timings_gpu = cpn.array(timings)
 
-mean_time = cp.mean(timings_gpu)
-median_time = cp.median(timings_gpu)
-min_time = cp.min(timings_gpu)
-max_time = cp.max(timings_gpu)
-var_time = cp.var(timings_gpu)
-std = cp.sqrt(var_time)
+mean_time = cpn.mean(timings_gpu)
+median_time = cpn.median(timings_gpu)
+min_time = cpn.min(timings_gpu)
+max_time = cpn.max(timings_gpu)
+var_time = cpn.var(timings_gpu)
+std = cpn.sqrt(var_time)
 
 print(f"Mean: {float(mean_time)/1000:.2f} ms")
 print(f"Median: {float(median_time)/1000:.2f} ms")

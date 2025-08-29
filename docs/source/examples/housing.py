@@ -1,7 +1,8 @@
 # [Import libraries]
 from sklearn.datasets import fetch_california_housing
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+
 import legateboost as lb
 from legate.timing import time
 
@@ -14,7 +15,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 # [Create and fit Legate Boost regressor]
 model = lb.LBRegressor(
     n_estimators=100,
-    base_models=(lb.models.Tree(max_depth=5),),
+    base_models=(lb.models.Tree(max_depth=8),),
     objective="squared_error",
     learning_rate=0.1,
     verbose=True,

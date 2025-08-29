@@ -157,7 +157,7 @@ Here is an example of using ``legate-boost`` to build a regression model on
 the California housing dataset. It showcases key features like scalable training across GPUs/nodes,
 customizable base models, and adjustable learning rates.
 
-About dataset 
+About dataset
 -------------
 
 The California housing dataset is a classic benchmark dataset containing
@@ -354,15 +354,15 @@ computations across multiple GPUs and nodes.
       from legate_dataframe.lib.replace import replace_nulls
       from legate_dataframe.lib.core.table import LogicalTable
       from legate_dataframe.lib.core.column import LogicalColumn
-      
+
       rt = lg.get_legate_runtime()
-      
+
       # [import-data]
       data = fetch_openml(data_id=46929, as_frame=True)
       xd = cudf if cp.cuda.runtime.getDeviceCount() > 0 else pandas
       df = xd.DataFrame(data.data, columns=data.feature_names)
       df['Target'] = data.target
-      
+
       # [convert-to-LogicalTable]
       if cp.cuda.runtime.getDeviceCount() > 0:
           ldf = LogicalTable.from_cudf(df)
@@ -392,16 +392,16 @@ tasks to execute efficiently across multiple GPUs or nodes.
       # [Replace nulls]
       median_salary = df["MonthlyIncome"].median()
       median_dependents = df["NumberOfDependents"].median()
-      
+
       mmi = LogicalColumn(
           replace_nulls(LogicalColumn(ldf["MonthlyIncome"]), median_salary)
       )
       mnd = LogicalColumn(
           replace_nulls(LogicalColumn(ldf["NumberOfDependents"]), median_dependents)
       )
-      
+
       # [Create-new-LogicalTable-with-updated-columns]
-      
+
       features = ldf.get_column_names()
       nldf = LogicalTable(
           [
@@ -410,7 +410,7 @@ tasks to execute efficiently across multiple GPUs or nodes.
           ],
           features
       )
-      
+
       # [Convert-to-cupynumeric-array]
       data_arr = nldf.to_array()
 
@@ -444,28 +444,28 @@ individually.
       # [preparing-data-for-training-and-testing]
       x = data_arr[:, :-1]   # all columns except last
       y = data_arr[:, -1]
-      
+
       # [Splitting the data into training and testing]
       num_samples = x.shape[0]
       split_ratio = 0.8
       split_index = int(num_samples * split_ratio)
-      
+
       x_train = x[:split_index]
       y_train = y[:split_index]
       x_test = x[split_index:]
       y_test = y[split_index:]
-      
+
       # [training]
       rt.issue_execution_fence()
       start = time()
-      
+
       model = lb.LBClassifier(
           base_models=(
               lb.models.Tree(max_depth=8),
               lb.models.NN(max_iter=10, hidden_layer_sizes=(10,10), verbose=True)
           )
       ).fit(x_train, y_train)
-      
+
       rt.issue_execution_fence()
       end = time()
 
@@ -483,19 +483,19 @@ model is saved with Joblib for future inference without retraining.
    # [Prediction]
    predictions = model.predict(x_test)
    print(type(predictions))
-   
+
    # [Evaluation]
    acc = accuracy_score(y_test, predictions)
    print("Accuracy:", acc)
    print(f"\nThe training time for creditscore exp is: {(end - start)/1000:.6f} ms")
-   
+
    # [Save model]
    dump(model, "legate_boost_model.joblib")
-   
+
    # [ Save test data [
    x_test_cpu = x_test.get() if hasattr(x_test, "get") else np.array(x_test)
    y_test_cpu = y_test.get() if hasattr(y_test, "get") else np.array(y_test)
-   
+
    pd.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
    pd.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
 

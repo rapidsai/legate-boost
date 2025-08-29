@@ -1,18 +1,19 @@
 # [import libraries]
 import cudf
-import pandas
 import cupy as cp
 import numpy as np
-import legate as lg
+import pandas
 import pyarrow as pa
 from joblib import dump
-import legateboost as lb
-from legate.timing import time
+from legate_dataframe.lib.core.column import LogicalColumn
+from legate_dataframe.lib.core.table import LogicalTable
+from legate_dataframe.lib.replace import replace_nulls
 from sklearn.datasets import fetch_openml
 from sklearn.metrics import accuracy_score
-from legate_dataframe.lib.replace import replace_nulls
-from legate_dataframe.lib.core.table import LogicalTable
-from legate_dataframe.lib.core.column import LogicalColumn
+
+import legate.core as lg
+import legateboost as lb
+from legate.timing import time
 
 rt = lg.get_legate_runtime()
 
@@ -20,7 +21,7 @@ rt = lg.get_legate_runtime()
 data = fetch_openml(data_id=46929, as_frame=True)
 xd = cudf if cp.cuda.runtime.getDeviceCount() > 0 else pandas
 df = xd.DataFrame(data.data, columns=data.feature_names)
-df['Target'] = data.target
+df["Target"] = data.target
 
 # [convert to LogicalTable]
 if cp.cuda.runtime.getDeviceCount() > 0:
@@ -28,16 +29,14 @@ if cp.cuda.runtime.getDeviceCount() > 0:
 else:
     df = pa.Table.from_pandas(df)
     ldf = LogicalTable.from_arrow(df)
-    
+
 # [covert to LogicalTable end]
 
 # [Replace nulls]
 median_salary = df["MonthlyIncome"].median()
 median_dependents = df["NumberOfDependents"].median()
 
-mmi = LogicalColumn(
-    replace_nulls(LogicalColumn(ldf["MonthlyIncome"]), median_salary)
-)
+mmi = LogicalColumn(replace_nulls(LogicalColumn(ldf["MonthlyIncome"]), median_salary))
 mnd = LogicalColumn(
     replace_nulls(LogicalColumn(ldf["NumberOfDependents"]), median_dependents)
 )
@@ -46,11 +45,8 @@ mnd = LogicalColumn(
 
 features = ldf.get_column_names()
 nldf = LogicalTable(
-    [
-        ldf[0], ldf[1], ldf[2], ldf[3], mmi,
-        ldf[5], ldf[6], ldf[7], ldf[8], mnd, ldf[10]
-    ],
-    features
+    [ldf[0], ldf[1], ldf[2], ldf[3], mmi, ldf[5], ldf[6], ldf[7], ldf[8], mnd, ldf[10]],
+    features,
 )
 
 # [Convert to cupynumeric array]
@@ -60,7 +56,7 @@ data_arr = nldf.to_array()
 # [convert to cupynumeric array end]
 
 # [preparing data for training and testing]
-x = data_arr[:, :-1]   # all columns except last
+x = data_arr[:, :-1]  # all columns except last
 y = data_arr[:, -1]
 
 # [Splitting the data into training and testing]
@@ -80,7 +76,7 @@ start = time()
 model = lb.LBClassifier(
     base_models=(
         lb.models.Tree(max_depth=5),
-        lb.models.NN(max_iter=10, hidden_layer_sizes=(10,10), verbose=True)
+        lb.models.NN(max_iter=10, hidden_layer_sizes=(10, 10), verbose=True),
     )
 ).fit(x_train, y_train)
 
