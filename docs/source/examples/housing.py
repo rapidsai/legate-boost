@@ -5,9 +5,6 @@ from sklearn.metrics import mean_squared_error
 import cupynumeric as cn
 import legateboost as lb
 from legate.timing import time
-from joblib import dump
-import numpy as np
-import pandas as pd
 
 # [Import data]
 data = fetch_california_housing()
