@@ -81,7 +81,7 @@ function to generate predictions on new data. Here’s how to set it up:
    # predict
    y_pred = regression_model.predict(X_test)
 
-.. literalinclude:: examples/LBRegressor.py
+.. literalinclude:: ../../examples/tutorial_examples/LBRegressor.py
    :language: python
 
 In this example:
@@ -130,7 +130,7 @@ using the ``LBClassifier`` estimator from ``legate-boost``:
    classification_model.fit(X_train, y_train)
    y_pred = classification_model.predict(X_test)
 
-.. literalinclude:: examples/LBClassifier.py
+.. literalinclude:: ../../examples/tutorial_examples/LBClassifier.py
    :language: python
 
 In this example:
@@ -223,7 +223,7 @@ Code module
    print(f"Training time: {(end - start)/1000:.6f} ms")
 
 
-.. literalinclude:: examples/housing.py
+.. literalinclude:: ../../examples/tutorial_examples/housing.py
    :language: python
 
 This simple example demonstrates how to train a regression model on the
@@ -370,7 +370,7 @@ computations across multiple GPUs and nodes.
           df = pa.Table.from_pandas(df)
           ldf = LogicalTable.from_arrow(df)
 
-.. literalinclude:: examples/creditscore.py
+.. literalinclude:: ../../examples/tutorial_examples/creditscore.py
    :language: python
    :start-after: [import libraries]
    :end-before: [covert to LogicalTable end]
@@ -414,7 +414,7 @@ tasks to execute efficiently across multiple GPUs or nodes.
       # [Convert-to-cupynumeric-array]
       data_arr = nldf.to_array()
 
-.. literalinclude:: examples/creditscore.py
+.. literalinclude:: ../../examples/tutorial_examples/creditscore.py
    :language: python
    :start-after: [Replace nulls]
    :end-before: [convert to cupynumeric array end]
@@ -469,7 +469,7 @@ individually.
       rt.issue_execution_fence()
       end = time()
 
-.. literalinclude:: examples/creditscore.py
+.. literalinclude:: ../../examples/tutorial_examples/creditscore.py
    :language: python
    :start-after: [preparing data for training and testing]
    :end-before: [training end]
@@ -499,7 +499,7 @@ model is saved with Joblib for future inference without retraining.
    pd.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
    pd.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
 
-.. literalinclude:: examples/creditscore.py
+.. literalinclude:: ../../examples/tutorial_examples/creditscore.py
    :language: python
    :start-after: [Prediction]
 
@@ -600,7 +600,7 @@ into the speedup and variability achieved with GPU acceleration.
    print(f"Variance: {float(var_time)/1000:.2f} ms")
    print(f"Standard deviation: {float(std)/1000:.2f} ms")
 
-.. literalinclude:: examples/inference.py
+.. literalinclude:: ../../examples/tutorial_examples/inference.py
    :language: python
 
 
