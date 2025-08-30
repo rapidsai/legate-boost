@@ -1,4 +1,5 @@
 # [import libraries]
+import os
 import cudf
 import cupy as cp
 import numpy as np
@@ -8,7 +9,7 @@ from joblib import dump
 from legate_dataframe.lib.core.column import LogicalColumn
 from legate_dataframe.lib.core.table import LogicalTable
 from legate_dataframe.lib.replace import replace_nulls
-from sklearn.datasets import fetch_openml
+from sklearn.datasets import fetch_openml, make_classification
 from sklearn.metrics import accuracy_score
 
 import legate.core as lg
@@ -18,10 +19,16 @@ from legate.timing import time
 rt = lg.get_legate_runtime()
 
 # [import data]
-data = fetch_openml(data_id=46929, as_frame=True)
 xd = cudf if cp.cuda.runtime.getDeviceCount() > 0 else pandas
-df = xd.DataFrame(data.data, columns=data.feature_names)
-df["Target"] = data.target
+
+if os.environ.get("CI"):
+    X, y = make_classification(n_samples=100, n_features=10, n_classes=2, random_state=42)
+    df = xd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])
+    df["Target"] = y
+else:
+    data = fetch_openml(data_id=46929, as_frame=True)
+    df = xd.DataFrame(data.data, columns=data.feature_names)
+    df["Target"] = data.target.astype(int)
 
 # [convert to LogicalTable]
 if cp.cuda.runtime.getDeviceCount() > 0:
