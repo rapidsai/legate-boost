@@ -1,20 +1,28 @@
 # [Import libraries]
-from sklearn.datasets import fetch_california_housing
+from sklearn.datasets import fetch_california_housing, make_regression
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
+import os
 import legateboost as lb
 from legate.timing import time
 
 # [Import data]
-data = fetch_california_housing()
+if os.environ.get("CI"):
+    X, y = make_regression(n_samples=100, n_features=5, n_targets=1, random_state=42)
+    total_estimators = 10
+else:
+    data = fetch_california_housing()
+    X, y = data.data, data.target
+    total_estimators = 100
+    
 X_train, X_test, y_train, y_test = train_test_split(
-    data.data, data.target, test_size=0.2, random_state=42
+    X, y, test_size=0.2, random_state=42
 )
 
 # [Create and fit Legate Boost regressor]
 model = lb.LBRegressor(
-    n_estimators=100,
+    n_estimators= total_estimators,
     base_models=(lb.models.Tree(max_depth=8),),
     objective="squared_error",
     learning_rate=0.1,
