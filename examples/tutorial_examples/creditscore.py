@@ -1,5 +1,6 @@
 # [import libraries]
 import os
+
 import cudf
 import cupy as cp
 import numpy as np
@@ -26,7 +27,7 @@ df["Target"] = data.target
 
 if os.environ.get("CI"):
     df = df.sample(n=100, random_state=42).reset_index(drop=True)
-    
+
 # [convert to LogicalTable]
 if cp.cuda.runtime.getDeviceCount() > 0:
     ldf = LogicalTable.from_cudf(df)
@@ -76,13 +77,13 @@ y_test = y[split_index:]
 # [training]
 rt.issue_execution_fence()
 start = time()
-nn_iter = 2 if os.environ.get("CI") else 10  
-hidden_layers = (2,2) if os.environ.get("CI") else (10,10)
-    
+nn_iter = 2 if os.environ.get("CI") else 10
+hidden_layers = (2, 2) if os.environ.get("CI") else (10, 10)
+
 model = lb.LBClassifier(
     base_models=(
         lb.models.Tree(max_depth=5),
-        lb.models.NN(max_iter= nn_iter, hidden_layer_sizes= hidden_layers, verbose=True),
+        lb.models.NN(max_iter=nn_iter, hidden_layer_sizes=hidden_layers, verbose=True),
     )
 ).fit(x_train, y_train)
 

@@ -313,8 +313,8 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         eval_result: EvalResult = {},
     ) -> Self:
         """Update a gradient boosting model from the training set (X, y). This
-        method does not add any new models to the ensemble, only updates
-        existing models to fit the new data.
+        method does not add any new models to the ensemble, only updates existing
+        models to fit the new data.
 
         Parameters
         ----------
@@ -476,8 +476,8 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         return iter(self.models_)
 
     def __mul__(self, scalar: Any) -> Self:
-        """Gradient boosted models are linear in the predictions before the
-        non- linear link function is applied. This means that the model can be
+        """Gradient boosted models are linear in the predictions before the non-
+        linear link function is applied. This means that the model can be
         multiplied by a scalar, which subsequently scales all raw output
         predictions. This is useful for ensembling models.
 
@@ -550,8 +550,8 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         n_samples: int = 5,
         check_efficiency: bool = False,
     ) -> Tuple[cn.array, cn.array]:
-        r"""Compute global feature attributions for the model. Global
-        attributions show the effect of a feature on a model's loss function.
+        r"""Compute global feature attributions for the model. Global attributions
+        show the effect of a feature on a model's loss function.
 
         We use a Shapley value approach to compute the attributions:
         :math:`Sh_i(v)=\frac{1}{|N|!} \sum_{\sigma \in \mathfrak{S}_d} \big[ v([\sigma]_{i-1} \cup\{i\}) - v([\sigma]_{i-1}) \big],`
@@ -612,11 +612,10 @@ class LBBase(BaseEstimator, PickleCupynumericMixin, AddableMixin):
         n_samples: int = 5,
         check_efficiency: bool = False,
     ) -> Tuple[cn.array, cn.array]:
-        r"""Local feature attributions for model predictions. Shows the effect
-        of a feature on each output prediction. See the definition of Shapley
-        values in :func:`~legateboost.BaseModel.global_attributions`, where the
-        :math:`v` function is here the model prediction instead of the loss
-        function.
+        r"""Local feature attributions for model predictions. Shows the effect of a
+        feature on each output prediction. See the definition of Shapley values in
+        :func:`~legateboost.BaseModel.global_attributions`, where the :math:`v`
+        function is here the model prediction instead of the loss function.
 
         Parameters
         ----------
@@ -750,8 +749,8 @@ class LBRegressor(RegressorMixin, LBBase):
         eval_set: List[Tuple[cn.ndarray, ...]] = [],
         eval_result: EvalResult = {},
     ) -> LBBase:
-        """This method is used for incremental (online) training of the model.
-        An additional `n_estimators` models will be added to the ensemble.
+        """This method is used for incremental (online) training of the model. An
+        additional `n_estimators` models will be added to the ensemble.
 
         Parameters
         ----------
@@ -928,8 +927,8 @@ class LBClassifier(ClassifierMixin, LBBase):
         eval_result: EvalResult = {},
     ) -> LBBase:
         """This method is used for incremental fitting on a batch of samples.
-        Requires the classes to be provided up front, as they may not be
-        inferred from the first batch.
+        Requires the classes to be provided up front, as they may not be inferred
+        from the first batch.
 
         Parameters
         ----------
@@ -1033,8 +1032,8 @@ class LBClassifier(ClassifierMixin, LBBase):
         return self
 
     def predict_raw(self, X: cn.ndarray) -> cn.ndarray:
-        """Predict pre-transformed values for samples in X. E.g. before
-        applying a sigmoid function.
+        """Predict pre-transformed values for samples in X. E.g. before applying a
+        sigmoid function.
 
         Parameters
         ----------

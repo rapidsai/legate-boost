@@ -64,26 +64,26 @@ function to generate predictions on new data. Here’s how to set it up:
 
    from sklearn.datasets import make_regression
    from sklearn.model_selection import train_test_split
-   
+
    import legateboost as lb
-   
+
    # creating synthetic dataset
    X, y = make_regression(n_samples=100, n_features=4, noise=8, random_state=42)
-   
+
    # splitting the data
    X_train, X_test, y_train, y_test = train_test_split(
        X, y, test_size=0.2, random_state=42
    )
-   
+
    # regression model with 100 estimators
    regression_model = lb.LBRegressor(n_estimators=100)
-   
+
    # fit the model
    regression_model.fit(X_train, y_train)
-   
+
    # predict
    y_pred = regression_model.predict(X_test)
-   
+
    print(y_pred)
 
 .. literalinclude:: ../../examples/tutorial_examples/LBRegressor.py
@@ -121,23 +121,23 @@ using the ``LBClassifier`` estimator from ``legate-boost``:
 
    from sklearn.datasets import make_classification
    from sklearn.model_selection import train_test_split
-   
+
    import legateboost as lb
-   
+
    # creating synthetic dataset
    X, y = make_classification(n_samples=100, n_features=4, n_classes=2, random_state=42)
-   
+
    # splitting the data
    X_train, X_test, y_train, y_test = train_test_split(
        X, y, test_size=0.2, random_state=42
    )
-   
+
    # classification model with 50 estimators
    classification_model = lb.LBClassifier(n_estimators=50)
-   
+
    # train the model
    classification_model.fit(X_train, y_train)
-   
+
    # predictions
    y_pred = classification_model.predict(X_test)
    print(y_pred)
@@ -210,11 +210,11 @@ Code module
    from sklearn.datasets import fetch_california_housing, make_regression
    from sklearn.metrics import mean_squared_error
    from sklearn.model_selection import train_test_split
-   
+
    import os
    import legateboost as lb
    from legate.timing import time
-   
+
    # [Import data]
    if os.environ.get("CI"):
        X, y = make_regression(n_samples=100, n_features=5, n_targets=1, random_state=42)
@@ -223,11 +223,11 @@ Code module
        data = fetch_california_housing()
        X, y = data.data, data.target
        total_estimators = 100
-       
+
    X_train, X_test, y_train, y_test = train_test_split(
        X, y, test_size=0.2, random_state=42
    )
-   
+
    # [Create and fit Legate Boost regressor]
    model = lb.LBRegressor(
        n_estimators= total_estimators,
@@ -236,16 +236,16 @@ Code module
        learning_rate=0.1,
        verbose=True,
    )
-   
+
    start = time()
    model.fit(X_train, y_train)
    end = time()
-   
+
    # [Prediction]
    istart = time()
    y_pred = model.predict(X_test)
    iend = time()
-   
+
    # [Evaluation]
    mse = mean_squared_error(y_test, y_pred)
    print(f"Test MSE: {mse:.4f}")
@@ -382,22 +382,22 @@ computations across multiple GPUs and nodes.
       from legate_dataframe.lib.replace import replace_nulls
       from sklearn.datasets import fetch_openml
       from sklearn.metrics import accuracy_score
-      
+
       import legate.core as lg
       import legateboost as lb
       from legate.timing import time
-      
+
       rt = lg.get_legate_runtime()
-      
+
       # [import data]
       data = fetch_openml(data_id=46929, as_frame=True)
       xd = cudf if cp.cuda.runtime.getDeviceCount() > 0 else pandas
       df = xd.DataFrame(data.data, columns=data.feature_names)
       df["Target"] = data.target
-      
+
       if os.environ.get("CI"):
           df = df.sample(n=100, random_state=42).reset_index(drop=True)
-          
+
       # [convert to LogicalTable]
       if cp.cuda.runtime.getDeviceCount() > 0:
           ldf = LogicalTable.from_cudf(df)
@@ -428,22 +428,22 @@ tasks to execute efficiently across multiple GPUs or nodes.
       # [Replace nulls]
       median_salary = df["MonthlyIncome"].median()
       median_dependents = df["NumberOfDependents"].median()
-      
+
       mmi = LogicalColumn(replace_nulls(LogicalColumn(ldf["MonthlyIncome"]), median_salary))
       mnd = LogicalColumn(
           replace_nulls(LogicalColumn(ldf["NumberOfDependents"]), median_dependents)
       )
-      
+
       # [Create new LogicalTable with updated columns]
-      
+
       features = ldf.get_column_names()
       nldf = LogicalTable(
           [ldf[0], ldf[1], ldf[2], ldf[3], mmi, ldf[5], ldf[6], ldf[7], ldf[8], mnd, ldf[10]],
           features,
       )
-      
+
       # [Convert to cupynumeric array]
-      
+
       data_arr = nldf.to_array()
 
 
@@ -477,30 +477,30 @@ individually.
      # [preparing data for training and testing]
       x = data_arr[:, :-1]  # all columns except last
       y = data_arr[:, -1]
-      
+
       # [Splitting the data into training and testing]
       num_samples = x.shape[0]
       split_ratio = 0.8
       split_index = int(num_samples * split_ratio)
-      
+
       x_train = x[:split_index]
       y_train = y[:split_index]
       x_test = x[split_index:]
       y_test = y[split_index:]
-      
+
       # [training]
       rt.issue_execution_fence()
       start = time()
-      nn_iter = 2 if os.environ.get("CI") else 10  
+      nn_iter = 2 if os.environ.get("CI") else 10
       hidden_layers = (2,2) if os.environ.get("CI") else (10,10)
-          
+
       model = lb.LBClassifier(
           base_models=(
               lb.models.Tree(max_depth=5),
               lb.models.NN(max_iter= nn_iter, hidden_layer_sizes= hidden_layers, verbose=True),
           )
       ).fit(x_train, y_train)
-      
+
       rt.issue_execution_fence()
       end = time()
 
@@ -518,19 +518,19 @@ model is saved with Joblib for future inference without retraining.
    # [Prediction]
    predictions = model.predict(x_test)
    print(type(predictions))
-   
+
    # [Evaluation]
    acc = accuracy_score(y_test, predictions)
    print("Accuracy:", acc)
    print(f"\nThe training time for creditscore exp is: {(end - start)/1000:.6f} ms")
-   
+
    # [Save model]
    dump(model, "legate_boost_model.joblib")
-   
+
    # [Save test data]
    x_test_cpu = x_test.get() if hasattr(x_test, "get") else np.array(x_test)
    y_test_cpu = y_test.get() if hasattr(y_test, "get") else np.array(y_test)
-   
+
    pandas.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
    pandas.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
 
@@ -598,17 +598,17 @@ into the speedup and variability achieved with GPU acceleration.
 
    import pandas as pd
    from joblib import load
-   
+
    import cupynumeric as cpn
    import legate.core as lg
    from legate.timing import time
-   
+
    rt = lg.get_legate_runtime()
-   
+
    timings = []
    model = load("legate_boost_housing.joblib")
    X = pd.read_csv("x_test_housing.csv")
-   
+
    for _ in range(10):
        rt.issue_execution_fence()
        start = time()
@@ -616,17 +616,17 @@ into the speedup and variability achieved with GPU acceleration.
        rt.issue_execution_fence()
        end = time()
        timings.append(end - start)
-   
+
    timings = timings[1:]
    timings_gpu = cpn.array(timings)
-   
+
    mean_time = cpn.mean(timings_gpu)
    median_time = cpn.median(timings_gpu)
    min_time = cpn.min(timings_gpu)
    max_time = cpn.max(timings_gpu)
    var_time = cpn.var(timings_gpu)
    std = cpn.sqrt(var_time)
-   
+
    print(f"Mean: {float(mean_time)/1000:.2f} ms")
    print(f"Median: {float(median_time)/1000:.2f} ms")
    print(f"Min: {float(min_time)/1000:.2f} ms")

@@ -11,9 +11,9 @@ from ..utils import PickleCupynumericMixin
 class BaseModel(PickleCupynumericMixin, ABC):
     """Base class for all models in LegateBoost.
 
-    Defines the interface for fitting, updating, and predicting a model,
-    as well as string representation and equality comparison. Implement
-    these methods to create a custom model.
+    Defines the interface for fitting, updating, and predicting a model, as well
+    as string representation and equality comparison. Implement these methods to
+    create a custom model.
     """
 
     def set_random_state(self, random_state: np.random.RandomState) -> "BaseModel":
@@ -27,8 +27,7 @@ class BaseModel(PickleCupynumericMixin, ABC):
         g: cn.ndarray,
         h: cn.ndarray,
     ) -> "BaseModel":
-        """Fit the model to a second order Taylor expansion of the loss
-        function.
+        """Fit the model to a second order Taylor expansion of the loss function.
 
         Parameters
         ----------

@@ -16,18 +16,18 @@ __all__ = ["TargetEncoder"]
 
 
 class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
-    """TargetEncoder is a transformer that encodes categorical features using
-    the mean of the target variable. When `fit_transform` is called, a cross-
+    """TargetEncoder is a transformer that encodes categorical features using the
+    mean of the target variable. When `fit_transform` is called, a cross-
     validation procedure is used to generate encodings for each training fold,
     which are then applied to the test fold. `fit().transform()` differs from
     `fit_transform()` in that the former fits the encoder on all the data and
-    generates encodings for each feature. This encoder is modelled on the
-    sklearn TargetEncoder with only minor differences in how the CV folds are
-    generated. As it is difficult to rearrange and gather data from each fold
-    in distributed environment, training rows are kept in place and then
-    assigned a cv fold by generating a random integer in the range [0,
-    n_folds). As per sklearn, when smooth="auto", an empirical Bayes estimate
-    per [#]_ is used to avoid overfitting.
+    generates encodings for each feature. This encoder is modelled on the sklearn
+    TargetEncoder with only minor differences in how the CV folds are generated.
+    As it is difficult to rearrange and gather data from each fold in distributed
+    environment, training rows are kept in place and then assigned a cv fold by
+    generating a random integer in the range [0, n_folds). As per sklearn, when
+    smooth="auto", an empirical Bayes estimate per [#]_ is used to avoid
+    overfitting.
 
     .. [#] Micci-Barreca, Daniele. "A preprocessing scheme for high-cardinality categorical attributes in classification and prediction problems." ACM SIGKDD explorations newsletter 3.1 (2001): 27-32.
 
@@ -264,8 +264,8 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         """Compute some label summary statistics for each category in the input
         data.
 
-        Returns a 3D array of shape (n_categories, n_outputs, 2)
-        containing the sum, count of the labels for each category.
+        Returns a 3D array of shape (n_categories, n_outputs, 2) containing the
+        sum, count of the labels for each category.
         """
         task = get_legate_runtime().create_auto_task(
             user_context, user_lib.cffi.TARGET_ENCODER_MEAN
