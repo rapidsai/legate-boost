@@ -8,8 +8,8 @@ from legate.timing import time
 rt = lg.get_legate_runtime()
 
 timings = []
-model = load("legate_boost_housing.joblib")
-X = pd.read_csv("x_test_housing.csv")
+model = load("legate_boost_model.joblib")
+X = pd.read_csv("x_test.csv")
 
 for _ in range(10):
     rt.issue_execution_fence()
