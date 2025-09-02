@@ -202,7 +202,7 @@ To run with GPU, use the following command.
 
 .. code-block:: sh
 
-   legate --gpus 2 ./housing.py
+   legate --gpus 1 ./housing.py
 
 This produces the following output:
 
@@ -340,14 +340,14 @@ To run with CPU, use the following command.
 
 .. code-block:: sh
 
-   legate --cpus 1 --gpus 0 ./creditscore.py
+   legate --cpus 8 --gpus 0 ./creditscore.py
 
 This produces the following output:
 
 .. code-block:: text
 
    Accuracy: 0.9343
-   The training time for credit score exp is : 45337.714000 ms
+   The training time for credit score exp is : 11003.714000 ms
 
 GPU execution
 ~~~~~~~~~~~~~
