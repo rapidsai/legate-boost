@@ -401,12 +401,12 @@ This produces the following output:
 
 .. code-block:: text
 
-   Mean: 265.66 ms
-   Median: 262.97 ms
-   Min: 249.78 ms
-   Max: 284.44 ms
-   Variance: 117319.15 ms
-   Standard deviation: 10.83 ms
+   Mean: 230.55 ms
+   Median: 232.81 ms
+   Min: 215.29 ms
+   Max: 242.65 ms
+   Variance: 94.77 ms
+   standard deviation: 9.73 ms
 
 
 GPU execution
@@ -422,12 +422,12 @@ This produces the following output:
 
 .. code-block:: text
 
-   Mean: 122.35 ms
-   Median: 122.11 ms
-   Min: 121.28 ms
-   Max: 125.97 ms
-   Variance: 1793.76 ms
-   Standard deviation: 1.34 ms
+   Mean: 132.44 ms
+   Median: 131.58 ms
+   Min: 130.56 ms
+   Max: 136.72 ms
+   Variance: 3.42 ms
+   standard deviation: 1.85 ms
 
 These results clearly show the performance benefits of running inference
 on a GPU compared to a CPU using ``cupynumeric`` arrays. On the CPU, the
