@@ -302,7 +302,7 @@ class UnravelIter {
 template <size_t I = 0, typename... Tp>
 void extract_scalars(std::tuple<Tp...>& t, legate::TaskContext context)
 {
-  using T        = typename std::tuple_element<I, std::tuple<Tp...>>::type;
+  using T        = std::tuple_element_t<I, std::tuple<Tp...>>;
   std::get<I>(t) = context.scalar(I).value<T>();
   if constexpr (I + 1 != sizeof...(Tp)) { extract_scalars<I + 1>(t); }
 }
