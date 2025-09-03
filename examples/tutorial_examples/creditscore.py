@@ -1,10 +1,9 @@
 # [import libraries]
 import os
 
-import cudf
 import cupy as cp
 import numpy as np
-import pandas
+import pandas as pd
 import pyarrow as pa
 from joblib import dump
 from legate_dataframe.lib.core.column import LogicalColumn
@@ -21,20 +20,15 @@ rt = lg.get_legate_runtime()
 
 # [import data]
 data = fetch_openml(data_id=46929, as_frame=True)
-xd = cudf if cp.cuda.runtime.getDeviceCount() > 0 else pandas
-df = xd.DataFrame(data.data, columns=data.feature_names)
+df = pd.DataFrame(data.data, columns=data.feature_names)
 df["Target"] = data.target
 
 if os.environ.get("CI"):
     df = df.sample(n=100, random_state=42).reset_index(drop=True)
 
 # [convert to LogicalTable]
-if cp.cuda.runtime.getDeviceCount() > 0:
-    ldf = LogicalTable.from_cudf(df)
-else:
-    df = pa.Table.from_pandas(df)
-    ldf = LogicalTable.from_arrow(df)
-
+df = pa.Table.from_pandas(df)
+ldf = LogicalTable.from_arrow(df)
 # [covert to LogicalTable end]
 
 # [Replace nulls]
@@ -107,5 +101,5 @@ dump(model, "legate_boost_model.joblib")
 x_test_cpu = x_test.get() if hasattr(x_test, "get") else np.array(x_test)
 y_test_cpu = y_test.get() if hasattr(y_test, "get") else np.array(y_test)
 
-pandas.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
-pandas.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
+pd.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
+pd.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
