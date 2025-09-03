@@ -167,6 +167,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
+          - cutensor<=2.2.0.0 # test failures with 2.3.0.6
           - hypothesis>=6
           - matplotlib>=3.9
           - mypy>=1.13
