@@ -381,7 +381,7 @@ struct HistogramAgent {
     for (int i = 0; i < kItemsPerThread; i++) {
       auto idx = offset + (static_cast<std::size_t>(i * kBlockThreads)) + threadIdx.x;
       uint32_t const row_index                            = idx / feature_stride;
-      feature[i]                                          = feature_begin + idx % feature_stride;
+      feature[i]                                          = feature_begin + (idx % feature_stride);
       cuda::std::tie(sample_node[i], local_sample_idx[i]) = batch.instances[row_index];
     }
 
@@ -1099,12 +1099,13 @@ struct TreeBuilder {
     CHECK_CUDA_STREAM(stream);
 
     using ReduceT = Histogram<IntegerGPair>::value_type::value_type;
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
     SumAllReduce(context,
-                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                  cuda::std::span<ReduceT>(
                    reinterpret_cast<ReduceT*>(histogram.Ptr(batch.node_idx_begin)),
                    batch.NodesInBatch() * num_outputs * split_proposals.HistogramSize() * 2),
                  stream);
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
     const int kScanBlockThreads  = 256;
     const size_t warps_needed    = num_features * batch.NodesInBatch();
