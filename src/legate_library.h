@@ -26,7 +26,8 @@ struct Task : public legate::LegateTask<T> {
   Task() = default;
 
  public:
-  using Registrar                      = Registry;
+  using Registrar = Registry;
+  // NOLINTNEXTLINE(bugprone-dynamic-static-initializers)
   static inline const auto TASK_CONFIG = legate::TaskConfig{legate::LocalTaskID{ID}};
   friend T;
 };
