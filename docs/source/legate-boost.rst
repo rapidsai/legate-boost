@@ -317,12 +317,12 @@ individually.
    :end-before: [training end]
 
 The trained ensemble model is used to generate predictions on the test
-set, and its accuracy is evaluated using ``accuracy_score()``. Finally, the
-model is saved with Joblib for future inference without retraining.
+set, and its accuracy is evaluated using ``accuracy_score()``.
 
 .. literalinclude:: ../../examples/tutorial_examples/creditscore.py
    :language: python
    :start-after: [Prediction]
+   :end-before: [Inference]
 
 This workflow illustrates how ``Legate Dataframe`` provides a scalable
 preprocessing layer, ``cupynumeric`` arrays enable distributed GPU
@@ -347,7 +347,7 @@ This produces the following output:
 .. code-block:: text
 
    Accuracy: 0.9343
-   The training time for credit score exp is : 11003.714000 ms
+   The training time for credit score exp is : 10912.335000 ms
 
 GPU execution
 ~~~~~~~~~~~~~
@@ -362,7 +362,7 @@ This produces the following output:
 
 .. code-block:: text
 
-   Accuracy: 0.9353
+   Accuracy: 0.9357
    The training time for credit score exp is : 2688.233000 ms
 
 Inference performance
@@ -372,8 +372,8 @@ Let’s explore how ``cupynumeric`` can be leveraged to measure inference
 performance statistics seamlessly across both CPU and GPU all without
 modifying the code. In this example, we evaluate a pre-trained machine
 learning model by calculating key metrics such as mean, median, minimum,
-maximum, variance, and standard deviation of inference times. The model
-is loaded using joblib, and predictions are executed multiple times on
+maximum, variance, and standard deviation of inference times. The pretrained model
+is used here and the predictions are executed multiple times on
 the test dataset. By utilizing ``cupynumeric`` arrays, the timing results
 are efficiently processed while ensuring compatibility with both CPU and
 GPU environments. This approach provides a simple yet powerful way to
@@ -381,8 +381,9 @@ compare inference performance across hardware, offering clear insights
 into the speedup and variability achieved with GPU acceleration.
 
 
-.. literalinclude:: ../../examples/tutorial_examples/inference.py
+.. literalinclude:: ../../examples/tutorial_examples/creditscore.py
    :language: python
+   :start-after: [Inference]
 
 
 Running on CPU and GPU
@@ -395,18 +396,18 @@ To run with CPU, use the following command.
 
 .. code-block:: sh
 
-   legate --cpus 1 --gpus 0 ./inference.py
+   legate --cpus 8 --gpus 0 ./inference.py
 
 This produces the following output:
 
 .. code-block:: text
 
-   Mean: 230.55 ms
-   Median: 232.81 ms
-   Min: 215.29 ms
-   Max: 242.65 ms
-   Variance: 94.77 ms
-   standard deviation: 9.73 ms
+   Mean: 167.97 ms
+   Median: 170.25 ms
+   Min: 161.46 ms
+   Max: 176.31 ms
+   Variance: 23.52 ms
+   standard deviation: 4.85 ms
 
 
 GPU execution
@@ -416,7 +417,7 @@ To run with GPU, use the following command.
 
 .. code-block:: sh
 
-   legate --gpus 1 ./inference.py
+   legate --gpus 2 ./inference.py
 
 This produces the following output:
 
