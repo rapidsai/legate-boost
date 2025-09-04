@@ -11,6 +11,7 @@ from legate_dataframe.lib.replace import replace_nulls
 from sklearn.datasets import fetch_openml
 from sklearn.metrics import accuracy_score
 
+import cupynumeric as cpn
 import legate.core as lg
 import legateboost as lb
 from legate.timing import time
@@ -93,12 +94,31 @@ acc = accuracy_score(y_test, predictions)
 print("Accuracy:", acc)
 print(f"\nThe training time for creditscore exp is: {(end - start)/1000:.6f} ms")
 
-# [Save model]
-dump(model, "legate_boost_model.joblib")
+# [Inference]
+rt = lg.get_legate_runtime()
+timings = []
 
-# [Save test data]
-x_test_cpu = x_test.get() if hasattr(x_test, "get") else np.array(x_test)
-y_test_cpu = y_test.get() if hasattr(y_test, "get") else np.array(y_test)
+for _ in range(10):
+    rt.issue_execution_fence()
+    start = time()
+    model.predict(x_test)
+    rt.issue_execution_fence()
+    end = time()
+    timings.append(end - start)
 
-pd.DataFrame(x_test_cpu).to_csv("x_test.csv", index=False)
-pd.DataFrame(y_test_cpu, columns=["Target"]).to_csv("y_test.csv", index=False)
+timings = timings[1:]
+timings_gpu = cpn.array(timings)
+
+mean_time = cpn.mean(timings_gpu)
+median_time = cpn.median(timings_gpu)
+min_time = cpn.min(timings_gpu)
+max_time = cpn.max(timings_gpu)
+var_time = cpn.var(timings_gpu)
+std = cpn.sqrt(var_time)
+
+print(f"Mean: {float(mean_time)/1000:.2f} ms")
+print(f"Median: {float(median_time)/1000:.2f} ms")
+print(f"Min: {float(min_time)/1000:.2f} ms")
+print(f"Max: {float(max_time)/1000:.2f} ms")
+print(f"Variance: {float(var_time)/1000:.2f} ms")
+print(f"standard deviation: {float(std)/1000:.2f} ms")
