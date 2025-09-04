@@ -21,14 +21,14 @@ rt = lg.get_legate_runtime()
 # [import data]
 data = fetch_openml(data_id=46929, as_frame=True)
 df = pd.DataFrame(data.data, columns=data.feature_names)
-df["Target"] = data.target
+df["Target"] = data.target.map({"No": 0, "Yes": 1}).astype(np.int8)
 
 if os.environ.get("CI"):
     df = df.sample(n=100, random_state=42).reset_index(drop=True)
 
 # [convert to LogicalTable]
-df = pa.Table.from_pandas(df)
-ldf = LogicalTable.from_arrow(df)
+df_arrow = pa.Table.from_pandas(df)
+ldf = LogicalTable.from_arrow(df_arrow)
 # [covert to LogicalTable end]
 
 # [Replace nulls]
@@ -47,7 +47,6 @@ nldf = LogicalTable(
     [ldf[0], ldf[1], ldf[2], ldf[3], mmi, ldf[5], ldf[6], ldf[7], ldf[8], mnd, ldf[10]],
     features,
 )
-
 # [Convert to cupynumeric array]
 
 data_arr = nldf.to_array()
@@ -120,5 +119,5 @@ print(f"Mean: {float(mean_time)/1000:.2f} ms")
 print(f"Median: {float(median_time)/1000:.2f} ms")
 print(f"Min: {float(min_time)/1000:.2f} ms")
 print(f"Max: {float(max_time)/1000:.2f} ms")
-print(f"Variance: {float(var_time)/1000:.2f} ms")
+print(f"Variance: {float(var_time)/1000000:.2f} ms")
 print(f"standard deviation: {float(std)/1000:.2f} ms")
