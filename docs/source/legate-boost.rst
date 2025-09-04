@@ -36,7 +36,7 @@ Please refer to `Distributed Computing with cupynumeric`_
 and `legate boost`_ for more
 information and detailed instructions on installation and setup.
 
-.. _Distributed Computing with cupynumeric: https://github.com/NVIDIA/accelerated-computing-hub/blob/main/Accelerated_Python_User_Guide/notebooks/Chapter_11_Distributed_Computing_cuPyNumeric.ipynb
+.. _Distributed Computing with cupynumeric: https://docs.nvidia.com/cupynumeric/latest/user/tutorial.html
 
 .. _legate boost: https://github.com/rapidsai/legate-boost?tab=readme-ov-file#installation.
 
