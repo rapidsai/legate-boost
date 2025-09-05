@@ -4,7 +4,6 @@ import os
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-from joblib import dump
 from legate_dataframe.lib.core.column import LogicalColumn
 from legate_dataframe.lib.core.table import LogicalTable
 from legate_dataframe.lib.replace import replace_nulls
