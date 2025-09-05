@@ -128,6 +128,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
+          - scikit-learn>=1.6,!=1.7.1  # 1.7.1 has doc build issues
           - myst-parser>=4.0
           - pydata-sphinx-theme>=0.16
            # the ceiling on sphinx can be removed when https://github.com/spatialaudio/nbsphinx/issues/825 is resolved
