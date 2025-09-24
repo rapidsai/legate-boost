@@ -18,7 +18,7 @@ set -e -E -u -o pipefail
 cd legateboost/test
 
 legate \
-    --sysmem 28000 \
+    --sysmem 40000 \
     --cpus 8 \
     --gpus 0 \
     --omps 0 \
