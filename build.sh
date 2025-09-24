@@ -96,7 +96,7 @@ if hasArg clang-tidy; then
     # Build the project with clang
     CUDA_ROOT="$(dirname "$(dirname "$(which cuda-gdb)")")"
     echo "Using CUDA at '${CUDA_ROOT}'"
-    cmake . -B build_clang_tidy "${CMAKE_CONFIGURE_ARGS[@]}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    cmake . --trace -B build_clang_tidy "${CMAKE_CONFIGURE_ARGS[@]}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
     FIX_ARG=""
     if hasArg --fix; then
         FIX_ARG="-fix"
