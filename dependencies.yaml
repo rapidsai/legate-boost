@@ -89,6 +89,7 @@ dependencies:
       - output_types: [conda]
         packages:
           - cuda-toolkit
+          - cuda-version>=12.2,<12.5
           - clang-tools>=19.0
           - clangxx>=19.0
           - llvm-openmp
