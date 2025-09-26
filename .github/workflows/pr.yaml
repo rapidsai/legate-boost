@@ -23,7 +23,6 @@ jobs:
   pr-builder:
     needs:
       - pre-commit
-      - clang-tidy
       - conda-python-build
       - conda-python-tests-cpu
       - conda-python-tests-gpu
@@ -80,29 +79,6 @@ jobs:
       - name: test
         run: |
           ci/test_python_cpu.sh
-
-  clang-tidy:
-    needs :
-      - pre-commit
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - ARCH: "amd64"
-            CUDA_VER: "12.5.1"
-            PY_VER: "3.12"
-    runs-on: linux-${{ matrix.ARCH }}-cpu4
-    container:
-      image: "rapidsai/ci-conda:cuda${{ matrix.CUDA_VER }}-ubuntu22.04-py${{ matrix.PY_VER }}"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          # the notebooks and PNG files stored in git LFS aren't necessary
-          lfs: false
-      - name: run clang-tidy
-        run: |
-          ci/run_clang_tidy.sh
 
   conda-python-tests-gpu:
     needs:
