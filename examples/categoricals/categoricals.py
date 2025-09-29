@@ -29,7 +29,7 @@ encoded_categoricals = lb.encoder.TargetEncoder(
     target_type="continuous", random_state=1
 ).fit_transform(df[categorical_features].to_numpy(), y)
 X_encoded = df[numerical_features].to_numpy()
-X_encoded = np.concatenate((X_encoded, encoded_categoricals), axis=1)
+X_encoded = np.concatenate((X_encoded, np.array(encoded_categoricals)), axis=1)
 
 # test train splits
 X_train, X_test, y_train, y_test = train_test_split(
