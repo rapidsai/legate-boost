@@ -22,6 +22,7 @@ def test_nn(random_state, hidden_layer_sizes, l2_regularization, dtype):
     y = np.tile(y.reshape((-1, 1)), (1, 3))
     X = StandardScaler().fit_transform(X)
     max_iter = 200
+    gtol = 1e-8
     nn = lb.LBRegressor(
         n_estimators=1,
         init=None,
@@ -33,6 +34,7 @@ def test_nn(random_state, hidden_layer_sizes, l2_regularization, dtype):
                 hidden_layer_sizes=hidden_layer_sizes,
                 m=10,
                 l2_regularization=l2_regularization,
+                gtol=gtol,
             ),
         ),
         random_state=random_state,
@@ -45,6 +47,7 @@ def test_nn(random_state, hidden_layer_sizes, l2_regularization, dtype):
         max_iter=max_iter,
         random_state=random_state,
         alpha=l2_regularization,
+        tol=gtol,
     ).fit(X, y)
     pred = nn.predict(X)
     lb_mse = mean_squared_error(y, pred)
