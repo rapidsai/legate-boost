@@ -2,6 +2,7 @@ import copy
 import warnings
 from typing import Any, List, Sequence, Tuple, cast
 
+import numpy as np
 import cupynumeric as cn
 from legate.core import TaskTarget, get_legate_runtime, types
 
