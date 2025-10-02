@@ -82,13 +82,14 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - cmake>=3.26.4,!=3.30.0
-          - &legate legate==25.08.*,>=0.0.0.dev0
+          - &legate legate==25.10.*,>=0.0.0.dev0
           - ninja>=1.11.1.1
   clang_tidy:
     common:
       - output_types: [conda]
         packages:
           - cuda-toolkit
+          - cuda-version>=12.2,<12.5
           - clang-tools>=19.0
           - clangxx>=19.0
           - llvm-openmp
@@ -119,11 +120,11 @@ dependencies:
           - matrix:
               cuda: "12.2"
             packages:
-              - cuda-version>=12.2
+              - cuda-version>=12.2,<12.5
           - matrix:
               cuda: "12.5"
             packages:
-              - cuda-version>=12.5
+              - cuda-version>=12.5,<13.0
   docs:
     common:
       - output_types: [conda, pyproject, requirements]
@@ -161,7 +162,7 @@ dependencies:
           - typing-extensions>=4.0
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cupynumeric==25.08.*,>=0.0.0.dev0,!=25.08.00.rc2,!=25.08.00.rc3,!=25.08.00
+          - cupynumeric==25.10.*,>=0.0.0.dev0
           - *legate
   test:
     common:
