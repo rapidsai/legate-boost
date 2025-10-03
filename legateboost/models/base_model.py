@@ -127,12 +127,25 @@ class BaseModel(PickleCupynumericMixin, ABC):
     def __hash__(self) -> int:
         return hash(str(self))
 
-    def to_onnx(self) -> Any:
-        """Convert the model to an ONNX model.
+    def to_onnx(self, X: cn.array) -> Any:
+        """Convert the model to an ONNX graph.
 
+        The implemented ONNX graph should accept the following two inputs:
+        - "X_in" : 2D tensor of shape (n_samples, n_features) and type `X_dtype`.
+        - "predictions in" : 2D tensor of shape (n_samples, n_outputs) and type double.
+        The graph should output:
+        - "predictions out" : 2D tensor of shape (n_samples, n_outputs) and type double.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Example input X matrix. Used to infer type and shape of the input.
+
+        y_pred : ndarray of shape (n_samples,)
+            The predicted labels.
         Returns
         -------
         Any
-            The ONNX model.
+            The ONNX graph.
         """
         raise NotImplementedError
