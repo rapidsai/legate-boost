@@ -288,6 +288,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         means = cn.zeros(
             (len(self.categories_sparse_matrix_), y.shape[1], 2), dtype=cn.float64
         )
+        task.add_broadcast(get_store(means))
         task.add_reduction(get_store(means), types.ReductionOpKind.ADD)
 
         task.add_alignment(X_, y_)
@@ -315,7 +316,6 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             user_context, user_lib.cffi.TARGET_ENCODER_VARIANCE
         )
         # inputs
-        # inputs
         task.add_scalar_arg(cv_fold_idx, types.int64)
         do_cv = cv_indices is not None
         task.add_scalar_arg(do_cv, types.bool_)
@@ -341,6 +341,8 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         y_variances_sum = cn.zeros(y.shape[1], dtype=cn.float64)
         task.add_reduction(get_store(variances_sum), types.ReductionOpKind.ADD)
         task.add_reduction(get_store(y_variances_sum), types.ReductionOpKind.ADD)
+        task.add_broadcast(get_store(variances_sum))
+        task.add_broadcast(get_store(y_variances_sum))
         task.add_alignment(X_, y_)
         if do_cv:
             cv_indices_ = (
