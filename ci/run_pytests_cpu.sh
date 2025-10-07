@@ -17,7 +17,7 @@ set -e -E -u -o pipefail
 # Go into test folder to not not import source package
 cd legateboost/test
 
-legate \
+LEGATE_TEST=1 legate \
     --sysmem 40000 \
     --cpus 8 \
     --gpus 0 \
