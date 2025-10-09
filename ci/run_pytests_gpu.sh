@@ -19,9 +19,9 @@ nvidia-smi
 # Go into package folder to not import source package
 cd legateboost/test
 
-LEGATE_TEST=1 legate \
+legate \
     --omps 0 \
-    --gpus 1 \
+    --gpus 8 \
     --fbmem 28000 \
     --sysmem 28000 \
     --module pytest \

@@ -1276,7 +1276,7 @@ struct build_tree_fn {
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
     auto num_features = X_shape.hi[1] - X_shape.lo[1] + 1;
     auto num_rows     = std::max<int64_t>(X_shape.hi[0] - X_shape.lo[0] + 1, 0);
-    auto num_outputs  = X_shape.hi[2] - X_shape.lo[2] + 1;
+    auto num_outputs  = g_shape.hi[2] - g_shape.lo[2] + 1;
     EXPECT(g_shape.lo[2] == 0, "Outputs should not be split between workers.");
     EXPECT_AXIS_ALIGNED(0, X_shape, g_shape);
     EXPECT_AXIS_ALIGNED(0, g_shape, h_shape);
