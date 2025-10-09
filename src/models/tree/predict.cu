@@ -30,15 +30,19 @@ struct predict_fn {
     const auto& X   = context.input(0).data();
     auto X_shape    = X.shape<3>();
     auto X_accessor = X.read_accessor<T, 3>();
+    auto n_rows     = X_shape.hi[0] - X_shape.lo[0] + 1;
+    // n_rows can be negative. God help us.
+    if (n_rows < 1) return;
     EXPECT_DENSE_ROW_MAJOR(X_accessor.accessor, X_shape);
 
     auto pred          = context.output(0).data();
     auto pred_shape    = pred.shape<3>();
     auto pred_accessor = pred.write_accessor<double, 3>();
     auto n_outputs     = pred_shape.hi[2] - pred_shape.lo[2] + 1;
+
     // Zero the predictions
     auto* stream = context.get_task_stream();
-    LaunchN(X_shape.hi[0] - X_shape.lo[0] + 1, stream, [=] __device__(size_t idx) {
+    LaunchN(n_rows, stream, [=] __device__(size_t idx) {
       for (int64_t j = 0; j < n_outputs; j++) {
         pred_accessor[{X_shape.lo[0] + static_cast<int64_t>(idx), 0, j}] = 0.0;
       }
@@ -73,7 +77,7 @@ struct predict_fn {
         }
       };  // NOLINT(readability/braces)
 
-      LaunchN(X_shape.hi[0] - X_shape.lo[0] + 1, stream, prediction_lambda);
+      LaunchN(n_rows, stream, prediction_lambda);
     }
     CHECK_CUDA_STREAM(stream);
   }

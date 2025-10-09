@@ -74,18 +74,24 @@ struct target_encoder_mean_fn {
     auto* stream      = context.get_task_stream();
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
-    thrust::for_each_n(
-      policy, UnravelIter(X_shape), X_shape.volume(), [=] __device__(const legate::Point<3>& p) {
-        if (do_cv && cv_indices[p] == cv_fold) { return; }
-        auto feature_idx   = p[1];
-        auto output_idx    = p[2];
-        auto feature_value = X_accessor[p];
-        auto label         = y_accessor[p];
-        auto category_idx  = categories_map.GetIndex(feature_value, feature_idx);
-        if (category_idx == -1) { return; }
-        atomicAdd(means.ptr({category_idx, output_idx, 0}), label);
-        atomicAdd(means.ptr({category_idx, output_idx, 1}), 1);
-      });
+    // X_shape contains broadcast last dimension, need to take from y
+    legate::Rect<3> iter_shape = X_shape;
+    iter_shape.lo[2]           = y_shape.lo[2];
+    iter_shape.hi[2]           = y_shape.hi[2];
+    thrust::for_each_n(policy,
+                       UnravelIter(iter_shape),
+                       iter_shape.volume(),
+                       [=] __device__(const legate::Point<3>& p) {
+                         if (do_cv && cv_indices[p] == cv_fold) { return; }
+                         auto feature_idx   = p[1];
+                         auto output_idx    = p[2];
+                         auto feature_value = X_accessor[p];
+                         auto label         = y_accessor[p];
+                         auto category_idx  = categories_map.GetIndex(feature_value, feature_idx);
+                         if (category_idx == -1) { return; }
+                         atomicAdd(means.ptr({category_idx, output_idx, 0}), label);
+                         atomicAdd(means.ptr({category_idx, output_idx, 1}), 1);
+                       });
   }
 };
 
@@ -145,8 +151,15 @@ struct target_encoder_variance_fn {
     auto* stream      = context.get_task_stream();
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
+    // X_shape contains broadcast last dimension, need to take from y
+    legate::Rect<3> iter_shape = X_shape;
+    iter_shape.lo[2]           = y_shape.lo[2];
+    iter_shape.hi[2]           = y_shape.hi[2];
     thrust::for_each_n(
-      policy, UnravelIter(X_shape), X_shape.volume(), [=] __device__(const legate::Point<3>& p) {
+      policy,
+      UnravelIter(iter_shape),
+      iter_shape.volume(),
+      [=] __device__(const legate::Point<3>& p) {
         if (do_cv && cv_indices[p] == cv_fold) { return; }
         auto feature_idx   = p[1];
         auto output_idx    = p[2];
@@ -212,8 +225,8 @@ struct target_encoder_encode_fn {
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
     auto policy       = DEFAULT_POLICY(thrust_alloc).on(stream);
     thrust::for_each_n(policy,
-                       UnravelIter(X_in_shape),
-                       X_in_shape.volume(),
+                       UnravelIter(X_out_shape),
+                       X_out_shape.volume(),
                        [=] __device__(const legate::Point<3>& p) {
                          if (do_cv && cv_indices[p] != cv_fold) { return; }
                          auto category_idx = categories_map.GetIndex(X_in_accessor[p], p[1]);
