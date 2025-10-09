@@ -158,7 +158,7 @@ class TestTargetEncoder:
         X_test_permuted = permutated_labels[X_test]
 
         target_encoder = lb.encoder.TargetEncoder(
-            smooth=smooth, random_state=0, target_type="continuous"
+            smooth=smooth, random_state=0, target_type="continuous", cv=0
         )
         X_train_encoded = target_encoder.fit_transform(X_train, y_train)
         X_test_encoded = target_encoder.transform(X_test)
@@ -168,8 +168,12 @@ class TestTargetEncoder:
         )
         X_test_permuted_encoded = target_encoder.transform(X_test_permuted)
 
-        assert cn.allclose(X_train_encoded, X_train_permuted_encoded)
-        assert cn.allclose(X_test_encoded, X_test_permuted_encoded)
+        assert cn.allclose(X_train_encoded, X_train_permuted_encoded), np.linalg.norm(
+            X_train_encoded - X_train_permuted_encoded
+        )
+        assert cn.allclose(X_test_encoded, X_test_permuted_encoded), np.linalg.norm(
+            X_test_encoded - X_test_permuted_encoded
+        )
 
     @pytest.mark.parametrize("smooth", [0.0, "auto"])
     def test_with_linear(self, smooth):

@@ -358,6 +358,9 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
     ) -> Tuple[cn.array, cn.array]:
         means = self._get_category_means(X, y, cv_indices, cv_fold_idx)
         y_mean = means[:, :, 0].sum(axis=0) / means[:, :, 1].sum(axis=0)
+        # replace NaNs in y_mean with 0
+        nans = cn.isnan(y_mean)
+        y_mean[nans] = 0.0
         if self.smooth != "auto":
             sums = means[:, :, 0]
             counts = means[:, :, 1]
