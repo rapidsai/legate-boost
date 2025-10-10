@@ -86,7 +86,6 @@ if hasArg liblegateboost || hasArg --editable; then
     echo "building liblegateboost..."
     echo "Using Legate at '${legate_root}'"
 
-    cmake -S . -B build "${CMAKE_CONFIGURE_ARGS[@]}"
     cmake --build build "${CMAKE_BUILD_ARGS[@]}"
     echo "done building liblegateboost"
 fi
@@ -96,7 +95,7 @@ if hasArg clang-tidy; then
     # Build the project with clang
     CUDA_ROOT="$(dirname "$(dirname "$(which cuda-gdb)")")"
     echo "Using CUDA at '${CUDA_ROOT}'"
-    cmake . --trace -B build_clang_tidy "${CMAKE_CONFIGURE_ARGS[@]}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    cmake . -B build_clang_tidy "${CMAKE_CONFIGURE_ARGS[@]}" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CUDA_HOST_COMPILER=clang++ -DCMAKE_CUDA_COMPILER=clang++ -DCUDAToolkit_ROOT="${CUDA_ROOT}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
     FIX_ARG=""
     if hasArg --fix; then
         FIX_ARG="-fix"
