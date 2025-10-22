@@ -15,9 +15,9 @@ CMAKE_GENERATOR=Ninja \
 CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION}" \
 LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
 rapids-conda-retry build \
-    --channel legate \
-    --channel legate/label/rc \
-    --channel legate/label/experimental \
+    --channel legate/label/pull-request-1173-rc \
+    # --channel legate/label/rc \
+    # --channel legate/label/experimental \
     --channel conda-forge \
     --channel nvidia \
     --no-force-upload \

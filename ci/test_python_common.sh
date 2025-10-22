@@ -40,8 +40,8 @@ rapids-print-env
 rapids-mamba-retry install \
   --name test-env \
   --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
-  --channel legate \
-  --channel legate/label/rc \
-  --channel legate/label/experimental \
+  --channel legate/label/pull-request-1173-rc \
+  # --channel legate/label/rc \
+  # --channel legate/label/experimental \
   --channel conda-forge \
     "legate-boost=${LEGATEBOOST_VERSION}"
