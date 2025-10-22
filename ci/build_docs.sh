@@ -35,8 +35,6 @@ rapids-mamba-retry install \
   --override-channels \
   --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
   --channel legate/label/pull-request-1173-rc \
-  # --channel legate/label/rc \
-  # --channel legate/label/experimental \
   --channel conda-forge \
   "legate-boost=${LEGATEBOOST_VERSION}"
 
