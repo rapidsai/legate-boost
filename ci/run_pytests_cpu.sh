@@ -14,6 +14,9 @@
 
 set -e -E -u -o pipefail
 
+export LEGION_BACKTRACE=1
+export CUPYNUMERIC_FALLBACK_STACKTRACE=1
+
 # Go into test folder to not not import source package
 cd legateboost/test
 
