@@ -24,6 +24,8 @@ LEGATE_TEST=1 legate \
     --gpus 0 \
     --omps 0 \
     --module pytest \
-    -svk "not sklearn" \
+    -svv \
+    --tb=long \
     --durations=0 \
+    test_with_hypothesis.py::test_regressor \
     "${@}"

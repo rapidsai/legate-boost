@@ -84,7 +84,7 @@ class MSEMetric(BaseMetric):
         assert w.ndim == 1
         y = y.reshape(pred.shape)
         w_sum = w.sum()
-        if float(w_sum) == 0:
+        if w_sum == 0:
             return 0
 
         if y.ndim == 2:
@@ -125,7 +125,7 @@ class NormalLLMetric(BaseMetric):
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y, pred = check_dist_param(y, pred)
         w_sum = w.sum()
-        if float(w_sum) == 0:
+        if w_sum == 0:
             return 0
         if y.ndim == 2:
             w = w[:, cn.newaxis]
@@ -151,9 +151,8 @@ class GammaLLMetric(BaseMetric):
     @override
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
         y, pred = check_dist_param(y, pred)
-
         w_sum = w.sum()
-        if float(w_sum) == 0:
+        if w_sum == 0:
             return 0
 
         k = pred[:, :, 0]
