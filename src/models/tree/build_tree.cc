@@ -530,11 +530,11 @@ struct build_tree_fn {
 
     // Get feature sample if it exists
     std::optional<legate::AccessorRO<bool, 1>> optional_feature_set;
-    if (context.inputs().size() == 4) {
-      auto [feature_set, feature_set_shape, feature_set_accessor] =
-        GetInputStore<bool, 1>(context.input(3).data());
-      optional_feature_set = feature_set_accessor;
-    }
+    // if (context.inputs().size() == 4) {
+    //   auto [feature_set, feature_set_shape, feature_set_accessor] =
+    //     GetInputStore<bool, 1>(context.input(3).data());
+    //   optional_feature_set = feature_set_accessor;
+    // }
 
     Tree tree(max_nodes, narrow<int>(num_outputs));
     SparseSplitProposals<T> const split_proposals =
