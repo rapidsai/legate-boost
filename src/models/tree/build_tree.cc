@@ -177,13 +177,13 @@ auto SelectSplitSamples(legate::TaskContext context,
                         int64_t dataset_rows) -> SparseSplitProposals<T>
 {
   std::vector<int64_t> row_samples(split_samples);
-
+  std::cout << "SelectSplitSamples 0" << std::endl;                                 
   std::default_random_engine eng(seed);
   std::uniform_int_distribution<int64_t> dist(0, dataset_rows - 1);
   std::transform(row_samples.begin(), row_samples.end(), row_samples.begin(), [&dist, &eng](int) {
     return dist(eng);
   });
-
+  std::cout << "Select Samples 1" << std::endl;                                 
   auto num_features    = X_shape.hi[1] - X_shape.lo[1] + 1;
   auto draft_proposals = legate::create_buffer<T, 2>({num_features, split_samples});
   for (int i = 0; i < split_samples; i++) {
@@ -193,10 +193,12 @@ auto SelectSplitSamples(legate::TaskContext context,
       draft_proposals[{j, i}] = has_data ? X[{row, j, 0}] : T(0);
     }
   }
+  std::cout << "Select Samples 2" << std::endl;                                 
   SumAllReduce(context,
                cuda::std::span<T>(draft_proposals.ptr({0, 0}), num_features * split_samples));
 
   // Sort samples
+  std::cout << "Sort Samples 0" << std::endl;                                 
   std::vector<T> split_proposals_tmp;
   split_proposals_tmp.reserve(num_features * split_samples);
   auto row_pointers = legate::create_buffer<int32_t, 1>(num_features + 1);
@@ -208,19 +210,19 @@ auto SelectSplitSamples(legate::TaskContext context,
     row_pointers[j + 1] = row_pointers[j] + unique.size();
     split_proposals_tmp.insert(split_proposals_tmp.end(), unique.begin(), unique.end());
   }
-
+  std::cout << "Sort Samples 1" << std::endl;                                 
   draft_proposals.destroy();
-
+  std::cout << "Sort Samples 2" << std::endl;                                 
   auto split_proposals = legate::create_buffer<T, 1>(split_proposals_tmp.size());
   std::copy(split_proposals_tmp.begin(), split_proposals_tmp.end(), split_proposals.ptr(0));
-
+  std::cout << "Sort Samples 3" << std::endl;                                 
   // Set the largest split sample to +inf such that an element must belong to one of the bins
   // i.e. we cannot go off the end when searching for a bin
   for (int feature = 0; feature < num_features; feature++) {
     auto end                 = row_pointers[feature + 1];
     split_proposals[end - 1] = std::numeric_limits<T>::infinity();
   }
-
+  std::cout << "Sort Samples 4" << std::endl;                                 
   return SparseSplitProposals<T>({split_proposals.ptr(0), split_proposals_tmp.size()},
                                  {row_pointers.ptr(0), narrow<std::size_t>(num_features + 1)});
 }
@@ -352,8 +354,11 @@ struct TreeBuilder {
       int best_feature = -1;
       int best_bin     = -1;
       for (int feature = 0; feature < num_features; feature++) {
-        if (optional_feature_set.has_value() && !optional_feature_set.value()[feature]) {
-          continue;
+        if (optional_feature_set.has_value()) {
+          bool feature_enabled = optional_feature_set.value()[feature];
+          if (!feature_enabled) {
+            continue;
+          }
         }
         auto [feature_begin, feature_end] = split_proposals.FeatureRange(feature);
         for (int bin_idx = feature_begin; bin_idx < feature_end; bin_idx++) {
@@ -537,24 +542,32 @@ struct build_tree_fn {
     // }
 
     Tree tree(max_nodes, narrow<int>(num_outputs));
+    std::cout << "SelectSplitSamples 1" << std::endl;                                 
     SparseSplitProposals<T> const split_proposals =
       SelectSplitSamples(context, X_accessor, X_shape, split_samples, seed, dataset_rows);
 
+    std::cout << "SelectSplitSamples 2" << std::endl;                                 
     const BinnedX binned_X(X_accessor, X_shape, split_proposals);
 
+    std::cout << "SelectSplitSamples " << std::endl;                                 
     // Begin building the tree
     TreeBuilder<T> builder(
       num_rows, num_features, num_outputs, max_nodes, max_depth, split_proposals);
 
+    std::cout << "InitialiseRoot " << std::endl;                                 
     builder.InitialiseRoot(
       context, tree, g_accessor, h_accessor, g_shape, l2_regularization, l1_regularization);
     for (int depth = 0; depth < max_depth; ++depth) {
+      std::cout << "depth: " << depth << " PrepareBatches " << std::endl;                                 
       auto batches = builder.PrepareBatches(depth);
       for (auto batch : batches) {
+        std::cout << "batch: " << " GetHistogram " << std::endl;                                 
         auto histogram = builder.GetHistogram(batch);
 
+        std::cout << "batch: " << " ComputeHistogram " << std::endl;                                 
         builder.ComputeHistogram(histogram, context, tree, binned_X, g_accessor, h_accessor, batch);
 
+        std::cout << "batch: " << " PerformBestSplit " << std::endl;                                 
         builder.PerformBestSplit(tree,
                                  histogram,
                                  batch,
@@ -562,6 +575,7 @@ struct build_tree_fn {
                                  l2_regularization,
                                  min_split_gain,
                                  optional_feature_set);
+        std::cout << "batch: " << batch.node_idx_begin << " " << batch.node_idx_end << std::endl;                                 
       }
       // Update position of entire level
       // Don't bother updating positions for the last level
