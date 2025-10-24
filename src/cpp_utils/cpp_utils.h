@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <functional>
 #include <tuple>
+#include <iostream>
 #include "legate_library.h"
 #include "legate/comm/coll.h"
 #include "nccl.h"

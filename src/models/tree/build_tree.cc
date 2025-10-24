@@ -22,6 +22,7 @@
 #include <tuple>
 #include <vector>
 #include <algorithm>
+#include <iostream>
 #include "legate_library.h"
 #include "legateboost.h"
 #include "cpp_utils/cpp_utils.h"
