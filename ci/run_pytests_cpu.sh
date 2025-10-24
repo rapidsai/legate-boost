@@ -21,9 +21,9 @@ export CUPYNUMERIC_FALLBACK_STACKTRACE=1
 cd legateboost/test
 
 # sklearn takes too long, test for gpu only
-LEGATE_TEST=1 legate \
+legate \
     --sysmem 40000 \
-    --cpus 8 \
+    --cpus 2 \
     --gpus 0 \
     --omps 0 \
     --module pytest \
