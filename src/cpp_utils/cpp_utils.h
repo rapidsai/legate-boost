@@ -30,7 +30,6 @@
 #include <iostream>
 #include "legate_library.h"
 #include "legate/comm/coll.h"
-#include "nccl.h"
 
 namespace legateboost {
 
