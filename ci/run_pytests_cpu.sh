@@ -18,7 +18,7 @@ set -e -E -u -o pipefail
 cd legateboost/test
 
 # sklearn takes too long, test for gpu only
-LEGATE_TEST=1 legate \
+legate \
     --sysmem 40000 \
     --cpus 8 \
     --gpus 0 \
