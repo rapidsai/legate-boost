@@ -23,12 +23,11 @@ cd legateboost/test
 # sklearn takes too long, test for gpu only
 legate \
     --sysmem 40000 \
-    --cpus 2 \
+    --cpus 8 \
     --gpus 0 \
     --omps 0 \
     --module pytest \
     -svv \
     --tb=long \
     --durations=0 \
-    test_with_hypothesis.py::test_regressor \
     "${@}"
