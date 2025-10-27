@@ -366,7 +366,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             counts = means[:, :, 1]
             encoding = (sums + self.smooth * y_mean) / (counts + self.smooth)
             zero_count = counts[:, 0] == 0
-            encoding[zero_count] = y_mean
+            encoding[zero_count, :] = y_mean
             return encoding, y_mean
         else:
             variances, y_variance = self._get_category_variances(
@@ -378,5 +378,5 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             means = sums / counts
             encoding = lambda_ * means + (1 - lambda_) * y_mean
             nans = cn.isnan(encoding)
-            encoding[nans] = y_mean
+            encoding = cn.where(nans, y_mean, encoding)
             return encoding, y_mean
