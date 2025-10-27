@@ -47,7 +47,12 @@ def test_gather(dtype):
 
     def check_gather(X, rows):
         a = gather(X, rows)
-        b = X[rows]
+        # Manually construct expected result using basic indexing (which works)
+        # instead of advanced indexing X[rows]
+        expected_rows = []
+        for i in range(rows.shape[0]):
+            expected_rows.append(X[int(rows[i])])
+        b = cn.stack(expected_rows, axis=0)
         assert a.dtype == b.dtype
         assert a.shape == b.shape
         assert (a == b).all()

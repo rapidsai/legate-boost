@@ -27,7 +27,6 @@
 #include <algorithm>
 #include <functional>
 #include <tuple>
-#include <iostream>
 #include "legate_library.h"
 #include "legate/comm/coll.h"
 
@@ -190,8 +189,7 @@ void AllReduce(legate::TaskContext context, cuda::std::span<T> x, OpT op)
   EXPECT(num_ranks == 1 || context.num_communicators() > 0,
          "Expected a CPU communicator for multi-rank task.");
   if (x.size() == 0 || context.num_communicators() == 0) { return; }
-  std::cout << "AllReduce 0" << std::endl;
-  const auto& comm = context.communicator(0);  // Use communicator(0) not communicators().at(0)
+  const auto& comm = context.communicator(0);
   legate::comm::coll::CollDataType type{};
   if (std::is_same_v<T, float>) {
     type = legate::comm::coll::CollDataType::CollFloat;
@@ -201,7 +199,6 @@ void AllReduce(legate::TaskContext context, cuda::std::span<T> x, OpT op)
     EXPECT(false, "Unsupported type.");
   }
 
-  std::cout << "AllReduce 1" << std::endl;
   auto* comm_ptr = comm.get<legate::comm::coll::CollComm>();
   EXPECT(comm_ptr != nullptr, "CPU communicator is null.");
   const size_t items_per_rank = (x.size() + num_ranks - 1) / num_ranks;
@@ -209,7 +206,6 @@ void AllReduce(legate::TaskContext context, cuda::std::span<T> x, OpT op)
   std::copy(x.begin(), x.end(), data.begin());
   std::vector<T> recvbuf(items_per_rank * num_ranks);
 
-  std::cout << "ALlReduce 2" << std::endl;
   legate::comm::coll::collAlltoall(data.data(), recvbuf.data(), items_per_rank, type, comm_ptr);
   // Sum partials
   std::vector<T> partials(items_per_rank, 0.0);

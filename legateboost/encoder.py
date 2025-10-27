@@ -378,5 +378,5 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             means = sums / counts
             encoding = lambda_ * means + (1 - lambda_) * y_mean
             nans = cn.isnan(encoding)
-            encoding[nans] = y_mean
+            encoding = cn.where(nans, y_mean, encoding)
             return encoding, y_mean
