@@ -68,7 +68,6 @@ channels:
   - legate
   - legate/label/rc
   - legate-nightly
-  - legate/label/experimental
   - conda-forge
   - nvidia
 dependencies:

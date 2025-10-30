@@ -18,7 +18,6 @@ rapids-conda-retry build \
     --channel legate \
     --channel legate/label/rc \
     --channel legate-nightly \
-    --channel legate/label/experimental \
     --channel conda-forge \
     --channel nvidia \
     --no-force-upload \
