@@ -741,11 +741,14 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
 
   // SYNC BEST GAIN TO FULL BLOCK/NODE
   GainFeaturePair const thread_best_pair{thread_best_gain, thread_best_bin_idx};
-  auto max_op = [] __device__(const GainFeaturePair& a, const GainFeaturePair& b) {
-    return a > b ? a : b;
-  };
   GainFeaturePair const node_best_pair =
-    BlockReduce(temp_storage).Reduce(thread_best_pair, max_op, BLOCK_THREADS);
+    BlockReduce(temp_storage)
+      .Reduce(
+        thread_best_pair,
+        [] __device__(const GainFeaturePair& a, const GainFeaturePair& b) {
+          return a.gain > b.gain ? a : b;
+        },
+        BLOCK_THREADS);
   if (threadIdx.x == 0) {
     node_best_gain    = node_best_pair.gain;
     node_best_bin_idx = node_best_pair.bin_idx;
