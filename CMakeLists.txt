@@ -28,11 +28,13 @@ endif()
 
 set(BUILD_SHARED_LIBS ON)
 
+# Override CCCL version to match legate's 3.0.3 BEFORE rapids_cpm_init()
+include("${rapids-cmake-dir}/cpm/package_override.cmake")
+rapids_cpm_package_override("${CMAKE_CURRENT_SOURCE_DIR}/cmake/cccl_override.json")
+
 # add third party dependencies using CPM
 rapids_cpm_init()
 
-# Ensure we find the same CCCL as legate (uses RAPIDS).
-# As of 25.07 this was required (2.5 worked but was found).
 include("${rapids-cmake-dir}/cpm/cccl.cmake")
 rapids_cpm_cccl()
 

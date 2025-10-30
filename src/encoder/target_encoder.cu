@@ -69,7 +69,7 @@ struct target_encoder_mean_fn {
     }
 
     auto means =
-      context.reduction(0).data().reduce_accessor<legate::SumReduction<double>, true, 3>();
+      context.reduction(0).data().reduce_accessor<Legion::SumReduction<double>, true, 3>();
 
     auto* stream      = context.get_task_stream();
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
@@ -144,9 +144,9 @@ struct target_encoder_variance_fn {
     }
 
     auto variances =
-      context.reduction(0).data().reduce_accessor<legate::SumReduction<double>, true, 2, true>();
+      context.reduction(0).data().reduce_accessor<Legion::SumReduction<double>, true, 2, true>();
     auto y_variance =
-      context.reduction(1).data().reduce_accessor<legate::SumReduction<double>, true, 1, true>();
+      context.reduction(1).data().reduce_accessor<Legion::SumReduction<double>, true, 1, true>();
 
     auto* stream      = context.get_task_stream();
     auto thrust_alloc = ThrustAllocator(legate::Memory::GPU_FB_MEM);
