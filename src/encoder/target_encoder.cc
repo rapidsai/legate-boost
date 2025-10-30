@@ -68,7 +68,7 @@ struct target_encoder_mean_fn {
     }
 
     auto means =
-      context.reduction(0).data().reduce_accessor<legate::SumReduction<double>, true, 3>();
+      context.reduction(0).data().reduce_accessor<Legion::SumReduction<double>, true, 3>();
     // Iterate through the data and accumulate labels
     for (auto row_idx = X_shape.lo[0]; row_idx <= X_shape.hi[0]; row_idx++) {
       // Skip if in test fold
@@ -127,9 +127,9 @@ struct target_encoder_variance_fn {
     }
 
     auto variances =
-      context.reduction(0).data().reduce_accessor<legate::SumReduction<double>, true, 2>();
+      context.reduction(0).data().reduce_accessor<Legion::SumReduction<double>, true, 2>();
     auto y_variance =
-      context.reduction(1).data().reduce_accessor<legate::SumReduction<double>, true, 1>();
+      context.reduction(1).data().reduce_accessor<Legion::SumReduction<double>, true, 1>();
 
     for (auto row_idx = X_shape.lo[0]; row_idx <= X_shape.hi[0]; row_idx++) {
       // Skip if in test fold

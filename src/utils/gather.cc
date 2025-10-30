@@ -43,7 +43,7 @@ struct gather_fn {
     cuda::std::span<const int64_t> sample_rows{};
     if (!context.scalars().empty()) {
       auto legate_span = context.scalar(0).values<int64_t>();
-      sample_rows      = {legate_span.ptr(), legate_span.size()};
+      sample_rows      = {legate_span.data(), legate_span.size()};
     } else {
       auto [store, shape, accessor] = GetInputStore<int64_t, 1>(context.input(1).data());
       EXPECT_IS_BROADCAST(shape);
