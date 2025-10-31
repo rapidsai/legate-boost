@@ -741,7 +741,7 @@ __global__ void __launch_bounds__(BLOCK_THREADS)
 
   // SYNC BEST GAIN TO FULL BLOCK/NODE
   GainFeaturePair const thread_best_pair{thread_best_gain, thread_best_bin_idx};
-  GainFeaturePair const node_best_pair = BlockReduce(temp_storage).Reduce(thread_best_pair, cub::Max(), BLOCK_THREADS);
+  GainFeaturePair const node_best_pair =
     BlockReduce(temp_storage)
       .Reduce(
         thread_best_pair,
