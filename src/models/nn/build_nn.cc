@@ -320,8 +320,7 @@ auto backward(NNContext* nn_context,
 
   // Scale and allreduce gradients
   SumAllReduce(nn_context->legate_context, grads.data);
-  auto num_outputs = g.extent[1];
-  for (auto& grad : grads.data) { grad /= (total_rows * num_outputs); }
+  for (auto& grad : grads.data) { grad /= total_rows; }
   return grads;
 }
 
