@@ -121,11 +121,8 @@ requirements:
     - numpy>=2.0
     - scikit-learn>=1.6,<1.6.1
     - typing-extensions>=4.0
-    - cutensor
 
 test:
-  requires:
-    - numpy>=2.0
   # import tests at build time do not work for the CUDA packages,
   # because builds happen on machines without a GPU
   commands:

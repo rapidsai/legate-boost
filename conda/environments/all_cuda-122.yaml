@@ -16,7 +16,7 @@ dependencies:
 - cuda-toolkit
 - cuda-version>=12.2
 - cupynumeric==25.11.*,>=0.0.0.dev0
-- cutensor<=2.2.0.0
+- cutensor<=2.3.1.0
 - hypothesis>=6
 - legate==25.11.*,>=0.0.0.dev0
 - libcublas-dev
@@ -28,7 +28,7 @@ dependencies:
 - nbconvert>=7.16
 - ninja>=1.11.1.1
 - notebook>=7
-- numpy<2
+- numpy>=2.0
 - onnx>=1.10
 - onnxmltools>=1.10
 - openblas

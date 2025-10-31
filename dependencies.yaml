@@ -77,7 +77,7 @@ dependencies:
         packages:
           - cuda-cudart-dev
           - libcublas-dev
-          - cutensor<=2.2.0.0 # test failures with 2.3.0.6
+          - cutensor<=2.3.1.0 # test failures with 2.3.0.6
           - openblas
       - output_types: [conda, pyproject, requirements]
         packages:
@@ -157,7 +157,7 @@ dependencies:
         packages:
           # <2 due to bad interaction of cupynumeric and sklearn via NumPy:
           # https://github.com/nv-legate/cupynumeric.internal/issues/840
-          - numpy<2
+          - numpy>=2.0
           - scikit-learn>=1.6
           - typing-extensions>=4.0
       - output_types: [conda, pyproject, requirements]
@@ -168,7 +168,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cutensor<=2.2.0.0 # test failures with 2.3.0.6
+          - cutensor<=2.3.1.0 # test failures with 2.3.0.6
           - hypothesis>=6
           - matplotlib>=3.9
           - mypy>=1.13
