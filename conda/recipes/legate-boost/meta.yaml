@@ -96,6 +96,7 @@ requirements:
     - scikit-build-core >=0.10.0
     # try to expose what's pulling in 'mkl'
     - nomkl
+    - numpy<2.0
   run:
     - python
     {% if gpu_enabled_bool %}
@@ -117,11 +118,13 @@ requirements:
     - legate
     # <2 due to bad interaction of cupynumeric and sklearn via NumPy:
     # https://github.com/nv-legate/cupynumeric.internal/issues/840
-    - numpy<2
+    - numpy<2.0
     - scikit-learn>=1.6,<1.6.1
     - typing-extensions>=4.0
 
 test:
+  requires:
+    - numpy<2.0
   # import tests at build time do not work for the CUDA packages,
   # because builds happen on machines without a GPU
   commands:
