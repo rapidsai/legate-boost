@@ -121,6 +121,7 @@ requirements:
     - numpy>=2.0
     - scikit-learn>=1.6,<1.6.1
     - typing-extensions>=4.0
+    - cutensor
 
 test:
   requires:
