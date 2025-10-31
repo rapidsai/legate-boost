@@ -402,8 +402,9 @@ auto backward(NNContext* nn_context,
   // Scale and allreduce gradients
   SumAllReduce(nn_context->legate_context, grads.data, nn_context->stream);
   // TODO(seberg): Could previously not use span in kernel
+  auto num_outputs = g.extent[1];
   LaunchN(grads.size(), nn_context->stream, [=] __device__(int64_t idx) {
-    grads.data[idx] /= total_rows;
+    grads.data[idx] /= (total_rows * num_outputs);
   });
   return grads;
 }
