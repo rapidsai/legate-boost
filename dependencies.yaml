@@ -122,7 +122,7 @@ dependencies:
             packages:
               - cuda-version>=12.2
           - matrix:
-              cuda: "12.9"
+              cuda: "12.5.1"
             packages:
               - cuda-version>=12.5,<13.0
   docs:
