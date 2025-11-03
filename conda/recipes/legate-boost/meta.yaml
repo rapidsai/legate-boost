@@ -77,6 +77,7 @@ requirements:
     - {{ compiler('cxx') }}
     - {{ compiler('cuda') }}
     - {{ stdlib("c") }}
+    - cuda-nvcc ={{ cuda_version }}.*
     - cuda-version ={{ cuda_version }}
   host:
     {% if gpu_enabled_bool %}
