@@ -78,6 +78,10 @@ requirements:
     - cuda-nvcc
     - {{ stdlib("c") }}
     - cuda-version ={{ cuda_version }}
+    {% if gpu_enabled_bool %}           
+    - cuda-cudart-dev
+    - cuda-cccl
+    {% endif %} 
   host:
     {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
