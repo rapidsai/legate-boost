@@ -16,7 +16,7 @@ set -e -E -u -o pipefail
 
 nvidia-smi
 
-export CUTENSOR_LOG_LEVEL=2,
+export CUTENSOR_LOG_LEVEL=2
 
 # Go into package folder to not import source package
 cd legateboost/test
