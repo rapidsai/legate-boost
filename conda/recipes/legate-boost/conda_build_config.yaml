@@ -26,6 +26,6 @@ gpu_enabled:
   - false
 
 cupynumeric_version:
-  - "=25.11.*,>=0.0.0.dev0"
+  - "=25.11.00.dev14"
 legate_version:
   - "=25.11.*,>=0.0.0.dev0"

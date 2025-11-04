@@ -16,15 +16,13 @@ set -e -E -u -o pipefail
 
 nvidia-smi
 
-export CUTENSOR_LOG_LEVEL=2
-
 # Go into package folder to not import source package
 cd legateboost/test
 
 legate \
     --omps 0 \
     --gpus 1 \
-    --fbmem 24000 \
+    --fbmem 28000 \
     --sysmem 40000 \
     --module pytest \
     -sv \
