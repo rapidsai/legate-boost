@@ -166,7 +166,7 @@ dependencies:
           - typing-extensions>=4.0
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cupynumeric==25.11.00.dev19
+          - cupynumeric==25.11.*,>=0.0.0.dev0
           - *legate
   test:
     common:
