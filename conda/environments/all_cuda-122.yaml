@@ -17,7 +17,7 @@ dependencies:
 - cuda-version>=12,<13
 - cuda-version>=12.2
 - cupynumeric==25.11.00.dev19
-- cutensor<=2.2.0.0
+- cutensor<2.3
 - hypothesis>=6
 - legate==25.11.*,>=0.0.0.dev0
 - libcublas-dev
