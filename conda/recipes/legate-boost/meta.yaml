@@ -104,7 +104,7 @@ requirements:
     # cuda-version is used to constrain __cuda
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - cuda-cudart
-    - cutensor<=2.2.0.0  # test failures with 2.3.0.6
+    - cutensor >=2.0,<2.4,!=2.3.0.6  # test failures with 2.3.0.6
     - libcublas
     - __cuda
     - cupynumeric {{ cupynumeric_version }} =*_gpu*
