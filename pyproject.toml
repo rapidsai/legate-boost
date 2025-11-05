@@ -43,7 +43,7 @@ requires-python = ">=3.11"
 
 [project.optional-dependencies]
 test = [
-    "cutensor<=2.3.1.0",
+    "cutensor<=2.2.0",
     "hypothesis>=6",
     "matplotlib>=3.9",
     "mypy>=1.13",
