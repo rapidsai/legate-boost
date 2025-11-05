@@ -76,6 +76,7 @@ dependencies:
       - output_types: [conda]
         packages:
           - cuda-cudart-dev
+          - cuda-version>=12,<13
           - libcublas-dev
           - cutensor<=2.3 # allows 2.2.0, 2.2.0.0, and any 2.2.x; avoids 2.3.0.6
           - openblas
