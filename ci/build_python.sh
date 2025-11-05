@@ -17,6 +17,7 @@ LEGATEBOOST_PACKAGE_VERSION=$(head -1 ./VERSION) \
 rapids-conda-retry build \
     --channel legate \
     --channel legate/label/rc \
+    --channel legate-nightly/label/pull-request-1219 \
     --channel legate-nightly \
     --channel conda-forge \
     --channel nvidia \
