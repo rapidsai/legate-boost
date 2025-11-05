@@ -15,7 +15,7 @@ dependencies:
 - cuda-nvcc
 - cuda-toolkit
 - cuda-version>=12,<13
-- cuda-version>=12.2
+- cuda-version>=12.2,<13
 - cupynumeric==25.11.*,>=0.0.0.dev0
 - cutensor<=2.3
 - hypothesis>=6
