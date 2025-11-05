@@ -155,7 +155,8 @@ dependencies:
     common:
       - output_types: [conda]
         packages:
-          - cutensor<=2.2.0.0 # test failures with 2.3.0.6, matching cupynumeric constraint
+          - cuda-version>=12,<13  # ensure CUDA 12 packages are selected
+          - cutensor<=2.2.0.0 # test failures with 2.3.0.6, cutensor 2.2 supports CUDA 12
       - output_types: [conda, pyproject, requirements]
         packages:
           # <2 due to bad interaction of cupynumeric and sklearn via NumPy:
@@ -169,9 +170,12 @@ dependencies:
           - *legate
   test:
     common:
+      - output_types: [conda]
+        packages:
+          - cuda-version>=12,<13  # ensure CUDA 12 packages are selected
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cutensor<=2.2.0.0 # test failures with 2.3.0.6, matching cupynumeric constraint
+          - cutensor<=2.2.0.0 # test failures with 2.3.0.6, cutensor 2.2 supports CUDA 12
           - hypothesis>=6
           - matplotlib>=3.9
           - mypy>=1.13

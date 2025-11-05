@@ -101,10 +101,10 @@ requirements:
   run:
     - python
     {% if gpu_enabled_bool %}
-    # cuda-version is used to constrain __cuda
+    # cuda-version is used to constrain __cuda to CUDA 12
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - cuda-cudart
-    - cutensor<=2.2.0.0  # test failures with 2.3.0.6, matching cupynumeric constraint
+    - cutensor<=2.2.0.0  # test failures with 2.3.0.6, cutensor 2.2 supports CUDA 12
     - libcublas
     - __cuda
     - cupynumeric {{ cupynumeric_version }} =*_gpu*
