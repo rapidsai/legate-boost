@@ -42,7 +42,6 @@ rapids-mamba-retry install \
   --channel "${RAPIDS_LOCAL_CONDA_CHANNEL}" \
   --channel legate \
   --channel legate/label/rc \
-  --channel legate-nightly/label/pull-request-1219 \
   --channel legate-nightly \
   --channel conda-forge \
     "legate-boost=${LEGATEBOOST_VERSION}"

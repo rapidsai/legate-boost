@@ -31,7 +31,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "cupynumeric==25.11.00.dev21",
+    "cupynumeric==25.11.*,>=0.0.0.dev0",
     "legate==25.11.*,>=0.0.0.dev0",
     "numpy<2.0",
     "scikit-learn>=1.6",

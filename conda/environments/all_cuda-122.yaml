@@ -4,7 +4,6 @@ channels:
 - rapidsai
 - legate
 - legate/label/rc
-- legate-nightly/label/pull-request-1219
 - legate-nightly
 - conda-forge
 - nvidia
@@ -16,7 +15,7 @@ dependencies:
 - cuda-nvcc
 - cuda-toolkit
 - cuda-version>=12.2
-- cupynumeric==25.11.00.dev21
+- cupynumeric==25.11.*,>=0.0.0.dev0
 - cutensor<=2.2.0
 - hypothesis>=6
 - legate==25.11.*,>=0.0.0.dev0
