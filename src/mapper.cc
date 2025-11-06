@@ -53,7 +53,7 @@ auto LegateboostMapper::store_mappings(const legate::mapping::Task& task,
       mappings.push_back(
         legate::mapping::StoreMapping::default_mapping(input.data(), options.front()));
       mappings.back().policy().ordering = legate::mapping::DimOrdering::c_order();
-      mappings.back().policy().exact = true;
+      mappings.back().policy().exact    = true;
     }
     return mappings;
   }
