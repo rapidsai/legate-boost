@@ -67,7 +67,7 @@ channels:
   - rapidsai
   - legate
   - legate/label/rc
-  - legate/label/experimental
+  - legate-nightly
   - conda-forge
   - nvidia
 dependencies:
@@ -77,18 +77,19 @@ dependencies:
         packages:
           - cuda-cudart-dev
           - libcublas-dev
-          - cutensor<=2.2.0.0 # test failures with 2.3.0.6
+          - cutensor<=2.2.0
           - openblas
       - output_types: [conda, pyproject, requirements]
         packages:
           - cmake>=3.26.4,!=3.30.0
-          - &legate legate==25.08.*,>=0.0.0.dev0
+          - &legate legate==25.11.*,>=0.0.0.dev0
           - ninja>=1.11.1.1
   clang_tidy:
     common:
       - output_types: [conda]
         packages:
           - cuda-toolkit
+          - cuda-version>=12.2
           - clang-tools>=19.0
           - clangxx>=19.0
           - llvm-openmp
@@ -121,9 +122,9 @@ dependencies:
             packages:
               - cuda-version>=12.2
           - matrix:
-              cuda: "12.5"
+              cuda: "12.5.1"
             packages:
-              - cuda-version>=12.5
+              - cuda-version>=12.5,<13.0
   docs:
     common:
       - output_types: [conda, pyproject, requirements]
@@ -152,22 +153,25 @@ dependencies:
               - *latest_python
   run:
     common:
+      - output_types: [conda]
+        packages:
+          - cutensor<=2.2.0
       - output_types: [conda, pyproject, requirements]
         packages:
           # <2 due to bad interaction of cupynumeric and sklearn via NumPy:
           # https://github.com/nv-legate/cupynumeric.internal/issues/840
-          - numpy<2
+          - numpy<2.0
           - scikit-learn>=1.6
           - typing-extensions>=4.0
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cupynumeric==25.08.*,>=0.0.0.dev0,!=25.08.00.rc2,!=25.08.00.rc3,!=25.08.00
+          - cupynumeric==25.11.*,>=0.0.0.dev0
           - *legate
   test:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cutensor<=2.2.0.0 # test failures with 2.3.0.6
+          - cutensor<=2.2.0
           - hypothesis>=6
           - matplotlib>=3.9
           - mypy>=1.13

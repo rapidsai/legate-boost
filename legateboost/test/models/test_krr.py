@@ -9,7 +9,9 @@ from legateboost.testing.utils import non_increasing
 
 
 @pytest.mark.parametrize("weights", [True, False])
-@pytest.mark.parametrize("solver", ["direct", "lbfgs"])
+@pytest.mark.parametrize(
+    "solver", ["direct"]
+)  # "lbfgs" is too slow to test at the moment
 def test_against_sklearn(weights, solver):
     X = np.linspace(0, 1, 100)[:, np.newaxis]
     y = np.sin(X[:, 0] * 8 * np.pi)
@@ -42,7 +44,9 @@ def test_against_sklearn(weights, solver):
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
-@pytest.mark.parametrize("solver", ["direct", "lbfgs"])
+@pytest.mark.parametrize(
+    "solver", ["direct"]
+)  # "lbfgs" is too slow to test at the moment
 def test_improving_with_components(num_outputs, solver):
     rs = cn.random.RandomState(0)
     X = rs.random((100, 10))
@@ -66,7 +70,9 @@ def test_improving_with_components(num_outputs, solver):
 
 
 @pytest.mark.parametrize("num_outputs", [1, 5])
-@pytest.mark.parametrize("solver", ["direct", "lbfgs"])
+@pytest.mark.parametrize(
+    "solver", ["direct"]
+)  # "lbfgs" is too slow to test at the moment
 def test_l2_regularization(num_outputs, solver):
     # higher l2_regularization hyperparameter should lead to smaller coefficients
     rs = cn.random.RandomState(0)

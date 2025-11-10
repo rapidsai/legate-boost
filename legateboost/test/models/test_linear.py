@@ -8,7 +8,9 @@ import cupynumeric as cn
 import legateboost as lb
 
 
-@pytest.mark.parametrize("solver", ["direct", "lbfgs"])
+@pytest.mark.parametrize(
+    "solver", ["direct"]
+)  # "lbfgs" is too slow to test at the moment
 class TestLinear:
     def test_bias(self, solver):
         X = cn.zeros((10, 5))

@@ -198,10 +198,10 @@ class SparseSplitProposals {
     ForwardIt base = first;
     while (n > 1) {
       const int half = n / 2;
-      base           = (base[half] < value) ? &base[half] : base;
+      base           = (base[half] < value) ? (base + half) : base;
       n -= half;
     }
-    return (*base < value) + base;
+    return (*base < value) ? (base + 1) : base;
   }
 
   [[nodiscard]] auto FindBin(T x, int feature) const -> int
