@@ -182,3 +182,4 @@ dependencies:
           - xgboost>=2.0
           - onnx>=1.10
           - onnxmltools>=1.10
+          - onnxruntime
