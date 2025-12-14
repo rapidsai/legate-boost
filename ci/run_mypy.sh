@@ -14,6 +14,7 @@
 
 set -e -E -u -o pipefail
 
+mypy --version
 mypy \
     --config-file ./pyproject.toml \
     --exclude=legateboost/test \

@@ -152,36 +152,27 @@ class Linear(BaseModel):
         new.betas_ *= scalar
         return new
 
-    def to_onnx(self) -> Any:
-        from onnx import numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_tensor_value_info,
-            np_dtype_to_tensor_dtype,
-        )
+    def to_onnx(self, X: cn.array) -> Any:
+        import onnx
 
-        # model constants
-        betas = numpy_helper.from_array(self.betas_[1:].__array__(), name="betas")
-        intercept = numpy_helper.from_array(
-            self.betas_[0].__array__(), name="intercept"
+        X_type_text = "double" if X.dtype == cn.float64 else "float"
+        onnx_text = f"""
+        LinearModel ({X_type_text}[N, M] X_in, double[N, K] predictions_in) => ({X_type_text}[N, M] X_out, double[N, K] predictions_out)
+        {{
+            X_out = Identity(X_in)
+            mult = MatMul(X_in, betas)
+            result = Add(mult, intercept)
+            result_double = Cast<to=11>(result)
+            predictions_out = Add(result_double, predictions_in)
+        }}
+        """  # noqa: E501
+        graph = onnx.parser.parse_graph(onnx_text)
+        graph.initializer.extend(
+            [
+                onnx.numpy_helper.from_array(self.betas_[1:].__array__(), name="betas"),
+                onnx.numpy_helper.from_array(
+                    self.betas_[0].__array__(), name="intercept"
+                ),
+            ]
         )
-
-        # pred inputs
-        X = make_tensor_value_info(
-            "X", np_dtype_to_tensor_dtype(self.betas_.dtype), [None, None]
-        )
-        pred = make_tensor_value_info(
-            "pred", np_dtype_to_tensor_dtype(self.betas_.dtype), [None]
-        )
-
-        node1 = make_node("MatMul", ["X", "betas"], ["XBeta"])
-        node2 = make_node("Add", ["XBeta", "intercept"], ["pred"])
-        graph = make_graph(
-            [node1, node2], "legateboost.model.Linear", [X], [pred], [betas, intercept]
-        )
-        onnx_model = make_model(graph)
-        check_model(onnx_model)
-        return onnx_model
+        return graph

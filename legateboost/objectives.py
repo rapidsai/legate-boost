@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Any, Tuple
 
 from scipy.stats import norm
 from typing_extensions import TypeAlias, override
@@ -43,6 +43,7 @@ class BaseObjective(ABC):
 
     # utility constant
     one = cn.ones(1, dtype=cn.float64)
+    half = cn.array(0.5, dtype=cn.float64)
 
     @abstractmethod
     def gradient(self, y: cn.ndarray, pred: cn.ndarray) -> GradPair:
@@ -69,6 +70,30 @@ class BaseObjective(ABC):
             n-d array. For classification problems outputs a probability.
         """
         return pred
+
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
+        """Returns an ONNX graph that accepts
+        - "predictions_in" : 2D tensor of shape (n_samples, n_outputs) and type double.
+        And outputs the transformed predictions.
+        - "predictions_out" : arbitrary tensor depending on the objective.
+
+        Is by default the identity transform.
+
+        The ONNX transform should produce the same output as the transform
+        method for each objective.
+
+        Returns:
+            Onnx graph that transforms the predictions.
+        """
+        import onnx
+
+        onnx_text = """
+        BaseObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = Identity(predictions_in)
+        }
+        """
+        return onnx.parser.parse_graph(onnx_text)
 
     @abstractmethod
     def metric(self) -> BaseMetric:
@@ -114,6 +139,25 @@ class ClassificationObjective(BaseObjective):
             cn.ndarray: The class labels as a NumPy array.
         """
         return cn.argmax(pred, axis=-1)
+
+    def onnx_output_class(self, pred: cn.ndarray) -> Any:
+        """Returns an ONNX model that accepts
+        - "predictions_in" : 2D tensor of shape (n_samples, n_outputs) and type double.
+        And outputs the predicted class labels.
+        - "predictions_out" : 1D tensor of shape (n_samples,) and type int32.
+
+        Returns:
+            Onnx model that converts probabilities into class labels.
+        """
+        import onnx
+
+        onnx_text = """
+        BaseModelOutputClass (double[N, M] predictions_in) => (int64[N, M] predictions_out)
+        {
+            predictions_out = ArgMax<axis = -1>(predictions_in)
+        }
+        """  # noqa: E501
+        return onnx.parser.parse_graph(onnx_text)
 
 
 class SquaredErrorObjective(BaseObjective):
@@ -243,6 +287,29 @@ class NormalObjective(BaseObjective, Forecast):
         pred[:, :, 1] = cn.clip(pred[:, :, 1], -5, 5)
         return pred
 
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
+        import onnx
+
+        onnx_text = """
+        NormalObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            out_shape = Constant<value_ints = [0,-1,2]>()
+            var_starts = Constant<value_ints = [0,0,1]>()
+            mean_starts = Constant<value_ints = [0,0,0]>()
+            axis = Constant<value_ints = [0,1,2]>()
+            steps = Constant<value_ints = [1,1,2]>()
+            min = Constant<value = double {-5.0}>()
+            max = Constant<value = double {5.0}>()
+            reshaped = Reshape(predictions_in, out_shape)
+            new_shape = Shape(reshaped)
+            variance = Slice(reshaped, var_starts, new_shape, axis, steps)
+            mean = Slice(reshaped, mean_starts, new_shape, axis, steps)
+            clipped_variance = Clip(variance, min, max)
+            predictions_out = Concat<axis=2>(mean, clipped_variance)
+        }
+        """
+        return onnx.parser.parse_graph(onnx_text)
+
     @override
     def mean(self, param: cn.ndarray) -> cn.ndarray:
         """Return the mean for the Normal distribution."""
@@ -321,6 +388,18 @@ class GammaDevianceObjective(FitInterceptRegMixIn):
         """Inverse log link."""
         return cn.exp(pred)
 
+    @override
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
+        import onnx
+
+        onnx_text = """
+        GammaDevianceTransform (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = Exp(predictions_in)
+        }
+        """  # noqa: E501
+        return onnx.parser.parse_graph(onnx_text)
+
     def initialise_prediction(
         self, y: cn.ndarray, w: cn.ndarray, boost_from_average: bool
     ) -> cn.ndarray:
@@ -364,6 +443,18 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
         pred = pred.reshape((pred.shape[0], pred.shape[1] // 2, 2))
         assert pred.ndim == 3
         return cn.exp(pred)
+
+    @override
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
+        import onnx
+
+        onnx_text = """
+        GammaTransform (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = Exp(predictions_in)
+        }
+        """
+        return onnx.parser.parse_graph(onnx_text)
 
     @override
     def metric(self) -> GammaLLMetric:
@@ -421,7 +512,7 @@ class GammaObjective(FitInterceptRegMixIn, Forecast):
 class QuantileObjective(BaseObjective):
     """Minimises the quantile loss, otherwise known as check loss or pinball loss.
 
-    :math:`L(y_i, p_i) = \\frac{1}{k}\\sum_{j=1}^{k} (q_j - \\mathbb{1})(y_i - p_{i, j})`
+    :math:`L(y_i, p_i) = \\frac{}{k}\\sum_{j=1}^{k} (q_j - \\mathbb{1})(y_i - p_{i, j})`
 
     where
 
@@ -511,6 +602,18 @@ class LogLossObjective(ClassificationObjective):
         div = cn.sum(e_x, axis=1)
         return e_x / div[:, cn.newaxis]
 
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
+        import onnx
+
+        operator_to_use = "Sigmoid" if pred.shape[1] == 1 else "Softmax"
+        onnx_text = f"""
+        LogLossObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {{
+            predictions_out = {operator_to_use}(predictions_in)
+        }}
+        """
+        return onnx.parser.parse_graph(onnx_text)
+
     def metric(self) -> LogLossMetric:
         return LogLossMetric()
 
@@ -547,8 +650,32 @@ class MultiLabelObjective(ClassificationObjective):
     def transform(self, pred: cn.ndarray) -> cn.ndarray:
         return self.one / (self.one + cn.exp(-pred))
 
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
+        import onnx
+
+        onnx_text = """
+        MultiLabelObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        {
+            predictions_out = Sigmoid(predictions_in)
+        }
+        """  # noqa: E501
+        return onnx.parser.parse_graph(onnx_text)
+
     def output_class(self, pred: cn.ndarray) -> cn.ndarray:
-        return cn.array(pred > 0.5, dtype=cn.int32).squeeze()
+        return cn.array(pred > 0.5, dtype=cn.int64)
+
+    def onnx_output_class(self, pred: cn.ndarray) -> Any:
+        import onnx
+
+        onnx_text = """
+        MultiLabelOutputClass (double[N, M] predictions_in) => (int64[N, M] predictions_out)
+        {
+            half = Constant<value = double {0.5}>()
+            greater = Greater(predictions_in, half)
+            predictions_out = Cast<to = 7>(greater)
+        }
+        """  # noqa: E501
+        return onnx.parser.parse_graph(onnx_text)
 
     def metric(self) -> MultiLabelMetric:
         return MultiLabelMetric()
@@ -614,6 +741,33 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         K = pred.shape[1]  # number of classes
         return logloss.transform((1 / (K - 1)) * pred)
 
+    def onnx_transform(self, pred: cn.ndarray) -> Any:
+        import onnx
+
+        onnx_text = """
+        LogLossObjective (double[N, M] predictions_in) => (double[N, M] predictions_out)
+        """  # noqa: E501
+
+        if pred.shape[1] == 1:
+            onnx_text += """
+            {
+                constant = Constant<value = double {2.0}>()
+                a = Mul(predictions_in, constant)
+                predictions_out = Sigmoid(a)
+            }
+            """
+            return onnx.parser.parse_graph(onnx_text)
+
+        constant = 1 / (pred.shape[1] - 1)
+        onnx_text += f"""
+        {{
+            constant = Constant<value = double {{{constant}}}>()
+            a = Mul(predictions_in, constant)
+            predictions_out = Softmax(a)
+        }}
+        """
+        return onnx.parser.parse_graph(onnx_text)
+
     def metric(self) -> ExponentialMetric:
         return ExponentialMetric()
 
@@ -628,7 +782,7 @@ class ExponentialObjective(ClassificationObjective, FitInterceptRegMixIn):
         return self.one_step_newton(y, w, boost_from_average, init)
 
 
-objectives = {
+OBJECTIVES_MAP = {
     "squared_error": SquaredErrorObjective,
     "normal": NormalObjective,
     "log_loss": LogLossObjective,
@@ -638,3 +792,11 @@ objectives = {
     "gamma_deviance": GammaDevianceObjective,
     "gamma": GammaObjective,
 }
+
+REGRESSION_OBJECTIVES = ["squared_error", "normal", "gamma_deviance", "gamma"]
+
+CLASSIFICATION_OBJECTIVES = [
+    "log_loss",
+    "multi_label",
+    "exp",
+]

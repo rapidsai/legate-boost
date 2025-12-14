@@ -243,115 +243,40 @@ class KRR(BaseModel):
         self.betas_ *= scalar
         return new
 
-    def to_onnx(self) -> Any:
-        from onnx import numpy_helper
-        from onnx.checker import check_model
-        from onnx.helper import (
-            make_graph,
-            make_model,
-            make_node,
-            make_tensor_value_info,
-            np_dtype_to_tensor_dtype,
-        )
+    def to_onnx(self, X: cn.array) -> Any:
+        import onnx
 
-        assert self.X_train.dtype == self.betas_.dtype
-
-        def make_constant_node(value: cn.array, name: str) -> Any:
-            return make_node(
-                "Constant",
-                inputs=[],
-                value=numpy_helper.from_array(value, name=name),
-                outputs=[name],
-            )
-
-        nodes = []
-
-        # model constants
-        betas = numpy_helper.from_array(self.betas_.__array__(), name="betas")
-        X_train = numpy_helper.from_array(self.X_train.__array__(), name="X_train")
-
-        # pred inputs
-        X = make_tensor_value_info(
-            "X",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[1]],
-        )
-        pred = make_tensor_value_info(
-            "pred",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.betas_.shape[1]],
-        )
-
-        # exanded l2 distance
-        # distance = np.sum(X**2, axis=1)[:, np.newaxis] - 2 * np.dot(X, self.X_train.T)
-        # + np.sum(self.X_train**2, axis=1)
-        make_tensor_value_info(
-            "XX", np_dtype_to_tensor_dtype(self.betas_.dtype), [None]
-        )
-        make_tensor_value_info(
-            "YY",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [self.X_train.shape[0], 1],
-        )
-        make_tensor_value_info(
-            "XY_reshaped",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [1, self.X_train.shape[0]],
-        )
-        make_tensor_value_info(
-            "XY",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
-        nodes.append(make_constant_node(np.array([1]), "axis1"))
-        nodes.append(make_node("ReduceSumSquare", ["X", "axis1"], ["XX"]))
-        nodes.append(make_node("Gemm", ["X", "X_train"], ["XY"], alpha=-2.0, transB=1))
-        nodes.append(make_node("ReduceSumSquare", ["X_train", "axis1"], ["YY"]))
-        nodes.append(make_constant_node(np.array([1, -1]), "reshape"))
-        nodes.append(make_node("Reshape", ["YY", "reshape"], ["YY_reshaped"]))
-        nodes.append(make_node("Add", ["XX", "XY"], ["add0"]))
-        make_tensor_value_info(
-            "l2",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
-        nodes.append(make_node("Add", ["YY_reshaped", "add0"], ["l2"]))
-        nodes.append(make_constant_node(np.array([0.0], self.betas_.dtype), "zero"))
-        make_tensor_value_info(
-            "l2_clipped",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
-        nodes.append(make_node("Max", ["l2", "zero"], ["l2_clipped"]))
-
-        # RBF kernel
-        # K = np.exp(-distance / (2 * self.sigma**2))
-        make_tensor_value_info(
-            "rbf0",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
+        X_type_text = "double" if X.dtype == cn.float64 else "float"
         if self.sigma is None:
-            raise ValueError("sigma is None. Has fit been called?")
-        nodes.append(
-            make_constant_node(
-                np.array([-2.0 * self.sigma**2], self.betas_.dtype), "denominator"
-            )
+            raise ValueError("Model has not been trained. Cannot export to ONNX.")
+        denominator = -2.0 * self.sigma**2
+        onnx_text = f"""
+        KRRModel ({X_type_text}[N, M] X_in, double[N, K] predictions_in) => ({X_type_text}[N, M] X_out, double[N, K] predictions_out)
+        {{
+            X_out = Identity(X_in)
+            axis1 = Constant<value_ints=[1]>()
+            XX = ReduceSumSquare(X_in, axis1)
+            XY = Gemm<alpha=-2.0, transB=1>(X_in, X_train)
+            YY = ReduceSumSquare(X_train, axis1)
+            reshape = Constant<value_ints=[1, -1]>()
+            YY_reshaped = Reshape(YY, reshape)
+            add0 = Add(XX, XY)
+            l2 = Add(YY_reshaped, add0)
+            zero = Constant<value= {X_type_text}{{0.0}}>()
+            l2_clipped = Max(l2, zero)
+            denominator = Constant<value={X_type_text} {{{denominator}}}>()
+            rbf0 = Div(l2_clipped, denominator)
+            K = Exp(rbf0)
+            dot = MatMul(K, betas)
+            dot_double = Cast<to=11>(dot)
+            predictions_out = Add(dot_double, predictions_in)
+        }}
+        """  # noqa: E501
+        graph = onnx.parser.parse_graph(onnx_text)
+        graph.initializer.extend(
+            [
+                onnx.numpy_helper.from_array(self.betas_.__array__(), name="betas"),
+                onnx.numpy_helper.from_array(self.X_train.__array__(), name="X_train"),
+            ]
         )
-        nodes.append(make_node("Div", ["l2_clipped", "denominator"], ["rbf0"]))
-        make_tensor_value_info(
-            "K",
-            np_dtype_to_tensor_dtype(self.betas_.dtype),
-            [None, self.X_train.shape[0]],
-        )
-        nodes.append(make_node("Exp", ["rbf0"], ["K"]))
-
-        # prediction
-        # pred = np.dot(K, self.betas_)
-        nodes.append(make_node("MatMul", ["K", "betas"], ["pred"]))
-        graph = make_graph(
-            nodes, "legateboost.model.KRR", [X], [pred], [betas, X_train]
-        )
-        onnx_model = make_model(graph)
-        check_model(onnx_model)
-        return onnx_model
+        return graph
