@@ -119,14 +119,21 @@ class Tree(BaseModel):
         h_ = get_store(h).promote(1, X.shape[1])
 
         task.add_scalar_arg(self.max_depth, types.int32)
+        print("self.max_depth:", self.max_depth)
         max_nodes = 2 ** (self.max_depth + 1) - 1
         task.add_scalar_arg(max_nodes, types.int32)
+        print("max_nodes:", max_nodes)
         task.add_scalar_arg(self.split_samples, types.int32)
+        print("self.split_samples:", self.split_samples)
         task.add_scalar_arg(self.random_state.randint(0, 2**31), types.int32)
         task.add_scalar_arg(X.shape[0], types.int64)
+        print("X.shape[0]:", X.shape[0])
         task.add_scalar_arg(self.l1_regularization, types.float64)
+        print("self.l1_regularization:", self.l1_regularization)
         task.add_scalar_arg(self.l2_regularization, types.float64)
+        print("self.l2_regularization:", self.l2_regularization)
         task.add_scalar_arg(self.min_split_gain, types.float64)
+        print("self.min_split_gain:", self.min_split_gain)
 
         task.add_input(X_)
         task.add_broadcast(X_, 1)
@@ -135,6 +142,9 @@ class Tree(BaseModel):
         task.add_input(h_)
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
+        print("X_:", X_)
+        print("g_:", g_)
+        print("h_:", h_)
 
         # sample features
         if callable(self.feature_fraction):
