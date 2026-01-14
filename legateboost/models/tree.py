@@ -117,6 +117,9 @@ class Tree(BaseModel):
         X_ = get_store(X).promote(2, g.shape[1])
         g_ = get_store(g).promote(1, X.shape[1])
         h_ = get_store(h).promote(1, X.shape[1])
+        print("X.shape:", X.shape)
+        print("g.shape:", g.shape)
+        print("h.shape:", h.shape)
 
         task.add_scalar_arg(self.max_depth, types.int32)
         print("self.max_depth:", self.max_depth)
@@ -136,15 +139,15 @@ class Tree(BaseModel):
         print("self.min_split_gain:", self.min_split_gain)
 
         task.add_input(X_)
+        print("X_:", X_)
         task.add_broadcast(X_, 1)
         task.add_broadcast(X_, 2)
         task.add_input(g_)
+        print("g_:", g_)
         task.add_input(h_)
+        print("h_:", h_)
         task.add_alignment(g_, h_)
         task.add_alignment(g_, X_)
-        print("X_:", X_)
-        print("g_:", g_)
-        print("h_:", h_)
 
         # sample features
         if callable(self.feature_fraction):
