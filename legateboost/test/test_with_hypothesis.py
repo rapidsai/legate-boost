@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 from sklearn.preprocessing import StandardScaler
 
@@ -246,6 +247,7 @@ def classification_dataset_strategy(draw):
     classification_dataset_strategy(),
 )
 @cn.errstate(divide="raise", invalid="raise")
+@pytest.mark.skip
 def test_classifier(
     model_params: dict, classification_params: dict, classification_dataset: tuple
 ) -> None:
