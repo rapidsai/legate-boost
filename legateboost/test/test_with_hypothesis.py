@@ -1,5 +1,5 @@
-import pytest
 import numpy as np
+import pytest
 from hypothesis import HealthCheck, Verbosity, assume, given, settings, strategies as st
 from sklearn.preprocessing import StandardScaler
 
