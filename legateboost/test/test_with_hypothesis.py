@@ -247,7 +247,7 @@ def classification_dataset_strategy(draw):
     classification_dataset_strategy(),
 )
 @cn.errstate(divide="raise", invalid="raise")
-@pytest.mark.xfail
+@pytest.mark.skip
 def test_classifier(
     model_params: dict, classification_params: dict, classification_dataset: tuple
 ) -> None:
