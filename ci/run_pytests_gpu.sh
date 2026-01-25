@@ -23,7 +23,7 @@ legate \
     --omps 0 \
     --gpus 1 \
     --fbmem 28000 \
-    --sysmem 28000 \
+    --sysmem 40000 \
     --module pytest \
     -sv \
     -k 'not sklearn' \

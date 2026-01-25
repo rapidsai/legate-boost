@@ -86,7 +86,6 @@ if hasArg liblegateboost || hasArg --editable; then
     echo "building liblegateboost..."
     echo "Using Legate at '${legate_root}'"
 
-    cmake -S . -B build "${CMAKE_CONFIGURE_ARGS[@]}"
     cmake --build build "${CMAKE_BUILD_ARGS[@]}"
     echo "done building liblegateboost"
 fi

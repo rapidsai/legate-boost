@@ -47,7 +47,7 @@ struct gather_fn {
     bool const host_samples = !context.scalars().empty();
     if (host_samples) {
       auto sample_rows_span = context.scalar(0).values<int64_t>();
-      sample_rows_host      = {sample_rows_span.ptr(), sample_rows_span.size()};
+      sample_rows_host      = {sample_rows_span.data(), sample_rows_span.size()};
     }
     auto samples_buffer =
       legate::create_buffer<int64_t, 1>(narrow<int64_t>(sample_rows_host.size()));

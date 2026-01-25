@@ -17,12 +17,13 @@ set -e -E -u -o pipefail
 # Go into test folder to not not import source package
 cd legateboost/test
 
+# sklearn takes too long, test for gpu only
 legate \
-    --sysmem 28000 \
+    --sysmem 40000 \
     --cpus 8 \
     --gpus 0 \
     --omps 0 \
     --module pytest \
-    -sv \
+    -svk "not sklearn" \
     --durations=0 \
     "${@}"

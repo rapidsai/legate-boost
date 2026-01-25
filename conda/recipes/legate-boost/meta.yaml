@@ -75,8 +75,10 @@ requirements:
     - ninja
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
-    - cuda-nvcc
+    - {{ compiler('cuda') }}
     - {{ stdlib("c") }}
+    - cuda-nvcc ={{ cuda_version }}.*
+    - cuda-version ={{ cuda_version }}
   host:
     {% if gpu_enabled_bool %}
     - cuda-version ={{ cuda_version }}
@@ -95,12 +97,14 @@ requirements:
     - scikit-build-core >=0.10.0
     # try to expose what's pulling in 'mkl'
     - nomkl
+    - numpy<2.0
   run:
     - python
     {% if gpu_enabled_bool %}
     # cuda-version is used to constrain __cuda
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     - cuda-cudart
+    - cutensor<=2.2.0
     - libcublas
     - __cuda
     - cupynumeric {{ cupynumeric_version }} =*_gpu*
@@ -116,7 +120,7 @@ requirements:
     - legate
     # <2 due to bad interaction of cupynumeric and sklearn via NumPy:
     # https://github.com/nv-legate/cupynumeric.internal/issues/840
-    - numpy<2
+    - numpy<2.0
     - scikit-learn>=1.6,<1.6.1
     - typing-extensions>=4.0
 

@@ -15,7 +15,7 @@ Install using `conda`.
 conda install -c legate -c conda-forge -c nvidia legate-boost
 
 # nightly release
-conda install -c legate/label/experimental -c legate -c conda-forge -c nvidia legate-boost
+conda install -c legate-nightly -c legate -c conda-forge -c nvidia legate-boost
 ```
 
 On systems without a GPU, the CPU-only package should automatically be installed.
@@ -25,7 +25,7 @@ To force `conda` to prefer one, pass the build strings `*_cpu*` or `*_gpu*`, for
 
 ```shell
 # nightly release (CPU-only)
-conda install --dry-run -c legate/label/experimental -c legate -c conda-forge -c nvidia \
+conda install --dry-run -c legate-nightly -c legate -c conda-forge -c nvidia \
     'legate-boost=*=*_cpu*'
 ```
 

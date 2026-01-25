@@ -288,6 +288,7 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         means = cn.zeros(
             (len(self.categories_sparse_matrix_), y.shape[1], 2), dtype=cn.float64
         )
+        task.add_broadcast(get_store(means))
         task.add_reduction(get_store(means), types.ReductionOpKind.ADD)
 
         task.add_alignment(X_, y_)
@@ -315,7 +316,6 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             user_context, user_lib.cffi.TARGET_ENCODER_VARIANCE
         )
         # inputs
-        # inputs
         task.add_scalar_arg(cv_fold_idx, types.int64)
         do_cv = cv_indices is not None
         task.add_scalar_arg(do_cv, types.bool_)
@@ -341,6 +341,8 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
         y_variances_sum = cn.zeros(y.shape[1], dtype=cn.float64)
         task.add_reduction(get_store(variances_sum), types.ReductionOpKind.ADD)
         task.add_reduction(get_store(y_variances_sum), types.ReductionOpKind.ADD)
+        task.add_broadcast(get_store(variances_sum))
+        task.add_broadcast(get_store(y_variances_sum))
         task.add_alignment(X_, y_)
         if do_cv:
             cv_indices_ = (
@@ -356,12 +358,15 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
     ) -> Tuple[cn.array, cn.array]:
         means = self._get_category_means(X, y, cv_indices, cv_fold_idx)
         y_mean = means[:, :, 0].sum(axis=0) / means[:, :, 1].sum(axis=0)
+        # replace NaNs in y_mean with 0
+        nans = cn.isnan(y_mean)
+        y_mean[nans] = 0.0
         if self.smooth != "auto":
             sums = means[:, :, 0]
             counts = means[:, :, 1]
             encoding = (sums + self.smooth * y_mean) / (counts + self.smooth)
             zero_count = counts[:, 0] == 0
-            encoding[zero_count] = y_mean
+            encoding[zero_count, :] = y_mean
             return encoding, y_mean
         else:
             variances, y_variance = self._get_category_variances(
@@ -373,5 +378,5 @@ class TargetEncoder(TransformerMixin, BaseEstimator, PickleCupynumericMixin):
             means = sums / counts
             encoding = lambda_ * means + (1 - lambda_) * y_mean
             nans = cn.isnan(encoding)
-            encoding[nans] = y_mean
+            encoding = cn.where(nans, y_mean, encoding)
             return encoding, y_mean

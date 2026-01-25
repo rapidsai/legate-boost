@@ -29,7 +29,6 @@
 #include <utility>
 
 #include "legate.h"
-#include "legate/cuda/cuda.h"
 
 namespace legateboost {
 

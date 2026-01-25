@@ -450,6 +450,7 @@ def gather(X: cn.array, samples: Tuple[int, ...]) -> cn.array:
 
     output = cn.zeros(shape=(num_samples, X.shape[1]), dtype=X.dtype)
     task.add_input(get_store(X))
+    task.add_broadcast(get_store(X), 1)
     task.add_scalar_arg(samples, (types.int64,))
     task.add_output(get_store(output))
     task.add_broadcast(get_store(output))

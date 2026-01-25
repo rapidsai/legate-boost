@@ -68,7 +68,7 @@ struct target_encoder_mean_fn {
     }
 
     auto means =
-      context.reduction(0).data().reduce_accessor<legate::SumReduction<double>, true, 3>();
+      context.reduction(0).data().reduce_accessor<Legion::SumReduction<double>, true, 3>();
     // Iterate through the data and accumulate labels
     for (auto row_idx = X_shape.lo[0]; row_idx <= X_shape.hi[0]; row_idx++) {
       // Skip if in test fold
@@ -76,7 +76,7 @@ struct target_encoder_mean_fn {
 
       for (auto feature_idx = X_shape.lo[1]; feature_idx <= X_shape.hi[1]; feature_idx++) {
         auto feature_value = X_accessor[{row_idx, feature_idx, 0}];  // Last index is broadcast
-        for (auto output_idx = X_shape.lo[2]; output_idx <= X_shape.hi[2]; output_idx++) {
+        for (auto output_idx = y_shape.lo[2]; output_idx <= y_shape.hi[2]; output_idx++) {
           auto label = y_accessor[{row_idx, 0, output_idx}];
           if (categories_map[feature_idx].count(feature_value) == 0) { continue; }
           auto category_idx = categories_map[feature_idx][feature_value];
@@ -127,9 +127,9 @@ struct target_encoder_variance_fn {
     }
 
     auto variances =
-      context.reduction(0).data().reduce_accessor<legate::SumReduction<double>, true, 2>();
+      context.reduction(0).data().reduce_accessor<Legion::SumReduction<double>, true, 2>();
     auto y_variance =
-      context.reduction(1).data().reduce_accessor<legate::SumReduction<double>, true, 1>();
+      context.reduction(1).data().reduce_accessor<Legion::SumReduction<double>, true, 1>();
 
     for (auto row_idx = X_shape.lo[0]; row_idx <= X_shape.hi[0]; row_idx++) {
       // Skip if in test fold
@@ -137,7 +137,7 @@ struct target_encoder_variance_fn {
 
       for (auto feature_idx = X_shape.lo[1]; feature_idx <= X_shape.hi[1]; feature_idx++) {
         auto feature_value = X_accessor[{row_idx, feature_idx, 0}];  // Last index is broadcast
-        for (auto output_idx = X_shape.lo[2]; output_idx <= X_shape.hi[2]; output_idx++) {
+        for (auto output_idx = y_shape.lo[2]; output_idx <= y_shape.hi[2]; output_idx++) {
           auto label = y_accessor[{row_idx, 0, output_idx}];
           y_variance.reduce(
             {output_idx},
@@ -193,13 +193,12 @@ struct target_encoder_encode_fn {
     auto categories_map =
       create_categories_map(categories_accessor, row_pointers_accessor, row_pointers_shape);
 
-    for (auto row_idx = X_in_shape.lo[0]; row_idx <= X_in_shape.hi[0]; row_idx++) {
+    for (auto row_idx = X_out_shape.lo[0]; row_idx <= X_out_shape.hi[0]; row_idx++) {
       // If train set, skip
       if (do_cv && cv_indices[{row_idx, 0, 0}] != cv_fold) { continue; }
-
       for (auto feature_idx = X_in_shape.lo[1]; feature_idx <= X_in_shape.hi[1]; feature_idx++) {
         auto feature_value = X_in_accessor[{row_idx, feature_idx, 0}];  // Last index is broadcast
-        for (auto output_idx = X_in_shape.lo[2]; output_idx <= X_in_shape.hi[2]; output_idx++) {
+        for (auto output_idx = X_out_shape.lo[2]; output_idx <= X_out_shape.hi[2]; output_idx++) {
           if (categories_map[feature_idx].count(feature_value) == 0) {
             X_out_accessor[{row_idx, feature_idx, output_idx}] = y_mean_accessor[output_idx];
           } else {
