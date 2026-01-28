@@ -82,7 +82,7 @@ dependencies:
       - output_types: [conda, pyproject, requirements]
         packages:
           - cmake>=3.26.4,!=3.30.0
-          - &legate legate==26.01.*,>=0.0.0.dev0
+          - &legate legate>=26.01.0.dev0,<26.01.00.0a0
           - ninja>=1.11.1.1
   clang_tidy:
     common:
@@ -165,7 +165,7 @@ dependencies:
           - typing-extensions>=4.0
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cupynumeric==26.01.*,>=0.0.0.dev0
+          - cupynumeric>=26.01.0.dev0,<26.01.00.0a0
           - *legate
   test:
     common:
