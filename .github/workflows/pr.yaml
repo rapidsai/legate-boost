@@ -27,13 +27,13 @@ jobs:
       - conda-python-tests-cpu
       - conda-python-tests-gpu
       - docs-build
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10 # zizmor: ignore[unpinned-uses]
 
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: pre-commit/action@v3.0.1
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+    - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
 
   conda-python-build:
@@ -64,12 +64,12 @@ jobs:
           conda install --yes \
             -c conda-forge \
               git-lfs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           lfs: true
       - name: download conda packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
@@ -109,12 +109,12 @@ jobs:
           conda install --yes \
             -c conda-forge \
               git-lfs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           lfs: true
       - name: download conda packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
