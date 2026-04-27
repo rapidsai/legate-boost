@@ -21,8 +21,12 @@ on:
         required: true
         type: boolean
 
+permissions: {}
+
 jobs:
   conda-python-build:
+    permissions:
+      id-token: write  # for configure-aws-credentials in callee
     uses: ./.github/workflows/conda-python-build.yaml
     with:
       script: "ci/build_python.sh"
@@ -30,11 +34,19 @@ jobs:
   upload-conda:
     needs:
       - conda-python-build
+    permissions:
+      contents: read   # for checkout in callee
+      actions: read    # for download-artifact in callee
     uses: ./.github/workflows/conda-upload-packages.yaml
     secrets: inherit
   docs-build:
     needs:
       - conda-python-build
+    permissions:
+      contents: read   # for checkout in callee
+      actions: read    # for download-artifact in callee
+      id-token: write  # for deploy-pages in callee
+      pages: write     # for deploy-pages in callee
     uses: ./.github/workflows/docs-build.yaml
     with:
       script: "ci/build_docs.sh"
