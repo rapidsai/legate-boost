@@ -65,7 +65,9 @@ jobs:
           # the notebooks and PNG files stored in git LFS aren't necessary for package-building
           lfs: false
       - name: build
-        run: "${{ inputs.script }}"
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: "$SCRIPT"
       - name: upload
         uses: actions/upload-artifact@v4
         with:

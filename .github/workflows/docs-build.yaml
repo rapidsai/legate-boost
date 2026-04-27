@@ -55,7 +55,9 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ github.run_id }}
       - name: build docs
-        run: "${{ inputs.script }}"
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: "$SCRIPT"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/build/html
