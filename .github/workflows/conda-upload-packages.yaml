@@ -8,6 +8,10 @@
 on:
   # run only when called by other workflows
   workflow_call:
+    secrets:
+      CONDA_LEGATE_TOKEN:
+        required: true
+        description: "Anaconda token for uploading packages"
 
 env:
   # where jobs that download conda packages store the local channel

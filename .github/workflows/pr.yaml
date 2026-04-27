@@ -51,7 +51,6 @@ jobs:
     uses: ./.github/workflows/conda-python-build.yaml
     with:
       script: "ci/build_python.sh"
-    secrets: inherit
 
   conda-python-tests-cpu:
     needs:
@@ -154,4 +153,3 @@ jobs:
     with:
       script: "ci/build_docs.sh"
       deploy: false
-    secrets: inherit
