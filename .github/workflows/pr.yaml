@@ -10,6 +10,8 @@ on:
     branches:
       - "pull-request/[0-9]+"
 
+permissions: {}
+
 env:
   # CUDA architectures to build for
   CUDAARCHS: "RAPIDS"
@@ -27,27 +29,36 @@ jobs:
       - conda-python-tests-cpu
       - conda-python-tests-gpu
       - docs-build
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10
+    permissions: {}
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-24.10 # zizmor: ignore[unpinned-uses]
 
   pre-commit:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: pre-commit/action@v3.0.1
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      with:
+        persist-credentials: false
+    - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
 
   conda-python-build:
     needs:
       - pre-commit
+    permissions:
+      id-token: write  # for configure-aws-credentials in callee
     uses: ./.github/workflows/conda-python-build.yaml
     with:
       script: "ci/build_python.sh"
-    secrets: inherit
 
   conda-python-tests-cpu:
     needs:
       - pre-commit
       - conda-python-build
+    permissions:
+      contents: read  # for checkout
+      actions: read   # for download-artifact
     strategy:
       fail-fast: false
       matrix:
@@ -64,12 +75,13 @@ jobs:
           conda install --yes \
             -c conda-forge \
               git-lfs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
           lfs: true
       - name: download conda packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
@@ -84,6 +96,9 @@ jobs:
     needs:
       - pre-commit
       - conda-python-build
+    permissions:
+      contents: read  # for checkout
+      actions: read   # for download-artifact
     strategy:
       fail-fast: false
       # As of the last time this was updated, legate / cupynumeric packages were published for only:
@@ -109,12 +124,13 @@ jobs:
           conda install --yes \
             -c conda-forge \
               git-lfs
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
           lfs: true
       - name: download conda packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: legate-boost-conda-cuda${{ matrix.CUDA_VER }}-${{ matrix.ARCH }}-py${{ matrix.PY_VER }}
           path: ${{ env.RAPIDS_LOCAL_CONDA_CHANNEL }}
@@ -128,8 +144,12 @@ jobs:
   docs-build:
     needs:
       - conda-python-build
+    permissions:
+      contents: read   # for checkout in callee
+      actions: read    # for download-artifact in callee
+      id-token: write  # required by deploy job in callee even when deploy=false
+      pages: write     # required by deploy job in callee even when deploy=false
     uses: ./.github/workflows/docs-build.yaml
     with:
       script: "ci/build_docs.sh"
       deploy: false
-    secrets: inherit

@@ -8,6 +8,10 @@
 on:
   # run only when called by other workflows
   workflow_call:
+    secrets:
+      CONDA_LEGATE_TOKEN:
+        required: true
+        description: "Anaconda token for uploading packages"
 
 env:
   # where jobs that download conda packages store the local channel
@@ -17,15 +21,16 @@ jobs:
   upload:
     runs-on: linux-amd64-cpu4
     container:
-      image: rapidsai/ci-conda:latest
+      image: rapidsai/ci-conda:latest # zizmor: ignore[unpinned-images]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
           # the notebooks and PNG files stored in git LFS aren't necessary for package uploads
           lfs: false
       - name: download conda packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           # omitting 'name' here means "download all artifacts from this run"... useful to
           # avoid having to list the matrix of CUDA / Python versions here
