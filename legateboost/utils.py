@@ -156,8 +156,8 @@ def get_store(input: Any) -> LogicalStore:
 
 
 def solve_singular(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
-    """Solve a singular linear system Ax = b for x. The same as np.linalg.solve,
-    but if A is singular, then we use Algorithm 3.3 from:
+    """Solve a singular linear system Ax = b for x. The same as
+    np.linalg.solve, but if A is singular, then we use Algorithm 3.3 from:
 
     Nocedal, Jorge, and Stephen J. Wright, eds. Numerical optimization. New York,
     NY: Springer New York, 1999.
@@ -202,7 +202,8 @@ def solve_singular(a: cn.ndarray, b: cn.ndarray) -> cn.ndarray:
 def sample_average(
     y: cn.ndarray, sample_weight: Optional[cn.ndarray] = None
 ) -> cn.ndarray:
-    """Compute weighted average on the first axis (usually the sample dimension).
+    """Compute weighted average on the first axis (usually the sample
+    dimension).
 
     Returns 0 if sum weight is zero or if the input is empty.
     """

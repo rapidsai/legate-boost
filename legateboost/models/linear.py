@@ -9,11 +9,11 @@ from .base_model import BaseModel
 
 
 class Linear(BaseModel):
-    """Generalised linear model. Boosting linear models is equivalent to fitting a
-    single linear model where each boosting iteration is a newton step. Note that
-    the l2 penalty is applied to the weights of each model, as opposed to the sum
-    of all models. This can lead to different results when compared to fitting a
-    linear model with sklearn.
+    """Generalised linear model. Boosting linear models is equivalent to
+    fitting a single linear model where each boosting iteration is a newton
+    step. Note that the l2 penalty is applied to the weights of each model, as
+    opposed to the sum of all models. This can lead to different results when
+    compared to fitting a linear model with sklearn.
 
     It is recommended to normalize the data before fitting. This ensures
     regularisation is evenly applied to all features and prevents numerical issues.

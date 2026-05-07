@@ -11,6 +11,7 @@ legate-boost documentation
    Introduction <README.md>
    Contributing <contributing.md>
    Python API Reference <api/index.rst>
+   Tutorial <legate-boost.rst>
 
 Indices and tables
 ==================
