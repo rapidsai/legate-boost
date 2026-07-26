@@ -57,8 +57,8 @@ class TrainingCallback(ABC):
 
 
 class EarlyStopping(TrainingCallback):
-    """Callback for early stopping during training. The last evaluation dataset is
-    used for early stopping.
+    """Callback for early stopping during training. The last evaluation dataset
+    is used for early stopping.
 
     Args:
         rounds (int): The number of rounds to wait for improvement before stopping.

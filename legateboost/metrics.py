@@ -145,8 +145,8 @@ class NormalLLMetric(BaseMetric):
 
 
 class GammaLLMetric(BaseMetric):
-    """The mean negative log likelihood of the labels, given parameters predicted
-    by the model."""
+    """The mean negative log likelihood of the labels, given parameters
+    predicted by the model."""
 
     @override
     def metric(self, y: cn.ndarray, pred: cn.ndarray, w: cn.ndarray) -> cn.ndarray:
@@ -253,8 +253,8 @@ class QuantileMetric(BaseMetric):
 
 
 class LogLossMetric(BaseMetric):
-    """Class for computing the logarithmic loss (logloss) metric between the true
-    labels and predicted labels.
+    """Class for computing the logarithmic loss (logloss) metric between the
+    true labels and predicted labels.
 
     For binary classification:
 
